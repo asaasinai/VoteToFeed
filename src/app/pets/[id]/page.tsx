@@ -8,6 +8,69 @@ import { getAnimalType } from "@/lib/admin-settings";
 import { VoteButton } from "@/components/voting/VoteButton";
 import { CommentForm } from "@/components/pets/CommentForm";
 import { rankSuffix, timeAgo } from "@/lib/utils";
+import { Metadata } from "next";
+import { ShareButtons } from "./ShareButtons";
+
+// ── Dynamic OG metadata so shared links show pet photo + "Vote for X to win!" ──
+export async function generateMetadata({
+  params,
+}: {
+  params: { id: string };
+}): Promise<Metadata> {
+  const weekId = getCurrentWeekId();
+  const pet = await prisma.pet.findUnique({
+    where: { id: params.id },
+    select: {
+      name: true,
+      type: true,
+      breed: true,
+      bio: true,
+      photos: true,
+      ownerName: true,
+      weeklyStats: { where: { weekId }, take: 1 },
+    },
+  });
+
+  if (!pet) return { title: "Pet not found" };
+
+  const weeklyVotes = pet.weeklyStats[0]?.totalVotes ?? 0;
+  const rank = pet.weeklyStats[0]?.rank ?? null;
+  const photo = pet.photos[0] || "";
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
+
+  const title = `Vote for ${pet.name} to win! | Vote to Feed`;
+  const description = pet.bio
+    ? `${pet.bio} — ${weeklyVotes} votes this week. Every vote helps feed shelter pets!`
+    : `${pet.name} has ${weeklyVotes} votes this week. Vote now and help feed shelter pets in need!`;
+
+  // Build OG image URL with query params
+  const ogParams = new URLSearchParams({
+    name: pet.name,
+    photo,
+    votes: String(weeklyVotes),
+    ...(pet.breed ? { breed: pet.breed } : {}),
+    ...(rank ? { rank: String(rank) } : {}),
+  });
+  const ogImage = `${appUrl}/api/og?${ogParams.toString()}`;
+
+  return {
+    title,
+    description,
+    openGraph: {
+      title: `Vote for ${pet.name} to win! 🏆`,
+      description,
+      images: [{ url: ogImage, width: 1200, height: 630, alt: `Vote for ${pet.name}` }],
+      type: "website",
+      siteName: "Vote to Feed",
+    },
+    twitter: {
+      card: "summary_large_image",
+      title: `Vote for ${pet.name} to win! 🏆`,
+      description,
+      images: [ogImage],
+    },
+  };
+}
 
 export default async function PetDetailPage({
   params,
@@ -126,6 +189,13 @@ export default async function PetDetailPage({
               )}
             </div>
           </div>
+
+          {/* Share buttons */}
+          <ShareButtons
+            petName={pet.name}
+            petId={pet.id}
+            petPhoto={photo}
+          />
 
           {/* Vote stats + button (live-updating client component) */}
           <VoteButton

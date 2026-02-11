@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import Link from "next/link";
 import { formatVotes, rankSuffix, daysRemainingInWeek, VOTE_PACKAGES, calculateMeals } from "@/lib/utils";
 
@@ -53,6 +53,15 @@ export function DashboardClient({
   const [activeTab, setActiveTab] = useState<Tab>("overview");
   const [buyingTier, setBuyingTier] = useState<string | null>(null);
   const daysLeft = daysRemainingInWeek();
+
+  // Auto-switch tab based on URL hash (e.g. /dashboard#votes)
+  useEffect(() => {
+    const hash = window.location.hash.replace("#", "") as Tab;
+    const validTabs: Tab[] = ["overview", "pets", "votes", "purchases", "impact"];
+    if (hash && validTabs.includes(hash)) {
+      setActiveTab(hash);
+    }
+  }, []);
 
   async function handleBuyVotes(tier: string) {
     setBuyingTier(tier);

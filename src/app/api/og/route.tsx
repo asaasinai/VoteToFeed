@@ -1,0 +1,266 @@
+import { ImageResponse } from "next/og";
+import { NextRequest } from "next/server";
+
+export const runtime = "edge";
+
+export async function GET(req: NextRequest) {
+  const { searchParams } = new URL(req.url);
+  const name = searchParams.get("name") || "This Pet";
+  const photo = searchParams.get("photo") || "";
+  const votes = searchParams.get("votes") || "0";
+  const breed = searchParams.get("breed") || "";
+  const rank = searchParams.get("rank") || "";
+
+  return new ImageResponse(
+    (
+      <div
+        style={{
+          width: "1200px",
+          height: "630px",
+          display: "flex",
+          position: "relative",
+          background: "linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%)",
+          fontFamily: "system-ui, -apple-system, sans-serif",
+        }}
+      >
+        {/* Pet photo - left side */}
+        <div
+          style={{
+            width: "500px",
+            height: "630px",
+            display: "flex",
+            position: "relative",
+            overflow: "hidden",
+          }}
+        >
+          {photo ? (
+            <img
+              src={photo}
+              alt=""
+              style={{
+                width: "500px",
+                height: "630px",
+                objectFit: "cover",
+              }}
+            />
+          ) : (
+            <div
+              style={{
+                width: "500px",
+                height: "630px",
+                background: "linear-gradient(135deg, #374151, #1f2937)",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                fontSize: "120px",
+              }}
+            >
+              🐾
+            </div>
+          )}
+          {/* Gradient overlay for blending */}
+          <div
+            style={{
+              position: "absolute",
+              top: 0,
+              right: 0,
+              width: "150px",
+              height: "630px",
+              background: "linear-gradient(to right, transparent, #16213e)",
+              display: "flex",
+            }}
+          />
+        </div>
+
+        {/* Right side content */}
+        <div
+          style={{
+            flex: 1,
+            display: "flex",
+            flexDirection: "column",
+            justifyContent: "center",
+            padding: "50px 60px 50px 20px",
+          }}
+        >
+          {/* Vote to Feed branding */}
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: "12px",
+              marginBottom: "24px",
+            }}
+          >
+            <div
+              style={{
+                width: "44px",
+                height: "44px",
+                borderRadius: "12px",
+                background: "linear-gradient(135deg, #f87171, #ef4444)",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                fontSize: "22px",
+              }}
+            >
+              ❤️
+            </div>
+            <div style={{ display: "flex", flexDirection: "column" }}>
+              <span
+                style={{
+                  color: "#ffffff",
+                  fontSize: "22px",
+                  fontWeight: 700,
+                  letterSpacing: "-0.5px",
+                }}
+              >
+                Vote to Feed
+              </span>
+              <span style={{ color: "#94a3b8", fontSize: "11px" }}>
+                Powered by iHeartDogs &amp; iHeartCats
+              </span>
+            </div>
+          </div>
+
+          {/* CTA */}
+          <div
+            style={{
+              display: "flex",
+              flexDirection: "column",
+              gap: "8px",
+            }}
+          >
+            <span
+              style={{
+                color: "#f87171",
+                fontSize: "20px",
+                fontWeight: 700,
+                textTransform: "uppercase",
+                letterSpacing: "3px",
+              }}
+            >
+              VOTE FOR
+            </span>
+            <span
+              style={{
+                color: "#ffffff",
+                fontSize: name.length > 12 ? "52px" : "64px",
+                fontWeight: 800,
+                lineHeight: 1.1,
+                letterSpacing: "-2px",
+              }}
+            >
+              {name}
+            </span>
+            <span
+              style={{
+                color: "#e2e8f0",
+                fontSize: "28px",
+                fontWeight: 600,
+                marginTop: "4px",
+              }}
+            >
+              to win! 🏆
+            </span>
+          </div>
+
+          {/* Stats row */}
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: "24px",
+              marginTop: "32px",
+            }}
+          >
+            {rank && (
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "8px",
+                  background: "rgba(248, 113, 113, 0.15)",
+                  border: "1px solid rgba(248, 113, 113, 0.3)",
+                  borderRadius: "12px",
+                  padding: "8px 16px",
+                }}
+              >
+                <span style={{ fontSize: "20px" }}>🏆</span>
+                <span
+                  style={{ color: "#fca5a5", fontSize: "18px", fontWeight: 700 }}
+                >
+                  #{rank}
+                </span>
+              </div>
+            )}
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: "8px",
+                background: "rgba(255,255,255,0.08)",
+                border: "1px solid rgba(255,255,255,0.15)",
+                borderRadius: "12px",
+                padding: "8px 16px",
+              }}
+            >
+              <span style={{ fontSize: "20px" }}>🐾</span>
+              <span
+                style={{ color: "#e2e8f0", fontSize: "18px", fontWeight: 700 }}
+              >
+                {Number(votes).toLocaleString()} votes
+              </span>
+            </div>
+            {breed && (
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "6px",
+                  background: "rgba(255,255,255,0.08)",
+                  border: "1px solid rgba(255,255,255,0.15)",
+                  borderRadius: "12px",
+                  padding: "8px 16px",
+                }}
+              >
+                <span
+                  style={{ color: "#94a3b8", fontSize: "16px", fontWeight: 500 }}
+                >
+                  {breed}
+                </span>
+              </div>
+            )}
+          </div>
+
+          {/* Bottom CTA */}
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: "10px",
+              marginTop: "36px",
+              background: "linear-gradient(90deg, #ef4444, #dc2626)",
+              borderRadius: "14px",
+              padding: "14px 28px",
+            }}
+          >
+            <span
+              style={{
+                color: "#ffffff",
+                fontSize: "20px",
+                fontWeight: 700,
+              }}
+            >
+              Every vote helps feed shelter pets
+            </span>
+            <span style={{ fontSize: "20px" }}>❤️</span>
+          </div>
+        </div>
+      </div>
+    ),
+    {
+      width: 1200,
+      height: 630,
+    }
+  );
+}
