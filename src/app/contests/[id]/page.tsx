@@ -1,0 +1,251 @@
+import { notFound } from "next/navigation";
+import Link from "next/link";
+import prisma from "@/lib/prisma";
+import { PetCard } from "@/components/pets/PetCard";
+import { getAnimalType } from "@/lib/admin-settings";
+import { getCurrentWeekId } from "@/lib/utils";
+
+export const dynamic = "force-dynamic";
+
+export default async function ContestDetailPage({ params }: { params: { id: string } }) {
+  const weekId = getCurrentWeekId();
+  const animalType = await getAnimalType();
+  const now = new Date();
+
+  const contest = await prisma.contest.findUnique({
+    where: { id: params.id },
+    include: {
+      prizes: { orderBy: { placement: "asc" } },
+      entries: {
+        include: {
+          pet: {
+            include: {
+              weeklyStats: { where: { weekId }, take: 1 },
+              user: { select: { name: true } },
+            },
+          },
+        },
+      },
+    },
+  });
+
+  if (!contest) notFound();
+
+  const daysLeft = Math.max(0, Math.ceil((contest.endDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24)));
+  const hasEnded = contest.endDate < now;
+  const prizeTotal = contest.prizes.reduce((s, p) => s + p.value, 0);
+
+  // Sort entries by weekly votes
+  const sortedEntries = contest.entries
+    .filter((e) => e.pet.isActive)
+    .sort((a, b) => {
+      const aVotes = a.pet.weeklyStats[0]?.totalVotes ?? 0;
+      const bVotes = b.pet.weeklyStats[0]?.totalVotes ?? 0;
+      return bVotes - aVotes;
+    });
+
+  function typeLabel(type: string) {
+    const map: Record<string, string> = { NATIONAL: "Weekly", SEASONAL: "Seasonal", CHARITY: "Charity", CALENDAR: "Calendar", BREED: "Breed", STATE: "Regional" };
+    return map[type] || type;
+  }
+  function typeBadge(type: string) {
+    const map: Record<string, string> = { NATIONAL: "bg-brand-100 text-brand-700", SEASONAL: "bg-amber-100 text-amber-700", CHARITY: "bg-emerald-100 text-emerald-700", CALENDAR: "bg-violet-100 text-violet-700", BREED: "bg-sky-100 text-sky-700", STATE: "bg-orange-100 text-orange-700" };
+    return map[type] || "bg-surface-100 text-surface-600";
+  }
+
+  return (
+    <div className="min-h-screen">
+      {/* Hero banner */}
+      <div className="relative h-48 sm:h-64 lg:h-72 bg-surface-100 overflow-hidden">
+        {contest.coverImage ? (
+          <img src={contest.coverImage} alt="" className="w-full h-full object-cover" />
+        ) : (
+          <div className="w-full h-full bg-gradient-to-br from-brand-200 to-brand-400 flex items-center justify-center">
+            <span className="text-7xl">{contest.petType === "DOG" ? "🐶" : "🐱"}</span>
+          </div>
+        )}
+        <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-black/30 to-transparent" />
+        <div className="absolute bottom-0 inset-x-0 p-4 sm:p-6 lg:p-8">
+          <div className="max-w-7xl mx-auto">
+            <div className="flex items-center gap-2 mb-2 flex-wrap">
+              <span className={`text-[10px] font-bold uppercase tracking-wider px-2.5 py-1 rounded-full ${typeBadge(contest.type)}`}>
+                {typeLabel(contest.type)}
+              </span>
+              <span className="text-[10px] font-bold uppercase tracking-wider px-2.5 py-1 rounded-full bg-white/20 text-white backdrop-blur-sm">
+                {contest.petType === "DOG" ? "Dogs" : "Cats"}
+              </span>
+              {contest.isFeatured && (
+                <span className="text-[10px] font-bold uppercase tracking-wider px-2.5 py-1 rounded-full bg-yellow-100/90 text-yellow-700">Featured</span>
+              )}
+              {hasEnded && (
+                <span className="text-[10px] font-bold uppercase tracking-wider px-2.5 py-1 rounded-full bg-red-500/80 text-white">Contest Ended</span>
+              )}
+            </div>
+            <h1 className="text-2xl sm:text-3xl lg:text-4xl font-bold text-white tracking-tight">{contest.name}</h1>
+            {contest.sponsorName && (
+              <p className="text-sm text-white/70 mt-1">Sponsored by {contest.sponsorName}</p>
+            )}
+          </div>
+        </div>
+      </div>
+
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 py-8">
+        {/* Stats row */}
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-8">
+          <div className="card p-4 text-center">
+            <p className="text-xs font-medium text-surface-400 uppercase">Entries</p>
+            <p className="text-2xl font-bold text-surface-900 mt-1">{sortedEntries.length}</p>
+          </div>
+          <div className="card p-4 text-center">
+            <p className="text-xs font-medium text-surface-400 uppercase">{hasEnded ? "Duration" : "Time Left"}</p>
+            <p className="text-2xl font-bold text-surface-900 mt-1">{hasEnded ? "Ended" : `${daysLeft}d`}</p>
+          </div>
+          <div className="card p-4 text-center">
+            <p className="text-xs font-medium text-surface-400 uppercase">Total Prizes</p>
+            <p className="text-2xl font-bold text-emerald-600 mt-1">{prizeTotal > 0 ? `$${(prizeTotal / 100).toLocaleString()}` : "TBD"}</p>
+          </div>
+          <div className="card p-4 text-center">
+            <p className="text-xs font-medium text-surface-400 uppercase">Entry Fee</p>
+            <p className="text-2xl font-bold text-surface-900 mt-1">{contest.entryFee === 0 ? "Free" : `$${(contest.entryFee / 100).toFixed(2)}`}</p>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+          {/* Left: Entries */}
+          <div className="lg:col-span-2">
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="section-title">Contestants ({sortedEntries.length})</h2>
+              {!hasEnded && (
+                <Link href="/pets/new" className="btn-primary text-sm px-4 py-2">
+                  Enter your pet
+                </Link>
+              )}
+            </div>
+
+            {sortedEntries.length > 0 ? (
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                {sortedEntries.map((entry, i) => (
+                  <PetCard
+                    key={entry.pet.id}
+                    id={entry.pet.id}
+                    name={entry.pet.name}
+                    ownerName={entry.pet.ownerName}
+                    state={entry.pet.state}
+                    photos={entry.pet.photos}
+                    type={entry.pet.type}
+                    weeklyVotes={entry.pet.weeklyStats[0]?.totalVotes ?? 0}
+                    weeklyRank={i + 1}
+                    isNew={Date.now() - new Date(entry.pet.createdAt).getTime() < 7 * 24 * 60 * 60 * 1000}
+                    animalType={animalType}
+                  />
+                ))}
+              </div>
+            ) : (
+              <div className="card p-12 text-center">
+                <p className="text-surface-500">No entries yet. Be the first!</p>
+                <Link href="/pets/new" className="btn-primary mt-4 inline-flex">Enter your pet</Link>
+              </div>
+            )}
+          </div>
+
+          {/* Right: Details sidebar */}
+          <div className="space-y-5">
+            {/* Dates */}
+            <div className="card p-5">
+              <h3 className="text-sm font-bold text-surface-900 mb-3">Contest Details</h3>
+              <div className="space-y-2.5 text-sm">
+                <div className="flex justify-between">
+                  <span className="text-surface-500">Starts</span>
+                  <span className="font-medium text-surface-800">{contest.startDate.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-surface-500">Ends</span>
+                  <span className="font-medium text-surface-800">{contest.endDate.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-surface-500">Pet Type</span>
+                  <span className="font-medium text-surface-800">{contest.petType === "DOG" ? "Dogs" : "Cats"}</span>
+                </div>
+                {contest.maxEntries && (
+                  <div className="flex justify-between">
+                    <span className="text-surface-500">Max Entries</span>
+                    <span className="font-medium text-surface-800">{contest.maxEntries}</span>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Description */}
+            {contest.description && (
+              <div className="card p-5">
+                <h3 className="text-sm font-bold text-surface-900 mb-2">About</h3>
+                <p className="text-sm text-surface-600 leading-relaxed">{contest.description}</p>
+              </div>
+            )}
+
+            {/* Rules */}
+            {contest.rules && (
+              <div className="card p-5">
+                <h3 className="text-sm font-bold text-surface-900 mb-2">Rules</h3>
+                <p className="text-sm text-surface-600 leading-relaxed">{contest.rules}</p>
+              </div>
+            )}
+
+            {/* Prizes */}
+            {contest.prizes.length > 0 && (
+              <div className="card p-5">
+                <h3 className="text-sm font-bold text-surface-900 mb-3">Prizes</h3>
+                <div className="space-y-3">
+                  {contest.prizes.map((prize) => (
+                    <div key={prize.id} className="flex items-start gap-3">
+                      <span className={`flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold ${
+                        prize.placement === 1 ? "bg-yellow-100 text-yellow-700" :
+                        prize.placement === 2 ? "bg-surface-200 text-surface-600" :
+                        prize.placement === 3 ? "bg-orange-100 text-orange-700" :
+                        "bg-surface-100 text-surface-500"
+                      }`}>
+                        {prize.placement}
+                      </span>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2">
+                          <span className="text-sm font-semibold text-surface-800">{prize.title}</span>
+                          <span className="text-xs font-bold text-emerald-600">${(prize.value / 100).toLocaleString()}</span>
+                        </div>
+                        {prize.description && <p className="text-xs text-surface-500 mt-0.5">{prize.description}</p>}
+                        {prize.items.length > 0 && (
+                          <ul className="mt-1.5 space-y-0.5">
+                            {prize.items.map((item, i) => (
+                              <li key={i} className="text-xs text-surface-500 flex items-start gap-1.5">
+                                <span className="text-brand-400 mt-0.5">•</span>
+                                {item}
+                              </li>
+                            ))}
+                          </ul>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Prize summary fallback */}
+            {contest.prizes.length === 0 && contest.prizeDescription && (
+              <div className="card p-5">
+                <h3 className="text-sm font-bold text-surface-900 mb-2">Prizes</h3>
+                <p className="text-sm text-surface-600">{contest.prizeDescription}</p>
+              </div>
+            )}
+
+            {/* CTA */}
+            {!hasEnded && (
+              <Link href="/pets/new" className="btn-primary w-full py-3 text-center block">
+                Enter your pet — free
+              </Link>
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
