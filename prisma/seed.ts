@@ -263,28 +263,24 @@ async function main() {
   sundayEnd.setUTCDate(sundayStart.getUTCDate() + 7);
 
   for (const petType of ["DOG", "CAT"] as const) {
-    const contest = await prisma.contest.upsert({
-      where: {
-        type_petType_weekId_state: {
+    let contest = await prisma.contest.findFirst({
+      where: { type: "NATIONAL", petType, weekId },
+    });
+    if (!contest) {
+      contest = await prisma.contest.create({
+        data: {
+          name: `National ${petType === "DOG" ? "Dog" : "Cat"} Contest`,
           type: "NATIONAL",
           petType,
-          weekId,
           state: "",
+          weekId,
+          startDate: sundayStart,
+          endDate: sundayEnd,
+          isActive: true,
+          isFeatured: true,
         },
-      },
-      create: {
-        name: `National ${petType === "DOG" ? "Dog" : "Cat"} Contest`,
-        type: "NATIONAL",
-        petType,
-        state: "",
-        weekId,
-        startDate: sundayStart,
-        endDate: sundayEnd,
-        isActive: true,
-        isFeatured: true,
-      },
-      update: {},
-    });
+      });
+    }
 
     // Enter all pets of this type
     const petsOfType = createdPets.filter((p) => p.type === petType);
