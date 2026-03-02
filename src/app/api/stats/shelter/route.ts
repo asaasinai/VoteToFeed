@@ -8,15 +8,10 @@ export const dynamic = "force-dynamic";
 export async function GET() {
   const weekId = getCurrentWeekId();
   const { start, end } = getWeekDateRange();
-  const [agg, weeklyMealsAgg, mealRate, animalType] = await Promise.all([
+  const [agg, mealRate, animalType] = await Promise.all([
     prisma.petWeeklyStats.aggregate({
       where: { weekId },
       _sum: { totalVotes: true, paidVotes: true },
-    }),
-    // Use stored mealsProvided from actual purchases — preserves historical accuracy
-    prisma.purchase.aggregate({
-      where: { status: "COMPLETED", createdAt: { gte: start, lt: end } },
-      _sum: { mealsProvided: true },
     }),
     getMealRate(),
     getAnimalType(),
@@ -24,7 +19,9 @@ export async function GET() {
 
   const totalVotes = agg._sum.totalVotes ?? 0;
   const paidVotes = agg._sum.paidVotes ?? 0;
-  const mealsHelped = Math.round(weeklyMealsAgg._sum.mealsProvided ?? 0);
+
+  // Every 10 votes = 1 meal provided
+  const mealsHelped = Math.round(totalVotes / 10);
 
   return NextResponse.json({
     weeklyVotes: totalVotes,
