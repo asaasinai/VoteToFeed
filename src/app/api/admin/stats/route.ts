@@ -13,7 +13,7 @@ export async function GET() {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
     const role = (session.user as Record<string, unknown>).role;
-    if (role !== "ADMIN") {
+    if (!["ADMIN", "SUPPORT"].includes(role as string)) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 

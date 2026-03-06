@@ -149,7 +149,7 @@ export async function DELETE(
       return NextResponse.json({ error: "Pet not found" }, { status: 404 });
     }
 
-    if (pet.userId !== userId && userRole !== "ADMIN") {
+    if (pet.userId !== userId && !["ADMIN", "SUPPORT"].includes(userRole)) {
       return NextResponse.json({ error: "Not authorized" }, { status: 403 });
     }
 

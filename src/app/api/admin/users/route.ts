@@ -10,7 +10,7 @@ export async function GET(req: NextRequest) {
   try {
     const session = await getServerSession(authOptions);
     if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    if ((session.user as { role?: string }).role !== "ADMIN") return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    if (!["ADMIN", "SUPPORT"].includes((session.user as { role?: string }).role as string)) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
 
     const { searchParams } = new URL(req.url);
     const search = searchParams.get("search") || "";
@@ -105,7 +105,7 @@ export async function PUT(req: NextRequest) {
   try {
     const session = await getServerSession(authOptions);
     if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    if ((session.user as { role?: string }).role !== "ADMIN") return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    if (!["ADMIN", "SUPPORT"].includes((session.user as { role?: string }).role as string)) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
 
     const { userId, action, value } = await req.json();
 
