@@ -397,7 +397,7 @@ export function DashboardClient({
         {activeTab === "votes" && (
           <div className="space-y-6 animate-fade-in">
             {/* Shelter Impact Hero */}
-            <div className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-emerald-600 via-emerald-500 to-teal-500 p-6 sm:p-8 text-white max-w-4xl mx-auto">
+            <div className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-blue-600 via-blue-500 to-sky-500 p-6 sm:p-8 text-white max-w-4xl mx-auto">
               <div className="absolute inset-0 opacity-10">
                 <svg viewBox="0 0 400 200" className="w-full h-full" preserveAspectRatio="xMidYMid slice">
                   <circle cx="350" cy="100" r="120" fill="white" />
@@ -458,12 +458,12 @@ export function DashboardClient({
                       </div>
                     </div>
                     {/* Prominent shelter impact */}
-                    <div className="mt-3 p-2.5 rounded-lg bg-emerald-50 border border-emerald-200/60">
+                    <div className="mt-3 p-2.5 rounded-lg bg-blue-50 border border-blue-200/60">
                       <div className="flex items-center gap-2">
                         <span className="text-lg">🐾</span>
                         <div>
-                          <p className="text-sm font-bold text-emerald-700">Feeds ~{meals} shelter {animalType}</p>
-                          <p className="text-[10px] text-emerald-600">Your purchase provides real meals</p>
+                          <p className="text-sm font-bold text-blue-700">Feeds ~{meals} shelter {animalType}</p>
+                          <p className="text-[10px] text-blue-600">Your purchase provides real meals</p>
                         </div>
                       </div>
                     </div>
