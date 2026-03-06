@@ -4,6 +4,7 @@ import { authOptions } from "@/lib/auth";
 import prisma from "@/lib/prisma";
 import { getCurrentWeekId, calculateMeals } from "@/lib/utils";
 import { getMealRate, getAnimalType } from "@/lib/admin-settings";
+import { sendVoteReceivedEmail } from "@/lib/resend";
 
 // POST /api/votes - Cast a vote
 export async function POST(req: NextRequest) {
@@ -172,6 +173,23 @@ export async function POST(req: NextRequest) {
     // Get admin settings for response
     const mealRate = await getMealRate();
     const animalType = await getAnimalType();
+
+    // Send vote notification email to pet owner (non-blocking)
+    if (pet.user.email && pet.userId !== userId) {
+      const voter = await prisma.user.findUnique({
+        where: { id: userId },
+        select: { name: true },
+      });
+      sendVoteReceivedEmail(
+        pet.user.email,
+        pet.name,
+        pet.id,
+        voter?.name || "Someone",
+        updatedStats?.totalVotes || 0,
+        updatedStats?.rank || null,
+        voteType === "PAID"
+      ).catch(console.error);
+    }
 
     return NextResponse.json({
       success: true,

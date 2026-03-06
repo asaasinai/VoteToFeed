@@ -33,7 +33,7 @@ type Props = {
   totalVotesCast: number;
 };
 
-type Tab = "overview" | "pets" | "votes" | "purchases" | "impact";
+type Tab = "overview" | "pets" | "votes" | "purchases" | "impact" | "notifications";
 
 export function DashboardClient({
   userName,
@@ -115,6 +115,13 @@ export function DashboardClient({
       label: "Impact",
       icon: (
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>
+      ),
+    },
+    {
+      id: "notifications",
+      label: "Notifications",
+      icon: (
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M18 8A6 6 0 006 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 01-3.46 0"/></svg>
       ),
     },
   ];
@@ -389,15 +396,79 @@ export function DashboardClient({
         {/* Buy Votes Tab */}
         {activeTab === "votes" && (
           <div className="space-y-6 animate-fade-in">
-            <div className="text-center max-w-lg mx-auto">
-              <h2 className="text-lg font-bold text-surface-900">Buy Vote Packages</h2>
-              <p className="text-sm text-surface-500 mt-1">
-                Every purchase helps feed shelter pets in need
-              </p>
+            {/* Shelter Impact Hero */}
+            <div className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-emerald-600 via-emerald-500 to-teal-500 p-6 sm:p-8 text-white max-w-4xl mx-auto">
+              <div className="absolute inset-0 opacity-10">
+                <svg viewBox="0 0 400 200" className="w-full h-full" preserveAspectRatio="xMidYMid slice">
+                  <circle cx="350" cy="100" r="120" fill="white" />
+                  <circle cx="50" cy="180" r="80" fill="white" />
+                </svg>
+              </div>
+              <div className="relative flex flex-col sm:flex-row items-center gap-6">
+                {/* Shelter dog illustration */}
+                <div className="flex-shrink-0 w-28 h-28 sm:w-36 sm:h-36 rounded-2xl bg-white/20 backdrop-blur-sm flex items-center justify-center shadow-lg">
+                  <svg viewBox="0 0 120 120" className="w-20 h-20 sm:w-28 sm:h-28" fill="none">
+                    {/* Bowl */}
+                    <ellipse cx="60" cy="95" rx="32" ry="8" fill="rgba(255,255,255,0.3)" />
+                    <path d="M30 80 C30 80 28 95 60 95 C92 95 90 80 90 80 L85 70 L35 70 Z" fill="#FDE68A" stroke="#F59E0B" strokeWidth="1.5" />
+                    <path d="M38 78 C38 78 48 82 60 82 C72 82 82 78 82 78" stroke="#F59E0B" strokeWidth="1" opacity="0.5" />
+                    {/* Kibble in bowl */}
+                    <circle cx="50" cy="74" r="3" fill="#D97706" />
+                    <circle cx="60" cy="72" r="3.5" fill="#B45309" />
+                    <circle cx="70" cy="74" r="3" fill="#D97706" />
+                    <circle cx="55" cy="76" r="2.5" fill="#92400E" />
+                    <circle cx="65" cy="76" r="2.5" fill="#92400E" />
+                    {/* Dog */}
+                    <ellipse cx="60" cy="48" rx="18" ry="16" fill="white" />
+                    {/* Ears */}
+                    <path d="M42 40 C38 28 32 30 36 42" fill="#E5E7EB" stroke="#D1D5DB" strokeWidth="1" />
+                    <path d="M78 40 C82 28 88 30 84 42" fill="#E5E7EB" stroke="#D1D5DB" strokeWidth="1" />
+                    {/* Eyes */}
+                    <circle cx="52" cy="44" r="3" fill="#374151" />
+                    <circle cx="68" cy="44" r="3" fill="#374151" />
+                    <circle cx="53" cy="43" r="1" fill="white" />
+                    <circle cx="69" cy="43" r="1" fill="white" />
+                    {/* Nose */}
+                    <ellipse cx="60" cy="52" rx="4" ry="3" fill="#374151" />
+                    <ellipse cx="60" cy="51.5" rx="1.5" ry="1" fill="#6B7280" />
+                    {/* Mouth */}
+                    <path d="M56 54 C58 57 62 57 64 54" stroke="#374151" strokeWidth="1" fill="none" strokeLinecap="round" />
+                    {/* Tongue */}
+                    <path d="M60 55 C60 55 58 60 60 62 C62 60 60 55 60 55" fill="#FDA4AF" />
+                    {/* Body */}
+                    <ellipse cx="60" cy="70" rx="16" ry="12" fill="white" />
+                    {/* Tail */}
+                    <path d="M76 62 C82 55 88 56 85 62" stroke="#D1D5DB" strokeWidth="3" fill="none" strokeLinecap="round" />
+                    {/* Front paws */}
+                    <ellipse cx="50" cy="80" rx="4" ry="3" fill="white" stroke="#E5E7EB" strokeWidth="0.5" />
+                    <ellipse cx="70" cy="80" rx="4" ry="3" fill="white" stroke="#E5E7EB" strokeWidth="0.5" />
+                    {/* Heart */}
+                    <path d="M58 30 C56 26 50 26 50 31 C50 35 58 40 58 40 C58 40 66 35 66 31 C66 26 60 26 58 30" fill="#EF4444" />
+                  </svg>
+                </div>
+                <div className="text-center sm:text-left flex-1">
+                  <h2 className="text-2xl sm:text-3xl font-bold leading-tight">
+                    Every vote you buy feeds a shelter pet
+                  </h2>
+                  <p className="mt-2 text-white/90 text-sm sm:text-base leading-relaxed">
+                    At the current rate, <strong>$1 = ~{mealRate} shelter {animalType} fed</strong>.
+                    Your votes don&apos;t just help your pet win — they provide real meals to animals in need.
+                  </p>
+                  <div className="mt-4 flex items-center gap-4 justify-center sm:justify-start">
+                    <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-white/20 text-sm font-medium">
+                      <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"/></svg>
+                      100% goes to shelters
+                    </div>
+                    <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-white/20 text-sm font-medium">
+                      🏆 Win up to $2,000
+                    </div>
+                  </div>
+                </div>
+              </div>
             </div>
 
             {/* Current balance */}
-            <div className="card p-5 flex items-center justify-between max-w-2xl mx-auto">
+            <div className="card p-5 flex items-center justify-between max-w-4xl mx-auto">
               <div>
                 <p className="text-sm text-surface-500">Your current balance</p>
                 <p className="text-2xl font-bold text-surface-900">{formatVotes(freeVotesRemaining + paidVoteBalance)} votes</p>
@@ -436,9 +507,15 @@ export function DashboardClient({
                         <p className="text-[11px] text-surface-400">votes</p>
                       </div>
                     </div>
-                    <div className="mt-3 flex items-center gap-1.5 text-xs text-accent-600">
-                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"/></svg>
-                      Feeds ~{meals} shelter pets
+                    {/* Prominent shelter impact */}
+                    <div className="mt-3 p-2.5 rounded-lg bg-emerald-50 border border-emerald-200/60">
+                      <div className="flex items-center gap-2">
+                        <span className="text-lg">🐾</span>
+                        <div>
+                          <p className="text-sm font-bold text-emerald-700">Feeds ~{meals} shelter {animalType}</p>
+                          <p className="text-[10px] text-emerald-600">Your purchase provides real meals</p>
+                        </div>
+                      </div>
                     </div>
                     <button
                       onClick={() => handleBuyVotes(pkg.tier)}
@@ -525,6 +602,9 @@ export function DashboardClient({
           </div>
         )}
 
+        {/* Notification Preferences Tab */}
+        {activeTab === "notifications" && <NotificationPrefsTab />}
+
         {/* Impact Tab */}
         {activeTab === "impact" && (
           <div className="space-y-6 animate-fade-in">
@@ -573,6 +653,77 @@ export function DashboardClient({
             </div>
           </div>
         )}
+      </div>
+    </div>
+  );
+}
+
+function NotificationPrefsTab() {
+  const [prefs, setPrefs] = useState<Record<string, boolean | number> | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+
+  async function loadPrefs() {
+    try {
+      const res = await fetch("/api/users/notifications");
+      const data = await res.json();
+      setPrefs(data);
+    } catch { /* ignore */ }
+    setLoading(false);
+  }
+
+  useState(() => { loadPrefs(); });
+
+  async function togglePref(key: string, value: boolean) {
+    setSaving(true);
+    setPrefs((prev) => prev ? { ...prev, [key]: value } : null);
+    try {
+      await fetch("/api/users/notifications", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ [key]: value }),
+      });
+    } catch { /* ignore */ }
+    setSaving(false);
+  }
+
+  const prefItems = [
+    { key: "voteAlerts", label: "Vote alerts", desc: "Get notified when someone votes for your pet" },
+    { key: "commentAlerts", label: "Comment alerts", desc: "Get notified when someone comments on your pet" },
+    { key: "freeVoteReminder", label: "Free vote reminders", desc: "Reminder when your free votes are refreshed" },
+    { key: "contestAlerts", label: "Contest closing alerts", desc: "Reminders when contests are about to end" },
+    { key: "purchaseAlerts", label: "Purchase confirmations", desc: "Confirmation emails when you buy votes" },
+    { key: "weeklyDigest", label: "Weekly digest", desc: "Weekly summary of your pets' performance" },
+  ];
+
+  if (loading) return <div className="text-center py-12 text-sm text-surface-400">Loading preferences...</div>;
+
+  return (
+    <div className="space-y-6 animate-fade-in max-w-2xl mx-auto">
+      <div>
+        <h2 className="text-lg font-bold text-surface-900">Email Notifications</h2>
+        <p className="text-sm text-surface-500 mt-1">Choose which email notifications you want to receive.</p>
+      </div>
+      <div className="card p-0 overflow-hidden divide-y divide-surface-50">
+        {prefItems.map((item) => (
+          <div key={item.key} className="px-5 py-4 flex items-center justify-between gap-4">
+            <div>
+              <p className="text-sm font-medium text-surface-900">{item.label}</p>
+              <p className="text-xs text-surface-500 mt-0.5">{item.desc}</p>
+            </div>
+            <button
+              onClick={() => togglePref(item.key, !prefs?.[item.key])}
+              disabled={saving}
+              className={`relative w-11 h-6 rounded-full transition-colors flex-shrink-0 ${
+                prefs?.[item.key] ? "bg-accent-500" : "bg-surface-300"
+              }`}
+            >
+              <span className={`absolute top-0.5 w-5 h-5 rounded-full bg-white shadow-sm transition-transform ${
+                prefs?.[item.key] ? "left-[22px]" : "left-0.5"
+              }`} />
+            </button>
+          </div>
+        ))}
       </div>
     </div>
   );

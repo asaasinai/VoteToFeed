@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import prisma from "@/lib/prisma";
+import { sendCommentReceivedEmail } from "@/lib/resend";
 
 // POST /api/comments - Create a comment
 export async function POST(req: NextRequest) {
@@ -39,6 +40,21 @@ export async function POST(req: NextRequest) {
         user: { select: { id: true, name: true, image: true } },
       },
     });
+
+    // Send comment notification email to pet owner (non-blocking)
+    const pet = await prisma.pet.findUnique({
+      where: { id: petId },
+      include: { user: { select: { email: true } } },
+    });
+    if (pet?.user.email && pet.userId !== userId) {
+      sendCommentReceivedEmail(
+        pet.user.email,
+        pet.name,
+        pet.id,
+        comment.user.name || "Someone",
+        text
+      ).catch(console.error);
+    }
 
     return NextResponse.json(comment, { status: 201 });
   } catch (error) {

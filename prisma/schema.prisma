@@ -3,8 +3,9 @@ generator client {
 }
 
 datasource db {
-  provider = "postgresql"
-  url      = env("DATABASE_URL")
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
 }
 
 // ─── AUTH ────────────────────────────────────────────────
@@ -91,10 +92,12 @@ model UserNotificationPrefs {
   id                  String  @id @default(cuid())
   userId              String  @unique
   voteAlerts          Boolean @default(true)
-  designAlerts        Boolean @default(true)
-  weeklyDigest        Boolean @default(true)
+  commentAlerts       Boolean @default(true)
+  purchaseAlerts      Boolean @default(true)
   freeVoteReminder    Boolean @default(true)
   contestAlerts       Boolean @default(true)
+  designAlerts        Boolean @default(true)
+  weeklyDigest        Boolean @default(true)
   maxVoteAlertsPerDay Int     @default(5)
   user                User    @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
@@ -457,6 +460,19 @@ model Breed {
   createdAt    DateTime @default(now())
 
   @@index([petType])
+}
+
+// ─── EMAIL TEMPLATES (admin-editable) ────────────────
+
+model EmailTemplate {
+  id          String   @id @default(cuid())
+  type        String   @unique // WELCOME, VOTE_RECEIVED, COMMENT_RECEIVED, PURCHASE_CONFIRMATION, FREE_VOTES_ADDED, CONTEST_CLOSING, CONTEST_RESULT
+  subject     String
+  body        String   @db.Text
+  enabled     Boolean  @default(true)
+  updatedBy   String?
+  updatedAt   DateTime @updatedAt
+  createdAt   DateTime @default(now())
 }
 
 // ─── SHELTER IMPACT POSTS (Instagram-style feed) ────

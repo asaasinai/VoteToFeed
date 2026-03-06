@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getStripeAsync } from "@/lib/stripe";
 import prisma from "@/lib/prisma";
-import { sendPurchaseConfirmation } from "@/lib/sendgrid";
+import { sendPurchaseConfirmationEmail } from "@/lib/resend";
 import { getAnimalType } from "@/lib/admin-settings";
 
 export async function POST(req: NextRequest) {
@@ -55,7 +55,7 @@ export async function POST(req: NextRequest) {
         // Send confirmation email
         if (user.email) {
           const animalType = await getAnimalType();
-          await sendPurchaseConfirmation(
+          await sendPurchaseConfirmationEmail(
             user.email,
             parseInt(votes),
             parseInt(amount || "0"),

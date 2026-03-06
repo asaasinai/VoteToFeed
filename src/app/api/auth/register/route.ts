@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import bcrypt from "bcryptjs";
 import prisma from "@/lib/prisma";
+import { sendWelcomeEmail } from "@/lib/resend";
 
 export async function POST(req: NextRequest) {
   try {
@@ -38,6 +39,19 @@ export async function POST(req: NextRequest) {
       },
       select: { id: true, name: true, email: true },
     });
+
+    // Create default notification preferences
+    await prisma.userNotificationPrefs.create({
+      data: { userId: user.id },
+    });
+
+    // Send welcome email (non-blocking)
+    const activeContestCount = await prisma.contest.count({ where: { isActive: true } });
+    sendWelcomeEmail(
+      email,
+      name || "there",
+      activeContestCount
+    ).catch(console.error);
 
     return NextResponse.json(user, { status: 201 });
   } catch (error) {

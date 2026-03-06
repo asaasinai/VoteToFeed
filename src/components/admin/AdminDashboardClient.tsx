@@ -90,7 +90,7 @@ type Props = {
   weekId: string;
 };
 
-type Tab = "overview" | "users" | "pets" | "revenue" | "settings";
+type Tab = "overview" | "users" | "pets" | "revenue" | "email" | "settings";
 
 export function AdminDashboardClient({
   settings: initialSettings,
@@ -151,6 +151,11 @@ export function AdminDashboardClient({
       id: "revenue",
       label: "Revenue",
       icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 000 7h5a3.5 3.5 0 010 7H6"/></svg>,
+    },
+    {
+      id: "email",
+      label: "Email Alerts",
+      icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg>,
     },
     {
       id: "settings",
@@ -608,6 +613,9 @@ export function AdminDashboardClient({
 
         {/* ── REVENUE TAB ── */}
         {activeTab === "revenue" && <AdminRevenueTab animalType={settings.animalType} />}
+
+        {/* ── EMAIL ALERTS TAB ── */}
+        {activeTab === "email" && <AdminEmailTab />}
 
         {/* ── SETTINGS TAB ── */}
         {activeTab === "settings" && (
@@ -1520,6 +1528,280 @@ function LegalPagesEditor({
             placeholder={`Enter your ${label} content here...\n\nUse # for headings, **bold** for emphasis, - for bullet points.`}
           />
         )}
+      </div>
+    </div>
+  );
+}
+
+// ─── ADMIN EMAIL TAB ─────────────────────────────────
+
+type EmailTemplateData = {
+  type: string;
+  label: string;
+  description: string;
+  subject: string;
+  body: string;
+  enabled: boolean;
+  isCustomized: boolean;
+};
+type EmailConfig = { resendApiKey: string; resendFromEmail: string; isConfigured: boolean };
+
+function AdminEmailTab() {
+  const [templates, setTemplates] = useState<Record<string, EmailTemplateData>>({});
+  const [config, setConfig] = useState<EmailConfig>({ resendApiKey: "", resendFromEmail: "", isConfigured: false });
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [msg, setMsg] = useState("");
+  const [editingTemplate, setEditingTemplate] = useState<string | null>(null);
+  const [editSubject, setEditSubject] = useState("");
+  const [editBody, setEditBody] = useState("");
+  const [apiKeyInput, setApiKeyInput] = useState("");
+  const [fromEmailInput, setFromEmailInput] = useState("");
+
+  async function loadTemplates() {
+    try {
+      const res = await fetch("/api/admin/email-templates");
+      const data = await res.json();
+      setTemplates(data.templates || {});
+      setConfig(data.config || { resendApiKey: "", resendFromEmail: "", isConfigured: false });
+      setFromEmailInput(data.config?.resendFromEmail || "");
+    } catch { /* ignore */ }
+    setLoading(false);
+  }
+
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useState(() => { loadTemplates(); });
+
+  async function saveConfig(key: string, value: string) {
+    setSaving(true);
+    setMsg("");
+    try {
+      const res = await fetch("/api/admin/email-templates", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "updateConfig", key, value }),
+      });
+      if (res.ok) {
+        setMsg("Saved!");
+        loadTemplates();
+      } else {
+        const data = await res.json();
+        setMsg(data.error || "Failed");
+      }
+    } catch { setMsg("Error"); }
+    setSaving(false);
+    setTimeout(() => setMsg(""), 3000);
+  }
+
+  async function toggleTemplate(type: string, enabled: boolean) {
+    try {
+      await fetch("/api/admin/email-templates", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ type, enabled }),
+      });
+      setTemplates((prev) => ({
+        ...prev,
+        [type]: { ...prev[type], enabled },
+      }));
+    } catch { /* ignore */ }
+  }
+
+  async function saveTemplate(type: string) {
+    setSaving(true);
+    setMsg("");
+    try {
+      const res = await fetch("/api/admin/email-templates", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ type, subject: editSubject, body: editBody }),
+      });
+      if (res.ok) {
+        setMsg("Template saved!");
+        setEditingTemplate(null);
+        loadTemplates();
+      } else {
+        const data = await res.json();
+        setMsg(data.error || "Failed");
+      }
+    } catch { setMsg("Error"); }
+    setSaving(false);
+    setTimeout(() => setMsg(""), 3000);
+  }
+
+  const templateOrder = ["WELCOME", "VOTE_RECEIVED", "COMMENT_RECEIVED", "PURCHASE_CONFIRMATION", "FREE_VOTES_ADDED", "CONTEST_CLOSING", "CONTEST_RESULT"];
+
+  if (loading) return <div className="text-center py-12 text-sm text-surface-400">Loading email settings...</div>;
+
+  return (
+    <div className="space-y-6 animate-fade-in">
+      <div>
+        <h2 className="text-lg font-bold text-surface-900">Email Alert Settings</h2>
+        <p className="text-sm text-surface-500 mt-1">Configure Resend email provider and manage all email touchpoints with editable messaging.</p>
+      </div>
+
+      {msg && (
+        <div className={`px-4 py-2.5 rounded-lg text-sm font-medium ${msg.includes("Error") || msg.includes("Failed") ? "bg-red-50 text-red-700 border border-red-200" : "bg-accent-50 text-accent-700 border border-accent-200"}`}>
+          {msg}
+        </div>
+      )}
+
+      {/* Resend Configuration */}
+      <div className="card p-5">
+        <div className="flex items-center gap-2 mb-4">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" className="text-blue-500"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg>
+          <h3 className="text-sm font-semibold text-surface-900">Resend Email Configuration</h3>
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div>
+            <label className="block text-xs font-medium text-surface-600 mb-1">API Key</label>
+            <div className="flex gap-2">
+              <input
+                type="password"
+                value={apiKeyInput}
+                onChange={(e) => setApiKeyInput(e.target.value)}
+                placeholder={config.resendApiKey || "re_..."}
+                className="input-field flex-1 font-mono text-xs"
+                autoComplete="off"
+              />
+              <button
+                onClick={() => { if (apiKeyInput) saveConfig("resend_api_key", apiKeyInput); }}
+                disabled={saving || !apiKeyInput}
+                className="btn-primary text-xs px-3 py-2 disabled:opacity-50"
+              >
+                Save
+              </button>
+            </div>
+            {config.resendApiKey && (
+              <p className="text-[10px] text-accent-600 mt-1 flex items-center gap-1">
+                <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3"><polyline points="20 6 9 17 4 12"/></svg>
+                Key saved ({config.resendApiKey})
+              </p>
+            )}
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-surface-600 mb-1">From Email</label>
+            <div className="flex gap-2">
+              <input
+                type="text"
+                value={fromEmailInput}
+                onChange={(e) => setFromEmailInput(e.target.value)}
+                placeholder="Vote to Feed <noreply@votetofeed.com>"
+                className="input-field flex-1 text-xs"
+              />
+              <button
+                onClick={() => saveConfig("resend_from_email", fromEmailInput)}
+                disabled={saving}
+                className="btn-primary text-xs px-3 py-2 disabled:opacity-50"
+              >
+                Save
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <div className={`mt-4 flex items-center gap-2 px-3 py-2.5 rounded-lg text-xs font-medium ${
+          config.isConfigured ? "bg-accent-50 text-accent-700 border border-accent-200" : "bg-amber-50 text-amber-700 border border-amber-200"
+        }`}>
+          <span className={`w-2 h-2 rounded-full ${config.isConfigured ? "bg-accent-500" : "bg-amber-400"}`} />
+          {config.isConfigured ? "Resend connected — emails will be sent" : "Resend not configured — emails disabled. Get an API key at resend.com"}
+        </div>
+      </div>
+
+      {/* Email Touchpoints */}
+      <div>
+        <h3 className="text-sm font-semibold text-surface-900 mb-3">Email Touchpoints</h3>
+        <div className="space-y-3">
+          {templateOrder.map((type) => {
+            const tmpl = templates[type];
+            if (!tmpl) return null;
+            const isEditing = editingTemplate === type;
+
+            return (
+              <div key={type} className={`card p-4 transition-all ${isEditing ? "ring-2 ring-brand-200" : ""}`}>
+                <div className="flex items-start justify-between gap-4">
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <h4 className="text-sm font-semibold text-surface-900">{tmpl.label}</h4>
+                      <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold uppercase ${
+                        tmpl.enabled ? "bg-accent-50 text-accent-600" : "bg-surface-100 text-surface-400"
+                      }`}>
+                        {tmpl.enabled ? "Active" : "Disabled"}
+                      </span>
+                      {(type === "VOTE_RECEIVED" || type === "COMMENT_RECEIVED" || type === "FREE_VOTES_ADDED" || type === "CONTEST_CLOSING") && (
+                        <span className="text-[10px] px-2 py-0.5 rounded-full bg-blue-50 text-blue-600 font-medium">
+                          User can opt out
+                        </span>
+                      )}
+                    </div>
+                    <p className="text-xs text-surface-500 mt-0.5">{tmpl.description}</p>
+                    {!isEditing && (
+                      <p className="text-xs text-surface-400 mt-1 font-mono truncate">Subject: {tmpl.subject}</p>
+                    )}
+                  </div>
+                  <div className="flex items-center gap-2 flex-shrink-0">
+                    <button
+                      onClick={() => toggleTemplate(type, !tmpl.enabled)}
+                      className={`relative w-10 h-5 rounded-full transition-colors ${tmpl.enabled ? "bg-accent-500" : "bg-surface-300"}`}
+                    >
+                      <span className={`absolute top-0.5 w-4 h-4 rounded-full bg-white shadow-sm transition-transform ${tmpl.enabled ? "left-5" : "left-0.5"}`} />
+                    </button>
+                    <button
+                      onClick={() => {
+                        if (isEditing) { setEditingTemplate(null); }
+                        else { setEditingTemplate(type); setEditSubject(tmpl.subject); setEditBody(tmpl.body); }
+                      }}
+                      className="text-xs px-3 py-1.5 rounded-lg bg-surface-100 text-surface-600 hover:bg-surface-200 font-medium transition-colors"
+                    >
+                      {isEditing ? "Cancel" : "Edit"}
+                    </button>
+                  </div>
+                </div>
+
+                {isEditing && (
+                  <div className="mt-4 space-y-3 border-t border-surface-100 pt-4">
+                    <div>
+                      <label className="block text-xs font-medium text-surface-600 mb-1">Subject Line</label>
+                      <input
+                        type="text"
+                        value={editSubject}
+                        onChange={(e) => setEditSubject(e.target.value)}
+                        className="input-field text-sm"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-surface-600 mb-1">
+                        Email Body <span className="text-surface-400 font-normal">(HTML — use {"{{variable}}"} for dynamic content)</span>
+                      </label>
+                      <textarea
+                        value={editBody}
+                        onChange={(e) => setEditBody(e.target.value)}
+                        className="input-field font-mono text-xs resize-none"
+                        rows={10}
+                      />
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={() => saveTemplate(type)}
+                        disabled={saving}
+                        className="btn-primary text-xs px-4 py-2 disabled:opacity-50"
+                      >
+                        {saving ? "Saving..." : "Save Template"}
+                      </button>
+                      <button
+                        onClick={() => setEditingTemplate(null)}
+                        className="text-xs px-4 py-2 rounded-lg bg-surface-100 text-surface-600 hover:bg-surface-200 font-medium"
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
       </div>
     </div>
   );
