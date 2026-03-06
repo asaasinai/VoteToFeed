@@ -1755,7 +1755,7 @@ type SupportUser = {
 
 type SupportUserDetail = {
   user: SupportUser & { hasPassword: boolean; linkedAccounts: { provider: string; type: string }[]; notificationPrefs: Record<string, unknown> | null; lastFreeVoteReset: string | null; emailVerified: string | null; lastVotedWeek: string | null };
-  pets: { id: string; name: string; type: string; breed: string | null; bio: string | null; photos: string[]; isActive: boolean; createdAt: string; totalVotes: number; totalComments: number }[];
+  pets: { id: string; name: string; type: string; breed: string | null; bio: string | null; ownerName: string; ownerFirstName: string | null; ownerLastName: string | null; address: string | null; city: string | null; state: string | null; zipCode: string | null; country: string | null; photos: string[]; tags: string[]; isActive: boolean; optInDesigns: boolean; createdAt: string; totalVotes: number; totalComments: number }[];
   purchases: { id: string; tier: string; votes: number; amount: number; status: string; mealsProvided: number; stripeSessionId: string | null; stripePaymentId: string | null; createdAt: string }[];
   votes: { id: string; petId: string; petName: string; petPhoto: string | null; type: string; quantity: number; contestWeek: string; createdAt: string }[];
   comments: { id: string; petId: string; petName: string; text: string; createdAt: string }[];
@@ -1780,7 +1780,7 @@ function SupportPanel() {
   const [grantVotesAmount, setGrantVotesAmount] = useState("10");
   const [removeVotesAmount, setRemoveVotesAmount] = useState("10");
   const [newPassword, setNewPassword] = useState("");
-  const [editProfile, setEditProfile] = useState({ name: "", email: "", city: "", state: "", zipCode: "" });
+  const [editProfile, setEditProfile] = useState({ name: "", email: "", city: "", state: "", zipCode: "", country: "" });
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
 
   async function loadUsers(p = page) {
@@ -1816,6 +1816,7 @@ function SupportPanel() {
         city: data.user.city || "",
         state: data.user.state || "",
         zipCode: data.user.zipCode || "",
+        country: data.user.country || "",
       });
     } catch { /* */ }
     setLoadingDetail(false);
@@ -1892,14 +1893,26 @@ function SupportPanel() {
             <div className="card p-5 space-y-3">
               <h3 className="text-sm font-semibold text-surface-900">Account Info</h3>
               <div className="grid grid-cols-2 gap-3 text-sm">
+                <div><span className="text-surface-400 text-xs">Name</span><p className="font-medium">{u.name || "—"}</p></div>
+                <div><span className="text-surface-400 text-xs">Email</span><p className="font-medium">{u.email || "—"}</p></div>
                 <div><span className="text-surface-400 text-xs">Joined</span><p className="font-medium">{new Date(u.createdAt).toLocaleDateString()}</p></div>
-                <div><span className="text-surface-400 text-xs">Auth</span><p className="font-medium">{u.hasPassword ? "Email/Password" : "OAuth only"} {u.linkedAccounts.map(a => a.provider).join(", ")}</p></div>
+                <div><span className="text-surface-400 text-xs">Email Verified</span><p className="font-medium">{u.emailVerified ? new Date(u.emailVerified).toLocaleDateString() : "No"}</p></div>
+                <div><span className="text-surface-400 text-xs">Auth Method</span><p className="font-medium">{u.hasPassword ? "Email/Password" : "OAuth only"}{u.linkedAccounts.length > 0 ? ` + ${u.linkedAccounts.map(a => a.provider).join(", ")}` : ""}</p></div>
+                <div><span className="text-surface-400 text-xs">User ID</span><p className="font-medium font-mono text-xs">{u.id}</p></div>
+              </div>
+              <div className="grid grid-cols-2 gap-3 text-sm mt-3 pt-3 border-t border-surface-100">
+                <div><span className="text-surface-400 text-xs">City</span><p className="font-medium">{u.city || "—"}</p></div>
+                <div><span className="text-surface-400 text-xs">State</span><p className="font-medium">{u.state || "—"}</p></div>
+                <div><span className="text-surface-400 text-xs">Country</span><p className="font-medium">{u.country || "—"}</p></div>
+                <div><span className="text-surface-400 text-xs">Zip Code</span><p className="font-medium">{u.zipCode || "—"}</p></div>
+              </div>
+              <div className="grid grid-cols-2 gap-3 text-sm mt-3 pt-3 border-t border-surface-100">
                 <div><span className="text-surface-400 text-xs">Free Votes</span><p className="font-medium">{u.freeVotesRemaining}</p></div>
                 <div><span className="text-surface-400 text-xs">Paid Balance</span><p className="font-medium">{u.paidVoteBalance}</p></div>
                 <div><span className="text-surface-400 text-xs">Total Spent</span><p className="font-medium">${(selectedUser.lifetime.totalSpent / 100).toFixed(2)}</p></div>
                 <div><span className="text-surface-400 text-xs">Shelter Impact</span><p className="font-medium">~{Math.round(selectedUser.lifetime.totalMeals)} fed</p></div>
                 <div><span className="text-surface-400 text-xs">Voting Streak</span><p className="font-medium">{u.votingStreak}w</p></div>
-                <div><span className="text-surface-400 text-xs">Location</span><p className="font-medium">{[u.city, u.state].filter(Boolean).join(", ") || "—"}</p></div>
+                <div><span className="text-surface-400 text-xs">Last Voted</span><p className="font-medium">{u.lastVotedWeek || "—"}</p></div>
               </div>
             </div>
 
@@ -1946,6 +1959,8 @@ function SupportPanel() {
                   <input value={editProfile.email} onChange={(e) => setEditProfile({ ...editProfile, email: e.target.value })} className="input-field text-xs py-1.5" placeholder="Email" />
                   <input value={editProfile.city} onChange={(e) => setEditProfile({ ...editProfile, city: e.target.value })} className="input-field text-xs py-1.5" placeholder="City" />
                   <input value={editProfile.state} onChange={(e) => setEditProfile({ ...editProfile, state: e.target.value })} className="input-field text-xs py-1.5" placeholder="State" />
+                  <input value={editProfile.zipCode} onChange={(e) => setEditProfile({ ...editProfile, zipCode: e.target.value })} className="input-field text-xs py-1.5" placeholder="Zip Code" />
+                  <input value={editProfile.country} onChange={(e) => setEditProfile({ ...editProfile, country: e.target.value })} className="input-field text-xs py-1.5" placeholder="Country" />
                 </div>
                 <button onClick={() => doAction(u.id, "updateProfile", editProfile)} className="mt-2 text-xs px-3 py-1.5 rounded-lg bg-brand-500 text-white hover:bg-brand-600 font-medium">Save Changes</button>
               </div>
@@ -1973,26 +1988,48 @@ function SupportPanel() {
         {activeSection === "pets" && (
           <div className="space-y-3">
             {selectedUser.pets.length === 0 ? <p className="text-sm text-surface-400 text-center py-8">No pets</p> : selectedUser.pets.map((pet) => (
-              <div key={pet.id} className={`card p-4 flex items-start gap-4 ${!pet.isActive ? "opacity-60" : ""}`}>
-                {pet.photos[0] ? <img src={pet.photos[0]} alt="" className="w-16 h-16 rounded-xl object-cover flex-shrink-0" /> : <div className="w-16 h-16 rounded-xl bg-surface-100 flex-shrink-0" />}
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2">
-                    <p className="font-semibold text-surface-900 text-sm">{pet.name}</p>
-                    <span className="text-[10px] px-1.5 py-0.5 rounded bg-surface-100 text-surface-500">{pet.type}</span>
-                    {!pet.isActive && <span className="text-[10px] px-1.5 py-0.5 rounded bg-red-100 text-red-600">Deactivated</span>}
+              <div key={pet.id} className={`card p-4 ${!pet.isActive ? "opacity-60" : ""}`}>
+                <div className="flex items-start gap-4">
+                  {pet.photos[0] ? <img src={pet.photos[0]} alt="" className="w-20 h-20 rounded-xl object-cover flex-shrink-0" /> : <div className="w-20 h-20 rounded-xl bg-surface-100 flex-shrink-0" />}
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <p className="font-semibold text-surface-900 text-sm">{pet.name}</p>
+                      <span className="text-[10px] px-1.5 py-0.5 rounded bg-surface-100 text-surface-500">{pet.type}</span>
+                      {!pet.isActive && <span className="text-[10px] px-1.5 py-0.5 rounded bg-red-100 text-red-600">Deactivated</span>}
+                      {pet.optInDesigns && <span className="text-[10px] px-1.5 py-0.5 rounded bg-blue-50 text-blue-600">Designs Opt-in</span>}
+                    </div>
+                    <p className="text-xs text-surface-400 mt-0.5">{pet.breed || "No breed"} · {pet.totalVotes} votes · {pet.totalComments} comments · {pet.photos.length} photos</p>
+                    {pet.bio && <p className="text-xs text-surface-500 mt-1 italic">&ldquo;{pet.bio}&rdquo;</p>}
+                    {pet.tags.length > 0 && <p className="text-xs text-surface-400 mt-0.5">Tags: {pet.tags.join(", ")}</p>}
                   </div>
-                  <p className="text-xs text-surface-400">{pet.breed || "—"} · {pet.totalVotes} votes · {pet.totalComments} comments</p>
-                  <p className="text-xs text-surface-400">Photos: {pet.photos.length} · Added {new Date(pet.createdAt).toLocaleDateString()}</p>
-                  <div className="mt-2 flex gap-2 flex-wrap">
-                    {pet.photos.map((_, i) => (
-                      <button key={i} onClick={() => doAction(u.id, "removePetPhoto", { petId: pet.id, photoIndex: i })} className="text-[10px] px-2 py-1 rounded bg-red-50 text-red-600 hover:bg-red-100 font-medium">Remove Photo {i + 1}</button>
-                    ))}
-                    {pet.isActive ? (
-                      <button onClick={() => doAction(u.id, "deactivatePet", { petId: pet.id })} className="text-[10px] px-2 py-1 rounded bg-red-50 text-red-600 hover:bg-red-100 font-medium">Deactivate</button>
-                    ) : (
-                      <button onClick={() => doAction(u.id, "reactivatePet", { petId: pet.id })} className="text-[10px] px-2 py-1 rounded bg-accent-50 text-accent-600 hover:bg-accent-100 font-medium">Reactivate</button>
-                    )}
+                </div>
+
+                {/* Owner / Registration data */}
+                <div className="mt-3 p-3 rounded-lg bg-surface-50 border border-surface-100">
+                  <p className="text-[10px] font-semibold text-surface-500 uppercase tracking-wider mb-1.5">Submission Info</p>
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-x-4 gap-y-1 text-xs">
+                    <div><span className="text-surface-400">Owner:</span> <span className="text-surface-700 font-medium">{pet.ownerName}</span></div>
+                    {pet.ownerFirstName && <div><span className="text-surface-400">First:</span> <span className="text-surface-700">{pet.ownerFirstName}</span></div>}
+                    {pet.ownerLastName && <div><span className="text-surface-400">Last:</span> <span className="text-surface-700">{pet.ownerLastName}</span></div>}
+                    {pet.address && <div className="col-span-2"><span className="text-surface-400">Address:</span> <span className="text-surface-700">{pet.address}</span></div>}
+                    {pet.city && <div><span className="text-surface-400">City:</span> <span className="text-surface-700">{pet.city}</span></div>}
+                    {pet.state && <div><span className="text-surface-400">State:</span> <span className="text-surface-700">{pet.state}</span></div>}
+                    {pet.zipCode && <div><span className="text-surface-400">Zip:</span> <span className="text-surface-700">{pet.zipCode}</span></div>}
+                    {pet.country && <div><span className="text-surface-400">Country:</span> <span className="text-surface-700">{pet.country}</span></div>}
+                    <div><span className="text-surface-400">Added:</span> <span className="text-surface-700">{new Date(pet.createdAt).toLocaleDateString()}</span></div>
                   </div>
+                </div>
+
+                {/* Photo management + actions */}
+                <div className="mt-2 flex gap-2 flex-wrap">
+                  {pet.photos.map((_, i) => (
+                    <button key={i} onClick={() => doAction(u.id, "removePetPhoto", { petId: pet.id, photoIndex: i })} className="text-[10px] px-2 py-1 rounded bg-red-50 text-red-600 hover:bg-red-100 font-medium">Remove Photo {i + 1}</button>
+                  ))}
+                  {pet.isActive ? (
+                    <button onClick={() => doAction(u.id, "deactivatePet", { petId: pet.id })} className="text-[10px] px-2 py-1 rounded bg-red-50 text-red-600 hover:bg-red-100 font-medium">Deactivate</button>
+                  ) : (
+                    <button onClick={() => doAction(u.id, "reactivatePet", { petId: pet.id })} className="text-[10px] px-2 py-1 rounded bg-accent-50 text-accent-600 hover:bg-accent-100 font-medium">Reactivate</button>
+                  )}
                 </div>
               </div>
             ))}
