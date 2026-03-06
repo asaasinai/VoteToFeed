@@ -106,6 +106,16 @@ export default async function AdminPage() {
         stripeSecretKey: settingsMap.stripe_secret_key ?? "",
         stripePublishableKey: settingsMap.stripe_publishable_key ?? "",
         stripeWebhookSecret: settingsMap.stripe_webhook_secret ?? "",
+        googleClientId: settingsMap.google_client_id ?? "",
+        googleClientSecret: settingsMap.google_client_secret ?? "",
+        facebookClientId: settingsMap.facebook_client_id ?? "",
+        facebookClientSecret: settingsMap.facebook_client_secret ?? "",
+        nextauthSecret: settingsMap.nextauth_secret ?? "",
+        nextauthUrl: settingsMap.nextauth_url ?? "",
+        appUrl: settingsMap.app_url ?? "",
+        resendApiKey: settingsMap.resend_api_key ?? "",
+        resendFromEmail: settingsMap.resend_from_email ?? "",
+        posthogKey: settingsMap.posthog_key ?? "",
       }}
       settingLogs={settingLogs.map((l) => ({
         key: l.setting.key,

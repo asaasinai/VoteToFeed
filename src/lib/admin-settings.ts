@@ -17,6 +17,22 @@ const DEFAULTS: Record<string, string> = {
   stripe_secret_key: "",
   stripe_publishable_key: "",
   stripe_webhook_secret: "",
+  // Google OAuth
+  google_client_id: "",
+  google_client_secret: "",
+  // Facebook OAuth
+  facebook_client_id: "",
+  facebook_client_secret: "",
+  // NextAuth
+  nextauth_secret: "",
+  nextauth_url: "",
+  // App
+  app_url: "",
+  // Resend
+  resend_api_key: "",
+  resend_from_email: "",
+  // PostHog
+  posthog_key: "",
 };
 
 export async function getSetting(key: string): Promise<string> {
@@ -118,6 +134,52 @@ export async function getStripePublishableKey(): Promise<string> {
 export async function getStripeWebhookSecret(): Promise<string> {
   const dbKey = await getSetting("stripe_webhook_secret");
   return dbKey || process.env.STRIPE_WEBHOOK_SECRET || "";
+}
+
+// Google OAuth — DB first, env fallback
+export async function getGoogleClientId(): Promise<string> {
+  const dbKey = await getSetting("google_client_id");
+  return dbKey || process.env.GOOGLE_CLIENT_ID || "";
+}
+export async function getGoogleClientSecret(): Promise<string> {
+  const dbKey = await getSetting("google_client_secret");
+  return dbKey || process.env.GOOGLE_CLIENT_SECRET || "";
+}
+
+// Facebook OAuth — DB first, env fallback
+export async function getFacebookClientId(): Promise<string> {
+  const dbKey = await getSetting("facebook_client_id");
+  return dbKey || process.env.FACEBOOK_CLIENT_ID || "";
+}
+export async function getFacebookClientSecret(): Promise<string> {
+  const dbKey = await getSetting("facebook_client_secret");
+  return dbKey || process.env.FACEBOOK_CLIENT_SECRET || "";
+}
+
+// NextAuth — DB first, env fallback
+export async function getNextAuthSecret(): Promise<string> {
+  const dbKey = await getSetting("nextauth_secret");
+  return dbKey || process.env.NEXTAUTH_SECRET || "";
+}
+export async function getNextAuthUrl(): Promise<string> {
+  const dbKey = await getSetting("nextauth_url");
+  return dbKey || process.env.NEXTAUTH_URL || "";
+}
+
+// App URL — DB first, env fallback
+export async function getAppUrl(): Promise<string> {
+  const dbKey = await getSetting("app_url");
+  return dbKey || process.env.NEXT_PUBLIC_APP_URL || "";
+}
+
+// Resend — DB first, env fallback
+export async function getResendApiKey(): Promise<string> {
+  const dbKey = await getSetting("resend_api_key");
+  return dbKey || process.env.RESEND_API_KEY || "";
+}
+export async function getResendFromEmail(): Promise<string> {
+  const dbKey = await getSetting("resend_from_email");
+  return dbKey || process.env.RESEND_FROM_EMAIL || "";
 }
 
 // Get all settings as object (masks sensitive keys for client)
