@@ -43,8 +43,17 @@ The seed script creates these accounts (note: the README says `admin123`/`demo12
 
 `npm run build` runs `prisma generate && next build`.
 
+### Email system
+
+- Email is powered by **Resend** (replaced SendGrid). Configure via Admin > Email Alerts or `.env` (`RESEND_API_KEY`).
+- `src/lib/resend.ts` contains all 7 email touchpoint functions with `{{variable}}` interpolation.
+- `src/lib/sendgrid.ts` is a thin re-export shim kept for backwards compatibility.
+- Email templates are stored in the `EmailTemplate` DB table and admin-editable.
+- User notification preferences (`UserNotificationPrefs`) are per-user opt-in/out toggles.
+
 ### Key gotchas
 
-- The `postinstall` script runs `npx prisma generate`, so `npm install` requires `DATABASE_URL` to be set (or Prisma generate will warn but not fail).
+- The `postinstall` script runs `npx prisma generate`, so `npm install` requires `DATABASE_URL` and `DIRECT_URL` to be set.
+- For local dev, set `DIRECT_URL` equal to `DATABASE_URL`. For Vercel Postgres, Vercel sets these automatically.
 - File uploads go to `public/uploads/` (local disk), not cloud storage.
-- Stripe, SendGrid, OAuth providers are all optional; the app works without them.
+- Stripe, Resend, OAuth providers are all optional; the app works without them.
