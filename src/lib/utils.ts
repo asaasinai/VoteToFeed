@@ -120,10 +120,10 @@ export const US_STATES: Record<string, string> = {
 
 // Vote package definitions
 export const VOTE_PACKAGES = [
-  { tier: "STARTER", votes: 10, price: 99, label: "Starter" },
-  { tier: "FRIEND", votes: 60, price: 499, label: "Friend" },
-  { tier: "SUPPORTER", votes: 120, price: 999, label: "Supporter" },
-  { tier: "CHAMPION", votes: 300, price: 2499, label: "Champion" },
-  { tier: "HERO", votes: 600, price: 4999, label: "Hero" },
-  { tier: "LEGEND", votes: 1200, price: 9999, label: "Legend" },
+  { tier: "STARTER", votes: 5, price: 99, label: "Starter" },
+  { tier: "FRIEND", votes: 30, price: 499, label: "Friend" },
+  { tier: "SUPPORTER", votes: 60, price: 999, label: "Supporter" },
+  { tier: "CHAMPION", votes: 150, price: 2499, label: "Champion" },
+  { tier: "HERO", votes: 300, price: 4999, label: "Hero" },
+  { tier: "LEGEND", votes: 600, price: 9999, label: "Legend" },
 ] as const;
