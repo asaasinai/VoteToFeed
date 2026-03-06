@@ -16,7 +16,7 @@ Vote to Feed (petvoter) is a Next.js 14 (App Router) + TypeScript monolith. Ther
 
 ### Database
 
-- `DATABASE_URL` uses port **5434** (not the default 5432) because the Docker container maps 5434→5432.
+- Prisma uses `POSTGRES_PRISMA_URL` (pooled) and `POSTGRES_URL_NON_POOLING` (direct). Vercel Postgres auto-sets these when the "vote-to-feed" database is linked. For local dev, both point to localhost:5434.
 - Push schema: `npx prisma db push`
 - Seed data (run in order):
   ```
@@ -53,7 +53,7 @@ The seed script creates these accounts (note: the README says `admin123`/`demo12
 
 ### Key gotchas
 
-- The `postinstall` script runs `npx prisma generate`, so `npm install` requires `DATABASE_URL` and `DIRECT_URL` to be set.
-- For local dev, set `DIRECT_URL` equal to `DATABASE_URL`. For Vercel Postgres, Vercel sets these automatically.
+- The `postinstall` script runs `npx prisma generate`, so `npm install` requires `POSTGRES_PRISMA_URL` and `POSTGRES_URL_NON_POOLING` to be set.
+- Vercel Postgres auto-injects these when the "vote-to-feed" database is linked to the project.
 - File uploads go to `public/uploads/` (local disk), not cloud storage.
 - Stripe, Resend, OAuth providers are all optional; the app works without them.
