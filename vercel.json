@@ -1,0 +1,12 @@
+{
+  "crons": [
+    {
+      "path": "/api/cron/auto-engage",
+      "schedule": "0 */3 * * *"
+    },
+    {
+      "path": "/api/cron/reset-free-votes",
+      "schedule": "0 0 * * 1"
+    }
+  ]
+}
