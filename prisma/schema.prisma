@@ -325,6 +325,7 @@ model Comment {
   user     User      @relation(fields: [userId], references: [id], onDelete: Cascade)
   parent   Comment?  @relation("CommentReplies", fields: [parentId], references: [id])
   replies  Comment[] @relation("CommentReplies")
+  flags    FlaggedComment[]
 
   @@index([petId, createdAt])
 }
@@ -474,4 +475,61 @@ model ShelterPost {
   createdAt   DateTime @default(now())
 
   @@index([isPublished, createdAt])
+}
+
+// ─── API KEYS ────────────────────────────────────────────
+
+model ApiKey {
+  id        String   @id @default(cuid())
+  name      String
+  key       String   @unique
+  prefix    String   // first 8 chars for display
+  isActive  Boolean  @default(true)
+  lastUsedAt DateTime?
+  usageCount Int     @default(0)
+  createdBy String
+  createdAt DateTime @default(now())
+  revokedAt DateTime?
+
+  @@index([key])
+  @@index([isActive])
+}
+
+// ─── COMMENT MODERATION ──────────────────────────────────
+
+model FlaggedComment {
+  id        String   @id @default(cuid())
+  commentId String
+  reason    String   // "profanity", "url", "manual"
+  matchedWords String[] // what triggered the flag
+  status    FlagStatus @default(PENDING)
+  reviewedBy String?
+  reviewedAt DateTime?
+  createdAt DateTime @default(now())
+
+  comment Comment @relation(fields: [commentId], references: [id], onDelete: Cascade)
+
+  @@index([status])
+  @@index([createdAt])
+}
+
+enum FlagStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+// ─── AUTO ENGAGEMENT LOG ─────────────────────────────────
+
+model EngagementLog {
+  id            String   @id @default(cuid())
+  targetUserId  String   // new user who got engagement
+  seedAccountId String   // seed account that engaged
+  petId         String   // pet that was engaged with
+  action        String   // "like" or "comment"
+  commentText   String?  // the comment if action=comment
+  createdAt     DateTime @default(now())
+
+  @@index([targetUserId, createdAt])
+  @@index([seedAccountId])
 }
