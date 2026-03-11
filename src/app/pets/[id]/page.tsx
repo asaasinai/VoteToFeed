@@ -203,6 +203,7 @@ export default async function PetDetailPage({
             petName={pet.name}
             petId={pet.id}
             petPhoto={photo}
+            appUrl={process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000"}
           />
 
           {/* Vote stats + button (live-updating client component) */}

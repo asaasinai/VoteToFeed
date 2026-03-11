@@ -6,15 +6,16 @@ export function ShareButtons({
   petName,
   petId,
   petPhoto,
+  appUrl,
 }: {
   petName: string;
   petId: string;
   petPhoto: string;
+  appUrl: string;
 }) {
   const [copied, setCopied] = useState(false);
-  const url = typeof window !== "undefined"
-    ? `${window.location.origin}/pets/${petId}`
-    : `/pets/${petId}`;
+  // Use absolute URL for share links to ensure Facebook share button works correctly
+  const url = `${appUrl}/pets/${petId}`;
   const text = `Vote for ${petName} to win! Every vote helps feed shelter pets 🐾❤️`;
   const encodedUrl = encodeURIComponent(url);
   const encodedText = encodeURIComponent(text);
