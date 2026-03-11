@@ -62,10 +62,7 @@ export default async function handler(
     const petsNeedingPhotos = await prisma.pet.findMany({
       where: {
         isActive: true,
-        OR: [
-          { photos: { equals: [] } },
-          { photos: { equals: {} } },
-        ],
+        photos: { equals: [] },
       },
     });
 
