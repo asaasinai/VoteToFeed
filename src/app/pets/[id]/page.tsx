@@ -77,6 +77,26 @@ export default async function PetDetailPage({
 }: {
   params: { id: string };
 }) {
+  try {
+    return await PetDetailPageInner({ params });
+  } catch (e: unknown) {
+    const err = e as Error;
+    console.error("[PetPage] CRASH:", err?.message, err?.stack);
+    return (
+      <div style={{ padding: 40, fontFamily: "monospace" }}>
+        <h1>Debug Error</h1>
+        <pre>{err?.message}</pre>
+        <pre style={{ fontSize: 11 }}>{err?.stack}</pre>
+      </div>
+    );
+  }
+}
+
+async function PetDetailPageInner({
+  params,
+}: {
+  params: { id: string };
+}) {
   let session;
   try {
     session = await getServerSession(authOptions);
