@@ -17,6 +17,7 @@
   body {
     background: var(--background);
     color: var(--foreground);
+    font-weight: 500;
   }
 
   ::selection {
@@ -24,12 +25,21 @@
     color: white;
   }
 
-  /* Mobile base font size — prevents tiny text on phones */
+  /* Mobile: bigger base font, heavier weight, better contrast */
   @media (max-width: 640px) {
     body {
       font-size: 16px;
       line-height: 1.6;
+      font-weight: 500;
     }
+    /* Lift all muted/secondary text to be readable on white */
+    .text-surface-400 { color: #525252 !important; }
+    .text-surface-500 { color: #404040 !important; }
+    .text-surface-600 { color: #262626 !important; }
+    /* All paragraph/body text: bump weight */
+    p, li, span, label, div { font-weight: 500; }
+    /* But don't over-bold purely decorative thin elements */
+    .font-normal { font-weight: 500 !important; }
   }
 }
 

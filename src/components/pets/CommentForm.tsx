@@ -47,7 +47,7 @@ export function CommentForm({
           {loading ? "..." : "Post"}
         </button>
       </div>
-      <p className="text-xs text-surface-400 text-right">{text.length}/255</p>
+      <p className="text-xs text-surface-800 text-right">{text.length}/255</p>
     </form>
   );
 }

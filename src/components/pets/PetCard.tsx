@@ -80,7 +80,7 @@ export function PetCard({
 
       {weeklyRank != null && weeklyRank > 3 && (
         <div className="px-4 py-2.5 border-t border-surface-100">
-          <span className="text-xs font-medium text-surface-500">{rankSuffix(weeklyRank)} this week</span>
+          <span className="text-xs font-medium text-surface-700">{rankSuffix(weeklyRank)} this week</span>
         </div>
       )}
     </Link>

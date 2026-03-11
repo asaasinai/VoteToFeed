@@ -62,7 +62,7 @@ function SignUpForm() {
             </div>
           </Link>
           <h1 className="text-3xl font-extrabold text-surface-900 mt-4 tracking-tight">Create your free account</h1>
-          <p className="text-base text-surface-600 mt-1">Vote, support shelter pets, or enter your own pet</p>
+          <p className="text-base text-surface-800 mt-1">Vote, support shelter pets, or enter your own pet</p>
         </div>
 
         {/* Social login */}
@@ -77,7 +77,7 @@ function SignUpForm() {
 
         <div className="relative my-5">
           <div className="absolute inset-0 flex items-center"><div className="w-full border-t border-surface-200" /></div>
-          <div className="relative flex justify-center text-xs"><span className="px-3 bg-[#FAFAFA] text-surface-400">or sign up with email</span></div>
+          <div className="relative flex justify-center text-xs"><span className="px-3 bg-[#FAFAFA] text-surface-800">or sign up with email</span></div>
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-3">
@@ -113,7 +113,7 @@ function SignUpForm() {
           </ul>
         </div>
 
-        <p className="mt-5 text-center text-base text-surface-600">
+        <p className="mt-5 text-center text-base text-surface-800">
           Already have an account? <Link href="/auth/signin" className="text-brand-600 font-bold hover:underline">Log in</Link>
         </p>
       </div>

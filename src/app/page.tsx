@@ -131,10 +131,10 @@ export default async function HomePage() {
                 <br />
                 <span className="text-brand-500">Feed shelter pets.</span>
               </h1>
-              <p className="mt-4 text-lg sm:text-xl text-surface-500 leading-relaxed max-w-lg">
+              <p className="mt-4 text-lg sm:text-xl text-surface-700 leading-relaxed max-w-lg">
                 Free photo contests with prize packs worth up to $2,000. Every vote helps feed shelter pets in need.
               </p>
-              <p className="mt-2 text-sm text-surface-400">Powered by <span className="font-semibold text-surface-600">iHeartDogs</span> &amp; <span className="font-semibold text-surface-600">iHeartCats</span></p>
+              <p className="mt-2 text-sm text-surface-800">Powered by <span className="font-semibold text-surface-800">iHeartDogs</span> &amp; <span className="font-semibold text-surface-800">iHeartCats</span></p>
               <div className="mt-6 flex flex-wrap gap-3">
                 <Link href="/pets/new" className="btn-primary">
                   Add your pet — free
@@ -143,7 +143,7 @@ export default async function HomePage() {
                   View contests
                 </Link>
               </div>
-              <div className="mt-6 sm:mt-8 flex flex-wrap items-center gap-x-5 gap-y-2 text-sm text-surface-500">
+              <div className="mt-6 sm:mt-8 flex flex-wrap items-center gap-x-5 gap-y-2 text-sm text-surface-700">
                 <span className="flex items-center gap-1.5">
                   <span className="font-semibold text-surface-900">{data.totalPets.toLocaleString()}</span> pets entered
                 </span>
@@ -245,7 +245,7 @@ export default async function HomePage() {
                       )}
                       {/* Overlay badges */}
                       <div className="absolute top-2 left-2 flex gap-1.5">
-                        <span className={`text-[9px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full backdrop-blur-sm ${typeBadge[contest.type] || "bg-surface-100 text-surface-600"}`}>
+                        <span className={`text-[9px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full backdrop-blur-sm ${typeBadge[contest.type] || "bg-surface-100 text-surface-800"}`}>
                           {typeLabel[contest.type] || contest.type}
                         </span>
                         {contest.isFeatured && (
@@ -265,9 +265,9 @@ export default async function HomePage() {
                     <div className="p-3.5">
                       <h3 className="font-bold text-surface-900 text-lg leading-snug truncate">{contest.name}</h3>
                       {contest.description && (
-                        <p className="text-xs text-surface-500 mt-1 line-clamp-2 leading-relaxed">{contest.description}</p>
+                        <p className="text-xs text-surface-700 mt-1 line-clamp-2 leading-relaxed">{contest.description}</p>
                       )}
-                      <div className="flex items-center gap-3 mt-2.5 text-xs text-surface-500">
+                      <div className="flex items-center gap-3 mt-2.5 text-xs text-surface-700">
                         <span className="flex items-center gap-1">
                           <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4-4v2"/><circle cx="9" cy="7" r="4"/></svg>
                           {contest.entryCount} entries
@@ -279,7 +279,7 @@ export default async function HomePage() {
                           </span>
                         )}
                         {contest.sponsorName && (
-                          <span className="text-surface-400">by {contest.sponsorName}</span>
+                          <span className="text-surface-800">by {contest.sponsorName}</span>
                         )}
                       </div>
                     </div>
@@ -317,10 +317,10 @@ export default async function HomePage() {
             {pets.length === 0 && (
               <div className="card p-16 text-center">
                 <div className="w-16 h-16 mx-auto rounded-2xl bg-surface-100 flex items-center justify-center mb-4">
-                  <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className="text-surface-400"><path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"/></svg>
+                  <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className="text-surface-800"><path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"/></svg>
                 </div>
                 <p className="font-semibold text-surface-700">No pets yet</p>
-                <p className="text-sm text-surface-400 mt-1">Be the first to enter!</p>
+                <p className="text-sm text-surface-800 mt-1">Be the first to enter!</p>
                 <Link href="/pets/new" className="btn-primary mt-4">Add your pet</Link>
               </div>
             )}
@@ -345,7 +345,7 @@ export default async function HomePage() {
                     </div>
                     <div>
                       <p className="text-sm font-medium text-surface-800">{item.title}</p>
-                      <p className="text-xs text-surface-400">{item.desc}</p>
+                      <p className="text-xs text-surface-800">{item.desc}</p>
                     </div>
                   </div>
                 ))}

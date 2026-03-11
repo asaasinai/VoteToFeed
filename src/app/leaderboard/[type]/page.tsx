@@ -56,7 +56,7 @@ export default async function LeaderboardPage({ params, searchParams }: PageProp
         <Link
           href="/leaderboard/DOG"
           className={`px-4 py-3 rounded-lg text-base font-semibold transition-all ${
-            type === "DOG" ? "bg-brand-500 text-white shadow-sm" : "text-surface-600 hover:bg-surface-100"
+            type === "DOG" ? "bg-brand-500 text-white shadow-sm" : "text-surface-800 hover:bg-surface-100"
           }`}
         >
           Dogs
@@ -64,7 +64,7 @@ export default async function LeaderboardPage({ params, searchParams }: PageProp
         <Link
           href="/leaderboard/CAT"
           className={`px-4 py-3 rounded-lg text-base font-semibold transition-all ${
-            type === "CAT" ? "bg-brand-500 text-white shadow-sm" : "text-surface-600 hover:bg-surface-100"
+            type === "CAT" ? "bg-brand-500 text-white shadow-sm" : "text-surface-800 hover:bg-surface-100"
           }`}
         >
           Cats
@@ -74,7 +74,7 @@ export default async function LeaderboardPage({ params, searchParams }: PageProp
       <h1 className="text-3xl font-extrabold text-surface-900 mb-1">
         {type === "DOG" ? "Dog" : "Cat"} Contest Leaderboard
       </h1>
-      <p className="text-base text-surface-600 mb-6">
+      <p className="text-base text-surface-800 mb-6">
         Week of {start.toLocaleDateString("en-US")} – {end.toLocaleDateString("en-US")} · {total} contestants
       </p>
 
@@ -109,7 +109,7 @@ export default async function LeaderboardPage({ params, searchParams }: PageProp
 
         {entries.length === 0 && (
           <div className="card p-12 text-center">
-            <p className="text-surface-600">No entries yet this week.</p>
+            <p className="text-surface-800">No entries yet this week.</p>
             <Link href="/pets/new" className="btn-primary mt-4">Add your pet</Link>
           </div>
         )}
@@ -124,7 +124,7 @@ export default async function LeaderboardPage({ params, searchParams }: PageProp
                 Previous
               </Link>
             )}
-            <span className="px-4 py-3 text-sm text-surface-600">
+            <span className="px-4 py-3 text-sm text-surface-800">
               Page {page} of {Math.ceil(total / limit)}
             </span>
             {page < Math.ceil(total / limit) && (

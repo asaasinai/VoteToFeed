@@ -29,7 +29,7 @@ export default async function ContestsPage() {
   }
   function typeBadge(type: string) {
     const map: Record<string, string> = { NATIONAL: "bg-brand-100 text-brand-700", SEASONAL: "bg-amber-100 text-amber-700", CHARITY: "bg-emerald-100 text-emerald-700", CALENDAR: "bg-violet-100 text-violet-700", BREED: "bg-sky-100 text-sky-700", STATE: "bg-orange-100 text-orange-700" };
-    return map[type] || "bg-surface-100 text-surface-600";
+    return map[type] || "bg-surface-100 text-surface-800";
   }
 
   function ContestCard({ contest, isEnded }: { contest: typeof contests[0]; isEnded?: boolean }) {
@@ -51,7 +51,7 @@ export default async function ContestsPage() {
             <span className={`text-[9px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full backdrop-blur-sm ${typeBadge(contest.type)}`}>
               {typeLabel(contest.type)}
             </span>
-            <span className="text-[9px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-surface-100/90 text-surface-600 backdrop-blur-sm">
+            <span className="text-[9px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-surface-100/90 text-surface-800 backdrop-blur-sm">
               {contest.petType === "DOG" ? "Dogs" : "Cats"}
             </span>
             {contest.isFeatured && (
@@ -74,9 +74,9 @@ export default async function ContestsPage() {
         <div className="p-4">
           <h3 className="font-bold text-surface-900 text-base leading-snug">{contest.name}</h3>
           {contest.description && (
-            <p className="text-sm text-surface-500 mt-1 line-clamp-2 leading-relaxed">{contest.description}</p>
+            <p className="text-sm text-surface-700 mt-1 line-clamp-2 leading-relaxed">{contest.description}</p>
           )}
-          <div className="flex items-center gap-3 mt-3 text-xs text-surface-500 flex-wrap">
+          <div className="flex items-center gap-3 mt-3 text-xs text-surface-700 flex-wrap">
             <span>{contest._count.entries} entries</span>
             <span>{contest.startDate.toLocaleDateString()} — {contest.endDate.toLocaleDateString()}</span>
             {prizeTotal > 0 && (
@@ -93,7 +93,7 @@ export default async function ContestsPage() {
     <div className="max-w-7xl mx-auto px-4 sm:px-6 py-8">
       <div className="mb-8">
         <h1 className="text-3xl sm:text-4xl font-extrabold text-surface-900 tracking-tight">Contests</h1>
-        <p className="text-base text-surface-600 mt-1">Browse active contests, enter your pet, and win epic prize packs.</p>
+        <p className="text-base text-surface-800 mt-1">Browse active contests, enter your pet, and win epic prize packs.</p>
       </div>
 
       {/* Active */}
@@ -131,7 +131,7 @@ export default async function ContestsPage() {
 
       {contests.length === 0 && (
         <div className="card p-16 text-center">
-          <p className="text-surface-500">No contests available right now. Check back soon!</p>
+          <p className="text-surface-700">No contests available right now. Check back soon!</p>
         </div>
       )}
     </div>

@@ -266,15 +266,15 @@ export default async function PetDetailPage({
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2">
                     <p className="text-base font-semibold text-surface-900">{c.user.name || "Anonymous"}</p>
-                    <p className="text-xs text-surface-400">{timeAgo(new Date(c.createdAt))}</p>
+                    <p className="text-xs text-surface-600 font-medium">{timeAgo(new Date(c.createdAt))}</p>
                   </div>
-                  <p className="text-base text-surface-600 mt-1">{c.text}</p>
+                  <p className="text-base text-surface-800 font-medium mt-1">{c.text}</p>
                   {c.replies.length > 0 && (
                     <ul className="mt-3 ml-3 space-y-2 border-l-2 border-surface-100 pl-3">
                       {c.replies.map((r) => (
                         <li key={r.id}>
                           <p className="text-xs font-medium text-surface-700">{r.user.name}</p>
-                          <p className="text-xs text-surface-500">{r.text}</p>
+                          <p className="text-sm text-surface-700 font-medium">{r.text}</p>
                         </li>
                       ))}
                     </ul>

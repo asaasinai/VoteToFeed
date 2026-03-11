@@ -48,7 +48,7 @@ export function Nav({
   }
   function contestTypeBadgeColor(type: string) {
     const map: Record<string, string> = { NATIONAL: "bg-brand-100 text-brand-700", SEASONAL: "bg-amber-100 text-amber-700", CHARITY: "bg-emerald-100 text-emerald-700", CALENDAR: "bg-violet-100 text-violet-700", BREED: "bg-sky-100 text-sky-700", STATE: "bg-orange-100 text-orange-700" };
-    return map[type] || "bg-surface-100 text-surface-600";
+    return map[type] || "bg-surface-100 text-surface-800";
   }
 
   return (
@@ -69,7 +69,7 @@ export function Nav({
           </svg>
           <div className="flex flex-col">
             <span className="text-xl leading-tight font-extrabold text-surface-900 tracking-tight" style={{ fontFamily: "'Nunito', sans-serif", fontWeight: 900 }}>VoteToFeed</span>
-            <span className="text-[9px] text-surface-400 leading-tight hidden sm:block">Every vote helps shelter pets</span>
+            <span className="text-[9px] text-surface-800 leading-tight hidden sm:block">Every vote helps shelter pets</span>
           </div>
         </Link>
 
@@ -79,7 +79,7 @@ export function Nav({
           <div className="relative" ref={contestRef}>
             <button
               onClick={() => setContestsOpen(!contestsOpen)}
-              className="btn-ghost text-surface-600 flex items-center gap-1"
+              className="btn-ghost text-surface-800 flex items-center gap-1"
             >
               Contests
               <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className={`transition-transform ${contestsOpen ? "rotate-180" : ""}`}><path d="M6 9l6 6 6-6"/></svg>
@@ -94,11 +94,11 @@ export function Nav({
                 <div className="fixed inset-0 z-10" onClick={() => setContestsOpen(false)} />
                 <div className="absolute left-0 mt-2 w-[380px] bg-white rounded-xl shadow-lg border border-surface-200/80 z-20 animate-fade-in overflow-hidden">
                   <div className="px-4 pt-3 pb-2 border-b border-surface-100">
-                    <p className="text-xs font-medium text-surface-400 uppercase tracking-wider">Active Contests</p>
+                    <p className="text-xs font-medium text-surface-800 uppercase tracking-wider">Active Contests</p>
                   </div>
                   <div className="max-h-[400px] overflow-y-auto">
                     {contests.length === 0 ? (
-                      <p className="px-4 py-6 text-sm text-surface-400 text-center">No active contests right now.</p>
+                      <p className="px-4 py-6 text-sm text-surface-800 text-center">No active contests right now.</p>
                     ) : (
                       contests.map((c) => (
                         <Link
@@ -119,7 +119,7 @@ export function Nav({
                               <span className="text-sm font-semibold text-surface-900 truncate">{c.name}</span>
                               {c.isFeatured && <span className="text-[8px] font-bold uppercase px-1.5 py-0.5 rounded bg-yellow-100 text-yellow-700">Featured</span>}
                             </div>
-                            <div className="flex items-center gap-2 mt-0.5 text-xs text-surface-500">
+                            <div className="flex items-center gap-2 mt-0.5 text-xs text-surface-700">
                               <span className={`font-bold uppercase tracking-wider px-1.5 py-0.5 rounded text-[9px] ${contestTypeBadgeColor(c.type)}`}>
                                 {contestTypeLabel(c.type)}
                               </span>
@@ -148,7 +148,7 @@ export function Nav({
           <div className="relative" ref={leaderboardRef}>
             <button
               onClick={() => setLeaderboardOpen(!leaderboardOpen)}
-              className="btn-ghost text-surface-600 flex items-center gap-1"
+              className="btn-ghost text-surface-800 flex items-center gap-1"
             >
               Leaderboard
               <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className={`transition-transform ${leaderboardOpen ? "rotate-180" : ""}`}><path d="M6 9l6 6 6-6"/></svg>
@@ -175,12 +175,12 @@ export function Nav({
             )}
           </div>
 
-          <Link href="/votesforshelters" className="btn-ghost text-surface-600 flex items-center gap-1.5">
+          <Link href="/votesforshelters" className="btn-ghost text-surface-800 flex items-center gap-1.5">
             <span className="w-1.5 h-1.5 rounded-full bg-accent-500 animate-pulse-subtle" />
             Shelters
           </Link>
           {session && (
-            <Link href="/dashboard" className="btn-ghost text-surface-600">My Pets</Link>
+            <Link href="/dashboard" className="btn-ghost text-surface-800">My Pets</Link>
           )}
 
           {/* Flashing Buy Votes button */}
@@ -220,7 +220,7 @@ export function Nav({
                 <span className="text-sm font-medium text-surface-700 hidden sm:inline max-w-[80px] truncate">
                   {session.user?.name?.split(" ")[0] || "Account"}
                 </span>
-                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className="text-surface-400"><path d="M6 9l6 6 6-6"/></svg>
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className="text-surface-800"><path d="M6 9l6 6 6-6"/></svg>
               </button>
               {menuOpen && (
                 <>
@@ -228,7 +228,7 @@ export function Nav({
                   <div className="absolute right-0 mt-2 w-52 py-1.5 bg-white rounded-xl shadow-lg border border-surface-200/80 z-20 animate-fade-in">
                     <div className="px-3.5 py-2 border-b border-surface-100">
                       <p className="text-sm font-semibold text-surface-900">{session.user?.name}</p>
-                      <p className="text-xs text-surface-500 truncate">{session.user?.email}</p>
+                      <p className="text-xs text-surface-700 truncate">{session.user?.email}</p>
                     </div>
                     <Link href="/dashboard" className="flex items-center gap-2.5 px-3.5 py-2.5 text-sm text-surface-700 hover:bg-surface-50" onClick={() => setMenuOpen(false)}>
                       My Pets
@@ -272,7 +272,7 @@ export function Nav({
             {/* Mobile contests section */}
             {contests.length > 0 && (
               <div className="pb-2 mb-2 border-b border-surface-100">
-                <p className="px-3 py-1.5 text-[10px] font-bold text-surface-400 uppercase tracking-wider">Active Contests</p>
+                <p className="px-3 py-1.5 text-[10px] font-bold text-surface-800 uppercase tracking-wider">Active Contests</p>
                 {contests.slice(0, 5).map((c) => (
                   <Link
                     key={c.id}
@@ -289,7 +289,7 @@ export function Nav({
                     )}
                     <div className="flex-1 min-w-0">
                       <p className="text-base font-semibold text-surface-800 truncate">{c.name}</p>
-                      <div className="flex items-center gap-2 text-[11px] text-surface-500">
+                      <div className="flex items-center gap-2 text-[11px] text-surface-700">
                         <span className={`font-bold uppercase tracking-wider px-1 py-0.5 rounded text-[8px] ${contestTypeBadgeColor(c.type)}`}>
                           {contestTypeLabel(c.type)}
                         </span>
@@ -303,7 +303,7 @@ export function Nav({
             )}
             {/* Leaderboard section */}
             <div className="pb-2 mb-2 border-b border-surface-100">
-              <p className="px-3 py-1.5 text-[10px] font-bold text-surface-400 uppercase tracking-wider">Leaderboard</p>
+              <p className="px-3 py-1.5 text-[10px] font-bold text-surface-800 uppercase tracking-wider">Leaderboard</p>
               <Link href="/leaderboard/DOG" className="flex items-center gap-2.5 px-3 py-3 text-base font-semibold text-surface-700 rounded-lg hover:bg-surface-50" onClick={() => setMobileOpen(false)}>
                 <span>🐶</span> Dog Leaderboard
               </Link>
