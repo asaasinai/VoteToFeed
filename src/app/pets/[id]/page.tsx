@@ -36,7 +36,8 @@ export async function generateMetadata({
 
   const weeklyVotes = pet.weeklyStats[0]?.totalVotes ?? 0;
   const rank = pet.weeklyStats[0]?.rank ?? null;
-  const photo = pet.photos[0] || "";
+  // Use first photo for OG image (same as page display)
+  const photo = pet.photos && pet.photos.length > 0 ? pet.photos[0] : "";
   const appUrl = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
 
   const title = `Vote for ${pet.name} to win! | Vote to Feed`;
@@ -138,7 +139,13 @@ export default async function PetDetailPage({
   // Shuffle and take 12
   const shuffled = morePets.sort(() => Math.random() - 0.5).slice(0, 12);
 
-  const photo = pet.photos[0] || `https://placedog.net/600/600?random=${pet.id}`;
+  // Ensure consistent primary image: always use first photo, never random
+  // This prevents the issue where pet photos appear to change on each refresh
+  const photo = pet.photos && pet.photos.length > 0 
+    ? pet.photos[0] 
+    : (pet.type === "CAT" 
+        ? "https://placekitten.com/600/600" 
+        : "https://images.dog.ceo/breeds/labrador/n02099712_365.jpg");
   const isNew = Date.now() - new Date(pet.createdAt).getTime() < 7 * 24 * 60 * 60 * 1000;
 
   return (
