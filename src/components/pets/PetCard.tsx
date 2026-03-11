@@ -16,6 +16,38 @@ type PetCardProps = {
   animalType?: string;
 };
 
+// Generate a consistent color for a pet based on its ID
+function getPetPlaceholderColor(petId: string): string {
+  const colors = [
+    "bg-blue-400",
+    "bg-purple-400",
+    "bg-pink-400",
+    "bg-orange-400",
+    "bg-green-400",
+    "bg-red-400",
+    "bg-indigo-400",
+    "bg-teal-400",
+    "bg-cyan-400",
+    "bg-amber-400",
+  ];
+  let hash = 0;
+  for (let i = 0; i < petId.length; i++) {
+    hash = ((hash << 5) - hash) + petId.charCodeAt(i);
+  }
+  return colors[Math.abs(hash) % colors.length];
+}
+
+// Get initials from pet name
+function getInitials(name: string): string {
+  return name
+    .split(" ")
+    .slice(0, 2)
+    .map((part) => part[0])
+    .join("")
+    .toUpperCase()
+    .slice(0, 2);
+}
+
 export function PetCard({
   id,
   name,
@@ -26,27 +58,51 @@ export function PetCard({
   weeklyRank,
   isNew,
 }: PetCardProps) {
-  const photo = photos[0] || "https://placedog.net/400/400?random=" + id;
+  const photo = photos[0];
+  const hasPhoto = photo && photo.trim().length > 0;
+  const placeholderColor = getPetPlaceholderColor(id);
+  const initials = getInitials(name);
 
   return (
     <Link href={`/pets/${id}`} className="card card-hover group block overflow-hidden">
       <div className="aspect-[4/5] relative bg-surface-100 overflow-hidden">
-        <img
-          src={photo}
-          alt={name}
-          className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500 ease-out"
-          onError={(e) => {
-            (e.target as HTMLImageElement).src = `https://placedog.net/400/400?random=${id}`;
-          }}
-        />
+        {hasPhoto ? (
+          <img
+            src={photo}
+            alt={name}
+            className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500 ease-out"
+            onError={(e) => {
+              // If image fails to load, remove src to show placeholder
+              (e.target as HTMLImageElement).style.display = "none";
+            }}
+          />
+        ) : null}
+
+        {/* Placeholder for missing photo */}
+        {!hasPhoto && (
+          <div
+            className={cn(
+              "w-full h-full flex flex-col items-center justify-center transition-opacity group-hover:opacity-80",
+              placeholderColor
+            )}
+          >
+            <span className="text-4xl font-bold text-white opacity-80 mb-2">
+              {initials}
+            </span>
+            <span className="text-xs font-medium text-white opacity-70">
+              Photo Pending
+            </span>
+          </div>
+        )}
 
         {/* Gradient overlay at bottom */}
         <div className="absolute inset-x-0 bottom-0 h-24 bg-gradient-to-t from-black/50 to-transparent" />
 
         {/* Badges */}
         <div className="absolute top-3 left-3 flex gap-1.5">
-          {isNew && (
-            <span className="badge-new text-[11px]">New</span>
+          {isNew && <span className="badge-new text-[11px]">New</span>}
+          {!hasPhoto && (
+            <span className="badge-new text-[11px] bg-amber-500">No Photo</span>
           )}
         </div>
 

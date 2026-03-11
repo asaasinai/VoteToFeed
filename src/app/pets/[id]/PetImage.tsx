@@ -1,5 +1,28 @@
 "use client";
 
+import { useState } from "react";
+
+// Generate a consistent color for a pet based on its ID
+function getPetPlaceholderColor(petId: string): string {
+  const colors = [
+    "bg-blue-400",
+    "bg-purple-400",
+    "bg-pink-400",
+    "bg-orange-400",
+    "bg-green-400",
+    "bg-red-400",
+    "bg-indigo-400",
+    "bg-teal-400",
+    "bg-cyan-400",
+    "bg-amber-400",
+  ];
+  let hash = 0;
+  for (let i = 0; i < petId.length; i++) {
+    hash = ((hash << 5) - hash) + petId.charCodeAt(i);
+  }
+  return colors[Math.abs(hash) % colors.length];
+}
+
 /**
  * Generate a deterministic but pseudo-random fallback image URL based on pet ID
  * This ensures the same pet always gets the same fallback, but different pets get variety
@@ -52,21 +75,50 @@ export function PetImage({
   petType?: string;
   fallback?: string;
 }) {
+  const [imageLoaded, setImageLoaded] = useState(false);
+  const [hasError, setHasError] = useState(false);
+
+  // Check if source is empty or missing
+  const hasValidSource = src && src.trim().length > 0;
+  
   // Use generated fallback if petId and petType are provided, otherwise use provided fallback
   const actualFallback = fallback || 
     (petId && petType ? generateFallbackImage(petId, petType) : undefined) ||
     "https://images.unsplash.com/photo-1543466835-00a7907e9de1?w=600&h=600&fit=crop";
 
+  if (!hasValidSource && petId && petType) {
+    // Show placeholder for missing photo
+    const placeholderColor = getPetPlaceholderColor(petId);
+    return (
+      <div
+        className={`${className} ${placeholderColor} flex items-center justify-center`}
+      >
+        <div className="text-center">
+          <div className="text-5xl font-bold text-white opacity-70 mb-4">
+            {alt.slice(0, 2).toUpperCase()}
+          </div>
+          <div className="text-sm font-medium text-white opacity-60">
+            Photo Pending
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <img
-      src={src}
+      src={hasValidSource ? src : actualFallback}
       alt={alt}
       className={className}
+      onLoad={() => setImageLoaded(true)}
       onError={(e) => {
         const t = e.currentTarget;
-        t.onerror = null;
-        if (actualFallback) {
+        if (t.src !== actualFallback) {
+          // Try fallback image
           t.src = actualFallback;
+        } else {
+          // Fallback failed too
+          setHasError(true);
         }
       }}
     />
