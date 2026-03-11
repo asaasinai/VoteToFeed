@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import Link from "next/link";
 import { formatVotes, rankSuffix, cn } from "@/lib/utils";
 
@@ -58,28 +59,28 @@ export function PetCard({
   weeklyRank,
   isNew,
 }: PetCardProps) {
+  const [imgError, setImgError] = useState(false);
+
   const photo = photos[0];
   const hasPhoto = photo && photo.trim().length > 0;
+  const showPlaceholder = !hasPhoto || imgError;
   const placeholderColor = getPetPlaceholderColor(id);
   const initials = getInitials(name);
 
   return (
     <Link href={`/pets/${id}`} className="card card-hover group block overflow-hidden">
       <div className="aspect-[4/5] relative bg-surface-100 overflow-hidden">
-        {hasPhoto ? (
+        {hasPhoto && !imgError ? (
           <img
             src={photo}
             alt={name}
             className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500 ease-out"
-            onError={(e) => {
-              // If image fails to load, remove src to show placeholder
-              (e.target as HTMLImageElement).style.display = "none";
-            }}
+            onError={() => setImgError(true)}
           />
         ) : null}
 
-        {/* Placeholder for missing photo */}
-        {!hasPhoto && (
+        {/* Placeholder for missing or broken photo */}
+        {showPlaceholder && (
           <div
             className={cn(
               "w-full h-full flex flex-col items-center justify-center transition-opacity group-hover:opacity-80",
@@ -101,7 +102,7 @@ export function PetCard({
         {/* Badges */}
         <div className="absolute top-3 left-3 flex gap-1.5">
           {isNew && <span className="badge-new text-[11px]">New</span>}
-          {!hasPhoto && (
+          {showPlaceholder && (
             <span className="badge-new text-[11px] bg-amber-500">No Photo</span>
           )}
         </div>
