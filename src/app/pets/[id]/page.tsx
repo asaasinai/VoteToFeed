@@ -158,7 +158,7 @@ export default async function PetDetailPage({
         {/* Photo column */}
         <div className="lg:col-span-3">
           <div className="relative rounded-2xl overflow-hidden bg-surface-100 aspect-[4/3]">
-            <PetImage src={photo} alt={pet.name} className="w-full h-full object-cover" fallback={pet.type === "CAT" ? "https://placekitten.com/400/400" : "https://images.dog.ceo/breeds/labrador/n02099712_365.jpg"} />
+            <PetImage src={photo} alt={pet.name} className="w-full h-full object-cover" petId={pet.id} petType={pet.type} />
             <div className="absolute top-4 left-4 flex gap-2">
               {isNew && <span className="badge-new">New</span>}
               {weeklyRank != null && weeklyRank <= 10 && (
@@ -196,6 +196,7 @@ export default async function PetDetailPage({
             petName={pet.name}
             petId={pet.id}
             petPhoto={photo}
+            appUrl={process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000"}
           />
 
           {/* Vote stats + button (live-updating client component) */}
