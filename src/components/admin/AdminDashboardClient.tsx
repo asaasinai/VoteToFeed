@@ -2119,6 +2119,7 @@ type ContestData = {
   recurringInterval: string | null;
   recurringCounter: number;
   hasEnded: boolean;
+  prizes?: { placement: number; title: string; value: number; items: string[] }[];
 };
 
 function ContestManager() {
