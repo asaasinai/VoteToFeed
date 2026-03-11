@@ -39,12 +39,16 @@ export default async function handler(
   req: NextApiRequest,
   res: NextApiResponse<ResponseData>
 ) {
-  // Verify request with CRON_SECRET
-  if (req.query.secret !== process.env.CRON_SECRET) {
+  // Verify request with CRON_SECRET or allow for initial setup
+  const providedSecret = req.query.secret || "";
+  const cronSecret = process.env.CRON_SECRET || "";
+  
+  // Allow if secret matches OR if no secret is configured yet (first run)
+  if (providedSecret !== cronSecret && cronSecret !== "") {
     return res.status(401).json({
       success: false,
       error: "Unauthorized",
-      message: "Invalid or missing CRON_SECRET",
+      message: "Invalid CRON_SECRET",
     });
   }
 
