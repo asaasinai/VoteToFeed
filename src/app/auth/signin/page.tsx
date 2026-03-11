@@ -11,7 +11,7 @@ function SignInForm() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const searchParams = useSearchParams();
-  const callbackUrl = searchParams.get("callbackUrl") || "/dashboard";
+  const callbackUrl = searchParams?.get("callbackUrl") || "/dashboard";
 
   async function handleCredentials(e: React.FormEvent) {
     e.preventDefault();
