@@ -9,6 +9,7 @@
     "lint": "eslint",
     "db:push": "npx prisma db push",
     "db:seed": "npx ts-node --compiler-options '{\"module\":\"CommonJS\"}' prisma/seed.ts",
+    "db:seed-images": "npx tsx scripts/seed-pet-images.ts",
     "db:studio": "npx prisma studio",
     "postinstall": "npx prisma generate"
   },
