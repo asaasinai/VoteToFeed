@@ -211,6 +211,40 @@ export default async function HomePage() {
         </div>
       </section>
 
+      {/* Mobile-only: Horizontal pet photo strip */}
+      {pets.length > 0 && (
+        <div className="md:hidden bg-white border-b border-surface-100 py-4">
+          <div className="px-4 mb-3 flex items-center justify-between">
+            <p className="text-base font-extrabold text-surface-900">🐾 This Week's Contestants</p>
+            <Link href="/leaderboard/national-dog" className="text-sm font-bold text-brand-600">See all →</Link>
+          </div>
+          <div className="flex gap-3 overflow-x-auto px-4 pb-1 scrollbar-hide" style={{scrollSnapType: "x mandatory"}}>
+            {pets.slice(0, 12).map((pet) => (
+              <Link
+                key={pet.id}
+                href={`/pets/${pet.id}`}
+                className="flex-shrink-0 flex flex-col items-center gap-2"
+                style={{scrollSnapAlign: "start"}}
+              >
+                <div className="relative w-24 h-24 rounded-2xl overflow-hidden border-2 border-surface-200 bg-surface-100">
+                  <img
+                    src={pet.photos[0] || (pet.type === "CAT" ? "https://placekitten.com/200/200" : `https://placedog.net/200/200?id=${pet.id}`)}
+                    alt={pet.name}
+                    className="w-full h-full object-cover"
+                  />
+                  {pet.weeklyRank && pet.weeklyRank <= 3 && (
+                    <div className="absolute top-1 left-1 w-6 h-6 rounded-full bg-brand-500 text-white text-xs font-black flex items-center justify-center shadow">
+                      {pet.weeklyRank}
+                    </div>
+                  )}
+                </div>
+                <span className="text-sm font-bold text-surface-900 max-w-[96px] truncate text-center">{pet.name}</span>
+              </Link>
+            ))}
+          </div>
+        </div>
+      )}
+
       {/* Active Contests Slider */}
       {data.contests.length > 0 && (
         <section className="bg-surface-50/70 border-b border-surface-100">
