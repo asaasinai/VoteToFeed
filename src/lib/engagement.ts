@@ -80,16 +80,23 @@ export type AutoEngagementResult = {
   logs: Array<{ user: string; action: string; seed: string }>;
 };
 
-export async function runAutoEngagement(): Promise<AutoEngagementResult> {
+type RunAutoEngagementOptions = {
+  manual?: boolean;
+};
+
+export async function runAutoEngagement(options: RunAutoEngagementOptions = {}): Promise<AutoEngagementResult> {
   const now = new Date();
   const fortyEightHoursAgo = new Date(now.getTime() - 48 * 60 * 60 * 1000);
+  const manual = options.manual === true;
 
-  const newUsers = await prisma.user.findMany({
+  const candidateUsers = await prisma.user.findMany({
     where: {
-      createdAt: { gte: fortyEightHoursAgo },
       role: "USER",
       email: { not: { contains: "@iheartdogs.com" } },
+      ...(manual ? {} : { createdAt: { gte: fortyEightHoursAgo } }),
     },
+    orderBy: { createdAt: "desc" },
+    take: manual ? 50 : undefined,
     include: {
       pets: {
         where: { isActive: true },
@@ -110,7 +117,7 @@ export async function runAutoEngagement(): Promise<AutoEngagementResult> {
   if (seedAccounts.length === 0) {
     return {
       message: "No seed accounts found. Run /api/admin/seed-engagement first.",
-      newUsersFound: newUsers.length,
+      newUsersFound: candidateUsers.length,
       seedAccountsAvailable: 0,
       totalEngagements: 0,
       logs: [],
@@ -120,7 +127,7 @@ export async function runAutoEngagement(): Promise<AutoEngagementResult> {
   let totalEngagements = 0;
   const logs: Array<{ user: string; action: string; seed: string }> = [];
 
-  for (const user of newUsers) {
+  for (const user of candidateUsers) {
     const pet = user.pets[0];
     if (!pet) continue;
 
@@ -190,8 +197,8 @@ export async function runAutoEngagement(): Promise<AutoEngagementResult> {
   }
 
   return {
-    message: `Auto-engagement complete. ${totalEngagements} actions performed.`,
-    newUsersFound: newUsers.length,
+    message: `${manual ? "Manual" : "Auto"} engagement complete. ${totalEngagements} actions performed.`,
+    newUsersFound: candidateUsers.length,
     seedAccountsAvailable: seedAccounts.length,
     totalEngagements,
     logs,

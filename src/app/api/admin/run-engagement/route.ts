@@ -14,7 +14,7 @@ export async function POST() {
   }
 
   try {
-    const result = await runAutoEngagement();
+    const result = await runAutoEngagement({ manual: true });
     return NextResponse.json(result);
   } catch (error) {
     console.error("Admin engagement run error:", error);
