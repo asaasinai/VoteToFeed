@@ -12,6 +12,8 @@ import { Metadata } from "next";
 import { ShareButtons } from "./ShareButtons";
 import { PetImage } from "./PetImage";
 
+export const dynamic = "force-dynamic";
+
 // ── Dynamic OG metadata so shared links show pet photo + "Vote for X to win!" ──
 export async function generateMetadata({
   params,
