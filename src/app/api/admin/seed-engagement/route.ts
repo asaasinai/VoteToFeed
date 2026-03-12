@@ -12,27 +12,136 @@ import bcrypt from "bcryptjs";
  * - Access or modify pet.photos for non-seed-account pets
  */
 
+function getCurrentWeekId(): string {
+  const now = new Date();
+  const start = new Date(now.getFullYear(), 0, 1);
+  const diff = now.getTime() - start.getTime();
+  const oneWeek = 604800000;
+  const weekNum = Math.ceil((diff / oneWeek + start.getDay() + 1) / 7);
+  return `${now.getFullYear()}-W${String(weekNum).padStart(2, "0")}`;
+}
+
 const SEED_ACCOUNTS = [
-  { email: "vote@iheartdogs.com", name: "Max the Golden", breed: "Golden Retriever", photo: "https://images.dog.ceo/breeds/retriever-golden/n02099601_1722.jpg" },
-  { email: "vote+1@iheartdogs.com", name: "Luna Belle", breed: "Siberian Husky", photo: "https://images.dog.ceo/breeds/husky/n02110185_10047.jpg" },
-  { email: "vote+2@iheartdogs.com", name: "Cooper & Friends", breed: "Labrador Retriever", photo: "https://images.dog.ceo/breeds/labrador/n02099712_4323.jpg" },
-  { email: "vote+3@iheartdogs.com", name: "Daisy Mae", breed: "Corgi", photo: "https://images.dog.ceo/breeds/corgi-cardigan/n02113186_10475.jpg" },
-  { email: "vote+4@iheartdogs.com", name: "Bear Hudson", breed: "German Shepherd", photo: "https://images.dog.ceo/breeds/germanshepherd/n02106662_20841.jpg" },
-  { email: "vote+5@iheartdogs.com", name: "Rosie Posie", breed: "Poodle", photo: "https://images.dog.ceo/breeds/poodle-standard/n02113799_2506.jpg" },
-  { email: "vote+6@iheartdogs.com", name: "Duke Wellington", breed: "Beagle", photo: "https://images.dog.ceo/breeds/beagle/n02088364_11136.jpg" },
-  { email: "vote+7@iheartdogs.com", name: "Buster Brown", breed: "Bulldog", photo: "https://images.dog.ceo/breeds/bulldog-english/jager-2.jpg" },
-  { email: "vote+8@iheartdogs.com", name: "Willow Grace", breed: "Australian Shepherd", photo: "https://images.dog.ceo/breeds/australian-shepherd/pepper.jpg" },
-  { email: "vote+9@iheartdogs.com", name: "Rocky Mountain", breed: "Rottweiler", photo: "https://images.dog.ceo/breeds/rottweiler/n02106550_10174.jpg" },
-  { email: "vote+10@iheartdogs.com", name: "Penny Lane", breed: "Dachshund", photo: "https://images.dog.ceo/breeds/dachshund/dachshund-2.jpg" },
-  { email: "vote+11@iheartdogs.com", name: "Tucker James", breed: "Boxer", photo: "https://images.dog.ceo/breeds/boxer/n02108089_14898.jpg" },
-  { email: "vote+12@iheartdogs.com", name: "Sadie Sunshine", breed: "Shih Tzu", photo: "https://images.dog.ceo/breeds/shihtzu/n02086240_7832.jpg" },
-  { email: "vote+13@iheartdogs.com", name: "Finn Adventure", breed: "Border Collie", photo: "https://images.dog.ceo/breeds/collie-border/n02106166_3437.jpg" },
-  { email: "vote+14@iheartdogs.com", name: "Mochi Bear", breed: "Pomeranian", photo: "https://images.dog.ceo/breeds/pomeranian/n02112018_10129.jpg" },
-  { email: "vote+15@iheartdogs.com", name: "Scout Explorer", breed: "Bernese Mountain Dog", photo: "https://images.dog.ceo/breeds/mountain-bernese/n02107683_5425.jpg" },
-  { email: "vote+16@iheartdogs.com", name: "Chloe Buttons", breed: "French Bulldog", photo: "https://images.dog.ceo/breeds/bulldog-french/n02108915_5482.jpg" },
-  { email: "vote+17@iheartdogs.com", name: "Charlie Waffles", breed: "Cavalier King Charles", photo: "https://images.dog.ceo/breeds/spaniel-cocker/n02102318_5765.jpg" },
-  { email: "vote+18@iheartdogs.com", name: "Ziggy Stardust", breed: "Dalmatian", photo: "https://images.dog.ceo/breeds/dalmatian/cooper2.jpg" },
-  { email: "vote+19@iheartdogs.com", name: "Maple Autumn", breed: "Samoyed", photo: "https://images.dog.ceo/breeds/samoyed/n02111889_10032.jpg" },
+  {
+    email: "vote@iheartdogs.com",
+    name: "Max the Golden",
+    dog: { name: "Max", breed: "Golden Retriever", photo: "https://images.dog.ceo/breeds/retriever-golden/n02099601_1722.jpg", bio: "Hi! I'm Max, a Golden Retriever who loves belly rubs! 🐾" },
+    cat: { name: "Whiskers", breed: "Maine Coon", photo: "https://cdn.pixabay.com/photo/2017/02/20/18/03/cat-2083492_640.jpg", bio: "I'm Whiskers, a majestic Maine Coon! 🐱" },
+  },
+  {
+    email: "vote+1@iheartdogs.com",
+    name: "Luna Belle",
+    dog: { name: "Luna", breed: "Siberian Husky", photo: "https://images.dog.ceo/breeds/husky/n02110185_10047.jpg", bio: "I'm Luna, a Siberian Husky who loves the snow! ❄️" },
+    cat: { name: "Shadow", breed: "Russian Blue", photo: "https://cdn.pixabay.com/photo/2018/01/28/12/37/cat-3113513_640.jpg", bio: "I'm Shadow, a sleek Russian Blue! 🖤" },
+  },
+  {
+    email: "vote+2@iheartdogs.com",
+    name: "Cooper & Friends",
+    dog: { name: "Cooper", breed: "Labrador Retriever", photo: "https://images.dog.ceo/breeds/labrador/n02099712_4323.jpg", bio: "I'm Cooper, a Lab who loves fetch! 🎾" },
+    cat: { name: "Mittens", breed: "Ragdoll", photo: "https://cdn.pixabay.com/photo/2019/11/08/11/36/cat-4611189_640.jpg", bio: "I'm Mittens, a fluffy Ragdoll! 💙" },
+  },
+  {
+    email: "vote+3@iheartdogs.com",
+    name: "Daisy Mae",
+    dog: { name: "Daisy", breed: "Corgi", photo: "https://images.dog.ceo/breeds/corgi-cardigan/n02113186_10475.jpg", bio: "I'm Daisy, a Corgi with the cutest wiggle! 🌼" },
+    cat: { name: "Luna", breed: "Siamese", photo: "https://cdn.pixabay.com/photo/2017/07/25/01/22/cat-2536662_640.jpg", bio: "I'm Luna, a chatty Siamese! 🌙" },
+  },
+  {
+    email: "vote+4@iheartdogs.com",
+    name: "Bear Hudson",
+    dog: { name: "Bear", breed: "German Shepherd", photo: "https://images.dog.ceo/breeds/germanshepherd/n02106662_20841.jpg", bio: "I'm Bear, a loyal German Shepherd! 🐻" },
+    cat: { name: "Ginger", breed: "Orange Tabby", photo: "https://cdn.pixabay.com/photo/2024/02/28/07/42/european-shorthair-8601492_640.jpg", bio: "I'm Ginger, an orange tabby with cattitude! 🧡" },
+  },
+  {
+    email: "vote+5@iheartdogs.com",
+    name: "Rosie Posie",
+    dog: { name: "Rosie", breed: "Poodle", photo: "https://images.dog.ceo/breeds/poodle-standard/n02113799_2506.jpg", bio: "I'm Rosie, a fabulous Poodle! 🌹" },
+    cat: { name: "Cleo", breed: "Abyssinian", photo: "https://cdn.pixabay.com/photo/2020/10/05/10/51/cat-5628953_640.jpg", bio: "I'm Cleo, an adventurous Abyssinian! 👑" },
+  },
+  {
+    email: "vote+6@iheartdogs.com",
+    name: "Duke Wellington",
+    dog: { name: "Duke", breed: "Beagle", photo: "https://images.dog.ceo/breeds/beagle/n02088364_11136.jpg", bio: "I'm Duke, a Beagle with the best nose! 👃" },
+    cat: { name: "Oliver", breed: "British Shorthair", photo: "https://cdn.pixabay.com/photo/2017/11/14/13/06/kitty-2948404_640.jpg", bio: "I'm Oliver, a proper British Shorthair! 🎩" },
+  },
+  {
+    email: "vote+7@iheartdogs.com",
+    name: "Buster Brown",
+    dog: { name: "Buster", breed: "Bulldog", photo: "https://images.dog.ceo/breeds/bulldog-english/jager-2.jpg", bio: "I'm Buster, a chill Bulldog! 😎" },
+    cat: { name: "Nala", breed: "Bengal", photo: "https://cdn.pixabay.com/photo/2019/02/06/15/18/cat-3979126_640.jpg", bio: "I'm Nala, a wild Bengal beauty! 🐆" },
+  },
+  {
+    email: "vote+8@iheartdogs.com",
+    name: "Willow Grace",
+    dog: { name: "Willow", breed: "Australian Shepherd", photo: "https://images.dog.ceo/breeds/australian-shepherd/pepper.jpg", bio: "I'm Willow, an Aussie full of energy! 🌿" },
+    cat: { name: "Milo", breed: "Tuxedo", photo: "https://cdn.pixabay.com/photo/2018/10/01/09/21/pets-3715733_640.jpg", bio: "I'm Milo, always dressed to impress! 🤵" },
+  },
+  {
+    email: "vote+9@iheartdogs.com",
+    name: "Rocky Mountain",
+    dog: { name: "Rocky", breed: "Rottweiler", photo: "https://images.dog.ceo/breeds/rottweiler/n02106550_10174.jpg", bio: "I'm Rocky, a big softy Rottweiler! 🏔️" },
+    cat: { name: "Simba", breed: "Persian", photo: "https://cdn.pixabay.com/photo/2016/12/30/17/27/cat-1941089_640.jpg", bio: "I'm Simba, a fluffy Persian prince! 🦁" },
+  },
+  {
+    email: "vote+10@iheartdogs.com",
+    name: "Penny Lane",
+    dog: { name: "Penny", breed: "Dachshund", photo: "https://images.dog.ceo/breeds/dachshund/dachshund-2.jpg", bio: "I'm Penny, a tiny Dachshund with a big heart! 💕" },
+    cat: { name: "Bella", breed: "Scottish Fold", photo: "https://cdn.pixabay.com/photo/2019/11/08/11/36/kitten-4611189_640.jpg", bio: "I'm Bella, a cute Scottish Fold! 🎀" },
+  },
+  {
+    email: "vote+11@iheartdogs.com",
+    name: "Tucker James",
+    dog: { name: "Tucker", breed: "Boxer", photo: "https://images.dog.ceo/breeds/boxer/n02108089_14898.jpg", bio: "I'm Tucker, a bouncy Boxer! 🥊" },
+    cat: { name: "Felix", breed: "Tabby", photo: "https://cdn.pixabay.com/photo/2014/04/13/20/49/cat-323262_640.jpg", bio: "I'm Felix, a classic tabby cat! 🐱" },
+  },
+  {
+    email: "vote+12@iheartdogs.com",
+    name: "Sadie Sunshine",
+    dog: { name: "Sadie", breed: "Shih Tzu", photo: "https://images.dog.ceo/breeds/shihtzu/n02086240_7832.jpg", bio: "I'm Sadie, a fluffy Shih Tzu! ☀️" },
+    cat: { name: "Smokey", breed: "Chartreux", photo: "https://cdn.pixabay.com/photo/2015/11/16/14/43/cat-1045782_640.jpg", bio: "I'm Smokey, a mysterious Chartreux! 🌫️" },
+  },
+  {
+    email: "vote+13@iheartdogs.com",
+    name: "Finn Adventure",
+    dog: { name: "Finn", breed: "Border Collie", photo: "https://images.dog.ceo/breeds/collie-border/n02106166_3437.jpg", bio: "I'm Finn, the smartest Border Collie! 🧠" },
+    cat: { name: "Jasper", breed: "Birman", photo: "https://cdn.pixabay.com/photo/2017/12/21/12/26/glare-3031956_640.jpg", bio: "I'm Jasper, a gorgeous Birman! 💎" },
+  },
+  {
+    email: "vote+14@iheartdogs.com",
+    name: "Mochi Bear",
+    dog: { name: "Mochi", breed: "Pomeranian", photo: "https://images.dog.ceo/breeds/pomeranian/n02112018_10129.jpg", bio: "I'm Mochi, a tiny Pom with big fluff! 🍡" },
+    cat: { name: "Pepper", breed: "Calico", photo: "https://cdn.pixabay.com/photo/2019/03/22/17/05/cat-4073717_640.jpg", bio: "I'm Pepper, a colorful Calico! 🌶️" },
+  },
+  {
+    email: "vote+15@iheartdogs.com",
+    name: "Scout Explorer",
+    dog: { name: "Scout", breed: "Bernese Mountain Dog", photo: "https://images.dog.ceo/breeds/mountain-bernese/n02107683_5425.jpg", bio: "I'm Scout, a gentle Bernese giant! 🏕️" },
+    cat: { name: "Tigger", breed: "Orange Tabby", photo: "https://cdn.pixabay.com/photo/2016/01/20/13/05/cat-1151519_640.jpg", bio: "I'm Tigger, always bouncing around! 🐯" },
+  },
+  {
+    email: "vote+16@iheartdogs.com",
+    name: "Chloe Buttons",
+    dog: { name: "Chloe", breed: "French Bulldog", photo: "https://images.dog.ceo/breeds/bulldog-french/n02108915_5482.jpg", bio: "I'm Chloe, a sassy Frenchie! 🎀" },
+    cat: { name: "Oreo", breed: "Tuxedo", photo: "https://cdn.pixabay.com/photo/2018/04/20/17/18/cat-3336579_640.jpg", bio: "I'm Oreo, black and white and loved all over! 🍪" },
+  },
+  {
+    email: "vote+17@iheartdogs.com",
+    name: "Charlie Waffles",
+    dog: { name: "Charlie", breed: "Cavalier King Charles", photo: "https://images.dog.ceo/breeds/spaniel-cocker/n02102318_5765.jpg", bio: "I'm Charlie, a royal Cavalier! 🧇" },
+    cat: { name: "Leo", breed: "Maine Coon", photo: "https://cdn.pixabay.com/photo/2021/10/19/10/56/cat-6723256_640.jpg", bio: "I'm Leo, a big fluffy Maine Coon! 🦁" },
+  },
+  {
+    email: "vote+18@iheartdogs.com",
+    name: "Ziggy Stardust",
+    dog: { name: "Ziggy", breed: "Dalmatian", photo: "https://images.dog.ceo/breeds/dalmatian/cooper2.jpg", bio: "I'm Ziggy, a spotted Dalmatian rockstar! ⭐" },
+    cat: { name: "Cinnamon", breed: "Abyssinian", photo: "https://cdn.pixabay.com/photo/2017/09/25/13/12/cat-2785241_640.jpg", bio: "I'm Cinnamon, a warm Abyssinian! 🍂" },
+  },
+  {
+    email: "vote+19@iheartdogs.com",
+    name: "Maple Autumn",
+    dog: { name: "Maple", breed: "Samoyed", photo: "https://images.dog.ceo/breeds/samoyed/n02111889_10032.jpg", bio: "I'm Maple, a fluffy cloud Samoyed! 🍁" },
+    cat: { name: "Snowball", breed: "White Persian", photo: "https://cdn.pixabay.com/photo/2018/11/30/05/17/kitten-3847422_640.jpg", bio: "I'm Snowball, a pure white Persian! ❄️" },
+  },
 ];
 
 export async function POST() {
@@ -42,14 +151,15 @@ export async function POST() {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const results: Array<{ email: string; status: string; userId?: string; petId?: string }> = [];
+  const results: Array<{ email: string; status: string; userId?: string; dogPetId?: string; catPetId?: string }> = [];
   const password = await bcrypt.hash("VoteToFeed2026!", 10);
+  const weekId = getCurrentWeekId();
 
   for (const account of SEED_ACCOUNTS) {
     try {
-      // Check if user exists
+      // Create or find user
       let user = await prisma.user.findUnique({ where: { email: account.email } });
-      
+
       if (!user) {
         user = await prisma.user.create({
           data: {
@@ -57,38 +167,121 @@ export async function POST() {
             name: account.name,
             password,
             role: "USER",
-            image: account.photo,
+            image: account.dog.photo,
             freeVotesRemaining: 999,
             paidVoteBalance: 999,
           },
         });
       }
 
-      // Check if pet exists for this user
-      const existingPet = await prisma.pet.findFirst({ where: { userId: user.id } });
-      
-      let pet = existingPet;
-      if (!pet) {
-        pet = await prisma.pet.create({
+      // Create or find DOG pet
+      let dogPet = await prisma.pet.findFirst({
+        where: { userId: user.id, type: "DOG" },
+      });
+
+      if (!dogPet) {
+        dogPet = await prisma.pet.create({
           data: {
-            name: account.name.split(" ")[0],
+            name: account.dog.name,
             type: "DOG",
-            breed: account.breed,
-            bio: `Hi! I'm ${account.name.split(" ")[0]}, a ${account.breed}! 🐾`,
+            breed: account.dog.breed,
+            bio: account.dog.bio,
             ownerName: account.name,
-            photos: [account.photo],
-            tags: [account.breed.toLowerCase(), "good-dog", "engagement"],
+            photos: [account.dog.photo],
+            tags: [account.dog.breed.toLowerCase(), "good-dog", "engagement"],
             isActive: true,
             userId: user.id,
           },
         });
+
+        // Auto-enter active DOG contests
+        const dogContests = await prisma.contest.findMany({
+          where: { isActive: true, petType: "DOG", endDate: { gte: new Date() } },
+          select: { id: true },
+        });
+        for (const contest of dogContests) {
+          await prisma.contestEntry.create({
+            data: { contestId: contest.id, petId: dogPet.id },
+          }).catch(() => {}); // ignore if already entered
+        }
+
+        // Create weekly stats
+        await prisma.petWeeklyStats.upsert({
+          where: { petId_weekId: { petId: dogPet.id, weekId } },
+          update: {},
+          create: { petId: dogPet.id, weekId },
+        });
+      } else {
+        // Update existing dog pet photo if it's a placeholder
+        if (!dogPet.photos || dogPet.photos.length === 0) {
+          await prisma.pet.update({
+            where: { id: dogPet.id },
+            data: { photos: [account.dog.photo] },
+          });
+        }
       }
 
-      results.push({ email: account.email, status: existingPet ? "exists" : "created", userId: user.id, petId: pet.id });
+      // Create or find CAT pet
+      let catPet = await prisma.pet.findFirst({
+        where: { userId: user.id, type: "CAT" },
+      });
+
+      if (!catPet) {
+        catPet = await prisma.pet.create({
+          data: {
+            name: account.cat.name,
+            type: "CAT",
+            breed: account.cat.breed,
+            bio: account.cat.bio,
+            ownerName: account.name,
+            photos: [account.cat.photo],
+            tags: [account.cat.breed.toLowerCase(), "good-cat", "engagement"],
+            isActive: true,
+            userId: user.id,
+          },
+        });
+
+        // Auto-enter active CAT contests
+        const catContests = await prisma.contest.findMany({
+          where: { isActive: true, petType: "CAT", endDate: { gte: new Date() } },
+          select: { id: true },
+        });
+        for (const contest of catContests) {
+          await prisma.contestEntry.create({
+            data: { contestId: contest.id, petId: catPet.id },
+          }).catch(() => {}); // ignore if already entered
+        }
+
+        // Create weekly stats
+        await prisma.petWeeklyStats.upsert({
+          where: { petId_weekId: { petId: catPet.id, weekId } },
+          update: {},
+          create: { petId: catPet.id, weekId },
+        });
+      } else {
+        // Update existing cat pet photo if it's a placeholder
+        if (!catPet.photos || catPet.photos.length === 0) {
+          await prisma.pet.update({
+            where: { id: catPet.id },
+            data: { photos: [account.cat.photo] },
+          });
+        }
+      }
+
+      results.push({
+        email: account.email,
+        status: "ok",
+        userId: user.id,
+        dogPetId: dogPet.id,
+        catPetId: catPet.id,
+      });
     } catch (error) {
       results.push({ email: account.email, status: `error: ${String(error)}` });
     }
   }
 
-  return NextResponse.json({ message: "Seed complete", results });
+  return NextResponse.json({
+    message: `Seed complete. ${results.filter(r => r.status === "ok").length}/${SEED_ACCOUNTS.length} accounts processed.`,
+    results,
+  });
 }
