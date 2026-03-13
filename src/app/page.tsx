@@ -108,10 +108,59 @@ async function getHomeData() {
   };
 }
 
+function HomePetSection({
+  title,
+  href,
+  pets,
+  animalType,
+}: {
+  title: string;
+  href: string;
+  pets: Array<{
+    id: string;
+    name: string;
+    ownerName: string;
+    state?: string | null;
+    photos: string[];
+    type: string;
+    weeklyVotes: number;
+    weeklyRank?: number | null;
+    isNew?: boolean;
+  }>;
+  animalType: string;
+}) {
+  return (
+    <section>
+      <div className="flex items-center justify-between gap-3 mb-6">
+        <h2 className="section-title">{title}</h2>
+        <Link href={href} className="text-sm font-medium text-brand-600 hover:text-brand-700 whitespace-nowrap">
+          View all &rarr;
+        </Link>
+      </div>
+
+      {pets.length > 0 ? (
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+          {pets.map((pet) => (
+            <PetCard key={pet.id} {...pet} animalType={animalType} />
+          ))}
+        </div>
+      ) : (
+        <div className="card p-10 text-center">
+          <p className="font-semibold text-surface-700">No pets yet</p>
+          <p className="text-sm text-surface-800 mt-1">Be the first to enter!</p>
+          <Link href="/pets/new" className="btn-primary mt-4">Add your pet</Link>
+        </div>
+      )}
+    </section>
+  );
+}
+
 export default async function HomePage() {
   const data = await getHomeData();
   const daysLeft = daysRemainingInWeek();
   const pets = data.popular.length ? data.popular : data.recent;
+  const topPets = (data.popular.length ? data.popular : data.recent).slice(0, 8);
+  const newPets = data.recent.slice(0, 8);
 
   return (
     <div className="min-h-screen">
@@ -216,7 +265,7 @@ export default async function HomePage() {
         <div className="md:hidden bg-white border-b border-surface-100 py-4">
           <div className="px-4 mb-3 flex items-center justify-between">
             <p className="text-base font-extrabold text-surface-900">🐾 This Week's Contestants</p>
-            <Link href="/leaderboard/national-dog" className="text-sm font-bold text-brand-600">See all →</Link>
+            <Link href="/pets?sort=popular" className="text-sm font-bold text-brand-600">See all →</Link>
           </div>
           <div className="flex gap-3 overflow-x-auto px-4 pb-1 scrollbar-hide" style={{scrollSnapType: "x mandatory"}}>
             {pets.slice(0, 12).map((pet) => (
@@ -336,28 +385,20 @@ export default async function HomePage() {
 
         <div className="mt-10 grid grid-cols-1 lg:grid-cols-4 gap-8">
           {/* Main content */}
-          <div className="lg:col-span-3">
-            <div className="flex items-center justify-between mb-6">
-              <h2 className="section-title">Top Pets This Week</h2>
-              <Link href="/leaderboard/DOG" className="text-sm font-medium text-brand-600 hover:text-brand-700">
-                View all &rarr;
-              </Link>
-            </div>
-            <div className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-4 gap-4">
-              {pets.map((pet) => (
-                <PetCard key={pet.id} {...pet} animalType={data.animalType} />
-              ))}
-            </div>
-            {pets.length === 0 && (
-              <div className="card p-16 text-center">
-                <div className="w-16 h-16 mx-auto rounded-2xl bg-surface-100 flex items-center justify-center mb-4">
-                  <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className="text-surface-800"><path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"/></svg>
-                </div>
-                <p className="font-semibold text-surface-700">No pets yet</p>
-                <p className="text-sm text-surface-800 mt-1">Be the first to enter!</p>
-                <Link href="/pets/new" className="btn-primary mt-4">Add your pet</Link>
-              </div>
-            )}
+          <div className="lg:col-span-3 space-y-10">
+            <HomePetSection
+              title="Top Pets This Week"
+              href="/pets?sort=popular"
+              pets={topPets}
+              animalType={data.animalType}
+            />
+
+            <HomePetSection
+              title="New Pets"
+              href="/pets?sort=recent"
+              pets={newPets}
+              animalType={data.animalType}
+            />
           </div>
 
           {/* Sidebar */}
