@@ -11,6 +11,27 @@ type VoteItem = {
   pet: { id: string; name: string; photos: string[]; type: string };
 };
 
+function VoteAvatar({ user }: { user: VoteItem["user"] }) {
+  const [hasError, setHasError] = useState(false);
+
+  if (!user.image || hasError) {
+    return (
+      <div className="w-7 h-7 rounded-full bg-brand-100 flex items-center justify-center flex-shrink-0 text-[10px] font-bold text-brand-600">
+        {(user.name || "?")[0].toUpperCase()}
+      </div>
+    );
+  }
+
+  return (
+    <img
+      src={user.image}
+      alt={user.name || "User avatar"}
+      className="w-7 h-7 rounded-full object-cover flex-shrink-0 ring-2 ring-white"
+      onError={() => setHasError(true)}
+    />
+  );
+}
+
 export function VoteFeed() {
   const [votes, setVotes] = useState<VoteItem[]>([]);
 
@@ -47,13 +68,7 @@ export function VoteFeed() {
                 href={`/pets/${v.pet.id}`}
                 className="flex items-center gap-3 px-5 py-3 hover:bg-surface-50 transition-colors"
               >
-                {v.user.image ? (
-                  <img src={v.user.image} alt="" className="w-7 h-7 rounded-full object-cover flex-shrink-0 ring-2 ring-white" />
-                ) : (
-                  <div className="w-7 h-7 rounded-full bg-brand-100 flex items-center justify-center flex-shrink-0 text-[10px] font-bold text-brand-600">
-                    {(v.user.name || "?")[0].toUpperCase()}
-                  </div>
-                )}
+                <VoteAvatar user={v.user} />
                 <div className="min-w-0 flex-1">
                   <p className="text-sm text-surface-700 truncate">
                     <span className="font-medium text-surface-900">{v.user.name || "Someone"}</span>
