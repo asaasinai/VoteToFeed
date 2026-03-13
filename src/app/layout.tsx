@@ -13,31 +13,44 @@ import { MetaPixel } from "@/components/providers/MetaPixel";
 const inter = Inter({ subsets: ["latin"], variable: "--font-inter" });
 const nunito = Nunito({ subsets: ["latin"], variable: "--font-nunito", weight: ["900"] });
 
+const siteUrl = process.env.NEXT_PUBLIC_APP_URL || "https://votetofeed.com";
+const siteTitle = "VoteToFeed – Pet Photo Contests & Shelter Support";
+const siteDescription =
+  "Vote for cute pets, win prize packs worth up to $2,000, and help feed shelter pets with every vote.";
+
 export const metadata: Metadata = {
-  metadataBase: new URL("https://votetofeed.com"),
-  title: "Vote to Feed – Pet Photo Contests & Shelter Support | Powered by iHeartDogs & iHeartCats",
-  description:
-    "Vote for adorable pets, win prize packs, and help feed shelter pets in need. Free weekly voting for everyone.",
+  metadataBase: new URL(siteUrl),
+  title: siteTitle,
+  description: siteDescription,
+  alternates: {
+    canonical: "/",
+  },
   openGraph: {
-    title: "Vote to Feed – Pet Photo Contests & Shelter Support",
-    description: "Vote for adorable pets. Feed shelter pets in need.",
-    url: "https://votetofeed.com",
-    type: "website",
+    title: siteTitle,
+    description: siteDescription,
+    url: siteUrl,
     siteName: "VoteToFeed",
+    type: "website",
     images: [
       {
-        url: "/og-image",
+        url: "/opengraph-image",
         width: 1200,
         height: 630,
-        alt: "VoteToFeed — Vote for adorable pets. Feed shelter pets.",
+        alt: "VoteToFeed share image",
       },
     ],
   },
   twitter: {
     card: "summary_large_image",
-    title: "Vote to Feed – Pet Photo Contests & Shelter Support",
-    description: "Vote for adorable pets. Feed shelter pets in need.",
-    images: ["/og-image"],
+    title: siteTitle,
+    description: siteDescription,
+    images: ["/twitter-image"],
+  },
+  icons: {
+    icon: [
+      { url: "/favicon.ico", sizes: "64x64", type: "image/x-icon" },
+      { url: "/icon", sizes: "32x32", type: "image/png" },
+    ],
   },
   other: {
     "fb:app_id": "949563544407594",
