@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
 import { useSession } from "next-auth/react";
 import Link from "next/link";
 import { trackMetaPixel } from "@/lib/meta-pixel";
@@ -35,11 +35,42 @@ export function VoteButton({
   const [lastVoteType, setLastVoteType] = useState<"free" | "paid" | null>(null);
   const [animating, setAnimating] = useState(false);
 
+  useEffect(() => {
+    if (status === "loading") return;
+
+    let ignore = false;
+
+    const loadRemainingVotes = async () => {
+      try {
+        const res = await fetch("/api/votes/remaining", { cache: "no-store" });
+        if (!res.ok) return;
+
+        const data = await res.json();
+        if (ignore) return;
+
+        setFreeVotes(data.freeVotesRemaining ?? 0);
+        setPaidVotes(data.paidVoteBalance ?? 0);
+      } catch {
+        // Non-blocking UI enhancement.
+      }
+    };
+
+    loadRemainingVotes();
+
+    return () => {
+      ignore = true;
+    };
+  }, [status]);
+
   const hasVotes = freeVotes > 0 || paidVotes > 0;
 
   const handleVote = useCallback(async () => {
     if (!hasVotes) {
-      setShowPurchase(true);
+      if (status === "authenticated") {
+        setShowPurchase(true);
+      } else {
+        alert("You've used your 3 free votes this week");
+      }
       return;
     }
 
@@ -53,7 +84,6 @@ export function VoteButton({
       });
       const data = await res.json();
       if (res.ok) {
-        // Update all counts from server response
         setVoteCount(data.pet.weeklyVotes);
         setFreeVotes(data.user.freeVotesRemaining);
         setPaidVotes(data.user.paidVoteBalance);
@@ -62,14 +92,13 @@ export function VoteButton({
           petId,
           voteType: data.vote.type,
           weeklyVotes: data.pet.weeklyVotes,
+          isAnonymous: data.vote.isAnonymous || false,
         });
 
-        // Trigger pop animation
         setAnimating(true);
         setTimeout(() => setAnimating(false), 600);
 
-        // Check if no votes left after this
-        if (data.user.freeVotesRemaining === 0 && data.user.paidVoteBalance === 0) {
+        if (data.user.freeVotesRemaining === 0 && data.user.paidVoteBalance === 0 && status === "authenticated") {
           setTimeout(() => setShowPurchase(true), 1500);
         }
       } else if (data.error === "No votes available") {
@@ -77,6 +106,10 @@ export function VoteButton({
         setPaidVotes(data.paidVoteBalance || 0);
         setShowPurchase(true);
       } else {
+        if (typeof data.remainingAnonymousVotes === "number") {
+          setFreeVotes(data.remainingAnonymousVotes);
+          setPaidVotes(0);
+        }
         alert(data.error || "Vote failed");
       }
     } catch {
@@ -84,22 +117,7 @@ export function VoteButton({
     } finally {
       setLoading(false);
     }
-  }, [hasVotes, petId]);
-
-  if (status === "unauthenticated") {
-    return (
-      <div className="space-y-3">
-        <VoteStats voteCount={voteCount} animalType={animalType} weeklyRank={weeklyRank} petType={petType} animating={false} />
-        <Link
-          href={`/auth/signin?callbackUrl=/pets/${petId}`}
-          className="flex items-center justify-center gap-2.5 w-full min-h-[64px] bg-brand-500 text-white rounded-2xl text-xl font-bold hover:bg-brand-600 transition-all shadow-sm hover:shadow-md"
-        >
-          <HeartIcon />
-          Sign in to vote
-        </Link>
-      </div>
-    );
-  }
+  }, [hasVotes, petId, status]);
 
   if (isOwner) {
     return (
@@ -115,10 +133,8 @@ export function VoteButton({
 
   return (
     <div className="space-y-3">
-      {/* Live vote count */}
       <VoteStats voteCount={voteCount} animalType={animalType} weeklyRank={weeklyRank} petType={petType} animating={animating} />
 
-      {/* Vote button — always available to click again */}
       <button
         onClick={handleVote}
         disabled={loading}
@@ -137,7 +153,6 @@ export function VoteButton({
         )}
       </button>
 
-      {/* Success flash */}
       {lastVoteType && !loading && (
         <p className="text-center text-sm font-medium animate-slide-up" key={voteCount}>
           <span className="text-accent-600">
@@ -148,12 +163,12 @@ export function VoteButton({
         </p>
       )}
 
-      {/* Vote balance */}
-      <div className="flex items-center justify-center gap-3 text-xs text-surface-500">
+      <div className="flex items-center justify-center gap-3 text-xs text-surface-500 flex-wrap">
         {freeVotes > 0 && (
           <span className="flex items-center gap-1">
             <span className="w-1.5 h-1.5 rounded-full bg-accent-500" />
             {freeVotes} free vote{freeVotes !== 1 ? "s" : ""}
+            {status !== "authenticated" ? " left this week" : ""}
           </span>
         )}
         {paidVotes > 0 && (
@@ -163,7 +178,9 @@ export function VoteButton({
           </span>
         )}
         {freeVotes === 0 && paidVotes === 0 && (
-          <span className="text-surface-400">No votes remaining</span>
+          <span className="text-surface-400">
+            {status === "authenticated" ? "No votes remaining" : "You've used your 3 free votes this week"}
+          </span>
         )}
       </div>
 
@@ -171,7 +188,15 @@ export function VoteButton({
         Every vote helps feed shelter pets in need
       </p>
 
-      {/* Purchase prompt */}
+      {status !== "authenticated" && (
+        <p className="text-center text-xs text-surface-500">
+          Want more than 3 free votes?{" "}
+          <Link href={`/auth/signin?callbackUrl=/pets/${petId}`} className="font-semibold text-brand-600 hover:underline">
+            Create an account
+          </Link>
+        </p>
+      )}
+
       {showPurchase && (
         <div className="card p-4 border-brand-200 bg-brand-50 text-center animate-slide-up">
           <p className="text-sm font-medium text-surface-800">
@@ -187,7 +212,6 @@ export function VoteButton({
   );
 }
 
-// Sub-component: live vote stats card
 function VoteStats({
   voteCount,
   animalType,
@@ -216,14 +240,14 @@ function VoteStats({
       </p>
       {weeklyRank != null && weeklyRank > 0 && (
         <p className="text-lg font-semibold text-surface-500 mt-1">
-          {rankSuffix(weeklyRank)} in National {petType === "DOG" ? "Dog" : "Cat"} Contest
+          {rankSuffix(weeklyRank)} in National {petType === "DOG" ? "Dog" : petType === "CAT" ? "Cat" : "Pet"} Contest
         </p>
       )}
       <div className="mt-3 pt-3 border-t border-surface-100">
         <p className="text-xs text-accent-600 font-medium">
           {voteCount > 0
-            ? `${voteCount} votes for shelter pets`
-            : `Vote to help shelter pets`}
+            ? `${voteCount} votes for shelter ${animalType}`
+            : `Vote to help shelter ${animalType}`}
         </p>
       </div>
     </div>

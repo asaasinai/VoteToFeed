@@ -127,6 +127,7 @@ model Pet {
   user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   votes          Vote[]
+  anonymousVotes AnonymousVote[]
   comments       Comment[]
   contestEntries ContestEntry[]
   productDesigns ProductDesign[]
@@ -164,6 +165,21 @@ model Vote {
   @@index([userId, contestWeek])
   @@index([createdAt])
   @@index([contestWeek])
+}
+
+model AnonymousVote {
+  id          String   @id @default(cuid())
+  petId       String
+  ipAddress   String
+  userAgent   String?
+  contestWeek String
+  createdAt   DateTime @default(now())
+
+  pet Pet @relation(fields: [petId], references: [id], onDelete: Cascade)
+
+  @@index([ipAddress, createdAt])
+  @@index([contestWeek])
+  @@index([petId, contestWeek])
 }
 
 enum VoteType {
