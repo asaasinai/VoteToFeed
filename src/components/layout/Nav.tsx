@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useSession, signOut } from "next-auth/react";
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback, type RefObject } from "react";
 
 type NavContest = {
   id: string;
@@ -16,6 +16,36 @@ type NavContest = {
   isFeatured: boolean;
   hasEnded: boolean;
 };
+
+function useDropdownAutoClose(
+  ref: RefObject<HTMLElement | null>,
+  isOpen: boolean,
+  onClose: () => void,
+) {
+  useEffect(() => {
+    if (!isOpen) return;
+
+    function handlePointerOrFocus(event: PointerEvent | FocusEvent) {
+      if (!ref.current?.contains(event.target as Node)) {
+        onClose();
+      }
+    }
+
+    function handleEscape(event: KeyboardEvent) {
+      if (event.key === "Escape") onClose();
+    }
+
+    document.addEventListener("pointerdown", handlePointerOrFocus);
+    document.addEventListener("focusin", handlePointerOrFocus);
+    document.addEventListener("keydown", handleEscape);
+
+    return () => {
+      document.removeEventListener("pointerdown", handlePointerOrFocus);
+      document.removeEventListener("focusin", handlePointerOrFocus);
+      document.removeEventListener("keydown", handleEscape);
+    };
+  }, [isOpen, onClose, ref]);
+}
 
 export function Nav({
   shelterCount,
@@ -33,6 +63,15 @@ export function Nav({
   const [contests, setContests] = useState<NavContest[]>([]);
   const contestRef = useRef<HTMLDivElement>(null);
   const leaderboardRef = useRef<HTMLDivElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
+
+  const closeContests = useCallback(() => setContestsOpen(false), []);
+  const closeLeaderboard = useCallback(() => setLeaderboardOpen(false), []);
+  const closeMenu = useCallback(() => setMenuOpen(false), []);
+
+  useDropdownAutoClose(contestRef, contestsOpen, closeContests);
+  useDropdownAutoClose(leaderboardRef, leaderboardOpen, closeLeaderboard);
+  useDropdownAutoClose(menuRef, menuOpen, closeMenu);
 
   // Fetch active contests for the dropdown
   useEffect(() => {
@@ -76,7 +115,7 @@ export function Nav({
         {/* Desktop nav */}
         <nav className="hidden md:flex items-center gap-1">
           {/* Contests dropdown */}
-          <div className="relative" ref={contestRef}>
+          <div className="relative" ref={contestRef} onMouseLeave={closeContests}>
             <button
               onClick={() => setContestsOpen(!contestsOpen)}
               className="btn-ghost text-surface-800 flex items-center gap-1"
@@ -90,62 +129,59 @@ export function Nav({
               )}
             </button>
             {contestsOpen && (
-              <>
-                <div className="fixed inset-0 z-10" onClick={() => setContestsOpen(false)} />
-                <div className="absolute left-0 mt-2 w-[380px] bg-white rounded-xl shadow-lg border border-surface-200/80 z-20 animate-fade-in overflow-hidden">
-                  <div className="px-4 pt-3 pb-2 border-b border-surface-100">
-                    <p className="text-xs font-medium text-surface-800 uppercase tracking-wider">Active Contests</p>
-                  </div>
-                  <div className="max-h-[400px] overflow-y-auto">
-                    {contests.length === 0 ? (
-                      <p className="px-4 py-6 text-sm text-surface-800 text-center">No active contests right now.</p>
-                    ) : (
-                      contests.map((c) => (
-                        <Link
-                          key={c.id}
-                          href={`/contests/${c.id}`}
-                          className="flex items-start gap-3 px-4 py-3 hover:bg-surface-50 transition-colors border-b border-surface-50 last:border-0"
-                          onClick={() => setContestsOpen(false)}
-                        >
-                          {c.coverImage ? (
-                            <img src={c.coverImage} alt="" className="w-12 h-12 rounded-lg object-cover flex-shrink-0" />
-                          ) : (
-                            <div className="w-12 h-12 rounded-lg bg-surface-100 flex items-center justify-center flex-shrink-0">
-                              <span className="text-lg">{c.petType === "DOG" ? "🐶" : "🐱"}</span>
-                            </div>
-                          )}
-                          <div className="flex-1 min-w-0">
-                            <div className="flex items-center gap-1.5 flex-wrap">
-                              <span className="text-sm font-semibold text-surface-900 truncate">{c.name}</span>
-                              {c.isFeatured && <span className="text-[8px] font-bold uppercase px-1.5 py-0.5 rounded bg-yellow-100 text-yellow-700">Featured</span>}
-                            </div>
-                            <div className="flex items-center gap-2 mt-0.5 text-xs text-surface-700">
-                              <span className={`font-bold uppercase tracking-wider px-1.5 py-0.5 rounded text-[9px] ${contestTypeBadgeColor(c.type)}`}>
-                                {contestTypeLabel(c.type)}
-                              </span>
-                              <span>{c.daysLeft}d left</span>
-                              <span>{c.entryCount} entries</span>
-                              {c.totalPrizeValue > 0 && (
-                                <span className="text-emerald-600 font-medium">${(c.totalPrizeValue / 100).toLocaleString()}</span>
-                              )}
-                            </div>
-                          </div>
-                        </Link>
-                      ))
-                    )}
-                  </div>
-                  <div className="border-t border-surface-100 px-4 py-2.5">
-                    <Link href="/contests" className="text-xs font-medium text-brand-600 hover:text-brand-700" onClick={() => setContestsOpen(false)}>
-                      View all contests &rarr;
-                    </Link>
-                  </div>
+              <div className="absolute left-0 mt-2 w-[380px] bg-white rounded-xl shadow-lg border border-surface-200/80 z-20 animate-fade-in overflow-hidden">
+                <div className="px-4 pt-3 pb-2 border-b border-surface-100">
+                  <p className="text-xs font-medium text-surface-800 uppercase tracking-wider">Active Contests</p>
                 </div>
-              </>
+                <div className="max-h-[400px] overflow-y-auto">
+                  {contests.length === 0 ? (
+                    <p className="px-4 py-6 text-sm text-surface-800 text-center">No active contests right now.</p>
+                  ) : (
+                    contests.map((c) => (
+                      <Link
+                        key={c.id}
+                        href={`/contests/${c.id}`}
+                        className="flex items-start gap-3 px-4 py-3 hover:bg-surface-50 transition-colors border-b border-surface-50 last:border-0"
+                        onClick={closeContests}
+                      >
+                        {c.coverImage ? (
+                          <img src={c.coverImage} alt="" className="w-12 h-12 rounded-lg object-cover flex-shrink-0" />
+                        ) : (
+                          <div className="w-12 h-12 rounded-lg bg-surface-100 flex items-center justify-center flex-shrink-0">
+                            <span className="text-lg">{c.petType === "DOG" ? "🐶" : "🐱"}</span>
+                          </div>
+                        )}
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            <span className="text-sm font-semibold text-surface-900 truncate">{c.name}</span>
+                            {c.isFeatured && <span className="text-[8px] font-bold uppercase px-1.5 py-0.5 rounded bg-yellow-100 text-yellow-700">Featured</span>}
+                          </div>
+                          <div className="flex items-center gap-2 mt-0.5 text-xs text-surface-700">
+                            <span className={`font-bold uppercase tracking-wider px-1.5 py-0.5 rounded text-[9px] ${contestTypeBadgeColor(c.type)}`}>
+                              {contestTypeLabel(c.type)}
+                            </span>
+                            <span>{c.daysLeft}d left</span>
+                            <span>{c.entryCount} entries</span>
+                            {c.totalPrizeValue > 0 && (
+                              <span className="text-emerald-600 font-medium">${(c.totalPrizeValue / 100).toLocaleString()}</span>
+                            )}
+                          </div>
+                        </div>
+                      </Link>
+                    ))
+                  )}
+                </div>
+                <div className="border-t border-surface-100 px-4 py-2.5">
+                  <Link href="/contests" className="text-xs font-medium text-brand-600 hover:text-brand-700" onClick={closeContests}>
+                    View all contests &rarr;
+                  </Link>
+                </div>
+              </div>
             )}
           </div>
 
           {/* Leaderboard dropdown with Winners underneath */}
-          <div className="relative" ref={leaderboardRef}>
+          <div className="relative" ref={leaderboardRef} onMouseLeave={closeLeaderboard}>
             <button
               onClick={() => setLeaderboardOpen(!leaderboardOpen)}
               className="btn-ghost text-surface-800 flex items-center gap-1"
@@ -154,24 +190,21 @@ export function Nav({
               <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className={`transition-transform ${leaderboardOpen ? "rotate-180" : ""}`}><path d="M6 9l6 6 6-6"/></svg>
             </button>
             {leaderboardOpen && (
-              <>
-                <div className="fixed inset-0 z-10" onClick={() => setLeaderboardOpen(false)} />
-                <div className="absolute left-0 mt-2 w-52 bg-white rounded-xl shadow-lg border border-surface-200/80 z-20 animate-fade-in overflow-hidden py-1.5">
-                  <Link href="/leaderboard/DOG" className="flex items-center gap-2.5 px-4 py-2.5 text-sm text-surface-700 hover:bg-surface-50 transition-colors" onClick={() => setLeaderboardOpen(false)}>
-                    <span className="text-base">🐶</span>
-                    Dog Leaderboard
-                  </Link>
-                  <Link href="/leaderboard/CAT" className="flex items-center gap-2.5 px-4 py-2.5 text-sm text-surface-700 hover:bg-surface-50 transition-colors" onClick={() => setLeaderboardOpen(false)}>
-                    <span className="text-base">🐱</span>
-                    Cat Leaderboard
-                  </Link>
-                  <div className="border-t border-surface-100 my-1" />
-                  <Link href="/winners" className="flex items-center gap-2.5 px-4 py-2.5 text-sm text-surface-700 hover:bg-surface-50 transition-colors" onClick={() => setLeaderboardOpen(false)}>
-                    <span className="text-base">🏆</span>
-                    Winners
-                  </Link>
-                </div>
-              </>
+              <div className="absolute left-0 mt-2 w-52 bg-white rounded-xl shadow-lg border border-surface-200/80 z-20 animate-fade-in overflow-hidden py-1.5">
+                <Link href="/leaderboard/DOG" className="flex items-center gap-2.5 px-4 py-2.5 text-sm text-surface-700 hover:bg-surface-50 transition-colors" onClick={closeLeaderboard}>
+                  <span className="text-base">🐶</span>
+                  Dog Leaderboard
+                </Link>
+                <Link href="/leaderboard/CAT" className="flex items-center gap-2.5 px-4 py-2.5 text-sm text-surface-700 hover:bg-surface-50 transition-colors" onClick={closeLeaderboard}>
+                  <span className="text-base">🐱</span>
+                  Cat Leaderboard
+                </Link>
+                <div className="border-t border-surface-100 my-1" />
+                <Link href="/winners" className="flex items-center gap-2.5 px-4 py-2.5 text-sm text-surface-700 hover:bg-surface-50 transition-colors" onClick={closeLeaderboard}>
+                  <span className="text-base">🏆</span>
+                  Winners
+                </Link>
+              </div>
             )}
           </div>
 
@@ -205,7 +238,7 @@ export function Nav({
           {status === "loading" ? (
             <div className="w-9 h-9 rounded-full bg-surface-100 animate-pulse" />
           ) : session ? (
-            <div className="relative">
+            <div className="relative" ref={menuRef} onMouseLeave={closeMenu}>
               <button
                 onClick={() => setMenuOpen(!menuOpen)}
                 className="flex items-center gap-2 rounded-full p-1 pr-3 border border-surface-200 hover:border-surface-300 hover:bg-surface-50 transition-all min-h-[44px]"
@@ -223,32 +256,29 @@ export function Nav({
                 <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className="text-surface-800"><path d="M6 9l6 6 6-6"/></svg>
               </button>
               {menuOpen && (
-                <>
-                  <div className="fixed inset-0 z-10" onClick={() => setMenuOpen(false)} />
-                  <div className="absolute right-0 mt-2 w-52 py-1.5 bg-white rounded-xl shadow-lg border border-surface-200/80 z-20 animate-fade-in">
-                    <div className="px-3.5 py-2 border-b border-surface-100">
-                      <p className="text-sm font-semibold text-surface-900">{session.user?.name}</p>
-                      <p className="text-xs text-surface-700 truncate">{session.user?.email}</p>
-                    </div>
-                    <Link href="/dashboard" className="flex items-center gap-2.5 px-3.5 py-2.5 text-sm text-surface-700 hover:bg-surface-50" onClick={() => setMenuOpen(false)}>
-                      My Pets
-                    </Link>
-                    <Link href="/dashboard#votes" className="flex items-center gap-2.5 px-3.5 py-2.5 text-sm text-surface-700 hover:bg-surface-50" onClick={() => setMenuOpen(false)}>
-                      Buy Votes
-                    </Link>
-                    {(session.user as Record<string, unknown>)?.role === "ADMIN" && (
-                      <Link href="/admin" className="flex items-center gap-2.5 px-3.5 py-2.5 text-sm text-red-600 hover:bg-red-50" onClick={() => setMenuOpen(false)}>
-                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 01-2.83 2.83l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg>
-                        Admin
-                      </Link>
-                    )}
-                    <div className="border-t border-surface-100 mt-1 pt-1">
-                      <button onClick={() => signOut()} className="flex items-center gap-2.5 w-full px-3.5 py-2.5 text-sm text-red-600 hover:bg-red-50">
-                        Log out
-                      </button>
-                    </div>
+                <div className="absolute right-0 mt-2 w-52 py-1.5 bg-white rounded-xl shadow-lg border border-surface-200/80 z-20 animate-fade-in">
+                  <div className="px-3.5 py-2 border-b border-surface-100">
+                    <p className="text-sm font-semibold text-surface-900">{session.user?.name}</p>
+                    <p className="text-xs text-surface-700 truncate">{session.user?.email}</p>
                   </div>
-                </>
+                  <Link href="/dashboard" className="flex items-center gap-2.5 px-3.5 py-2.5 text-sm text-surface-700 hover:bg-surface-50" onClick={closeMenu}>
+                    My Pets
+                  </Link>
+                  <Link href="/dashboard#votes" className="flex items-center gap-2.5 px-3.5 py-2.5 text-sm text-surface-700 hover:bg-surface-50" onClick={closeMenu}>
+                    Buy Votes
+                  </Link>
+                  {(session.user as Record<string, unknown>)?.role === "ADMIN" && (
+                    <Link href="/admin" className="flex items-center gap-2.5 px-3.5 py-2.5 text-sm text-red-600 hover:bg-red-50" onClick={closeMenu}>
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 01-2.83 2.83l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg>
+                      Admin
+                    </Link>
+                  )}
+                  <div className="border-t border-surface-100 mt-1 pt-1">
+                    <button onClick={() => { closeMenu(); signOut(); }} className="flex items-center gap-2.5 w-full px-3.5 py-2.5 text-sm text-red-600 hover:bg-red-50">
+                      Log out
+                    </button>
+                  </div>
+                </div>
               )}
             </div>
           ) : (
