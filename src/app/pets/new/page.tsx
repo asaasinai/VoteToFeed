@@ -32,6 +32,7 @@ export default function NewPetPage() {
   const { status } = useSession();
   const router = useRouter();
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const breedDropdownRef = useRef<HTMLDivElement>(null);
 
   const [loading, setLoading] = useState(false);
   const [uploading, setUploading] = useState(false);
@@ -289,7 +290,15 @@ export default function NewPetPage() {
 
         {/* Breed Dropdown */}
         {form.type !== "OTHER" && (
-          <div className="relative">
+          <div
+            ref={breedDropdownRef}
+            className="relative"
+            onBlur={(e) => {
+              if (!e.currentTarget.contains(e.relatedTarget as Node | null)) {
+                setBreedDropdownOpen(false);
+              }
+            }}
+          >
             <label className="block text-sm font-medium text-surface-700 mb-1.5">Breed *</label>
             <div className="relative">
               <input
@@ -299,7 +308,10 @@ export default function NewPetPage() {
                   setBreedSearch(e.target.value);
                   if (!breedDropdownOpen) setBreedDropdownOpen(true);
                 }}
-                onFocus={() => { setBreedDropdownOpen(true); setBreedSearch(form.breed); }}
+                onFocus={() => {
+                  setBreedDropdownOpen(true);
+                  setBreedSearch(form.breed);
+                }}
                 placeholder={`Search ${form.type === "DOG" ? "dog" : "cat"} breeds...`}
                 className="input-field pr-10"
                 autoComplete="off"
@@ -307,32 +319,30 @@ export default function NewPetPage() {
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="absolute right-3 top-1/2 -translate-y-1/2 text-surface-400 pointer-events-none"><path d="M6 9l6 6 6-6"/></svg>
             </div>
             {breedDropdownOpen && (
-              <>
-                <div className="fixed inset-0 z-10" onClick={() => setBreedDropdownOpen(false)} />
-                <ul className="absolute z-20 mt-1 w-full max-h-60 overflow-y-auto bg-white border border-surface-200 rounded-xl shadow-lg py-1">
-                  {filteredBreeds.length === 0 ? (
-                    <li className="px-4 py-3 text-sm text-surface-400">No breeds found</li>
-                  ) : (
-                    filteredBreeds.map((b) => (
-                      <li key={b.id}>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setForm((f) => ({ ...f, breed: b.name }));
-                            setBreedSearch(b.name);
-                            setBreedDropdownOpen(false);
-                          }}
-                          className={`w-full text-left px-4 py-2.5 text-sm hover:bg-surface-50 transition-colors ${
-                            form.breed === b.name ? "bg-brand-50 text-brand-700 font-medium" : "text-surface-700"
-                          } ${b.name.startsWith("Other") ? "font-semibold border-b border-surface-100" : ""}`}
-                        >
-                          {b.name}
-                        </button>
-                      </li>
-                    ))
-                  )}
-                </ul>
-              </>
+              <ul className="absolute z-20 mt-1 w-full max-h-60 overflow-y-auto bg-white border border-surface-200 rounded-xl shadow-lg py-1">
+                {filteredBreeds.length === 0 ? (
+                  <li className="px-4 py-3 text-sm text-surface-400">No breeds found</li>
+                ) : (
+                  filteredBreeds.map((b) => (
+                    <li key={b.id}>
+                      <button
+                        type="button"
+                        onMouseDown={(e) => {
+                          e.preventDefault();
+                          setForm((f) => ({ ...f, breed: b.name }));
+                          setBreedSearch(b.name);
+                          setBreedDropdownOpen(false);
+                        }}
+                        className={`w-full text-left px-4 py-2.5 text-sm hover:bg-surface-50 transition-colors ${
+                          form.breed === b.name ? "bg-brand-50 text-brand-700 font-medium" : "text-surface-700"
+                        } ${b.name.startsWith("Other") ? "font-semibold border-b border-surface-100" : ""}`}
+                      >
+                        {b.name}
+                      </button>
+                    </li>
+                  ))
+                )}
+              </ul>
             )}
           </div>
         )}
