@@ -37,7 +37,7 @@ function useDropdownAutoClose(
   useEffect(() => {
     if (!isOpen) return;
 
-    function handlePointerOrFocus(event: PointerEvent | FocusEvent) {
+    function handlePointerDown(event: PointerEvent) {
       if (!ref.current?.contains(event.target as Node)) {
         onClose();
       }
@@ -47,13 +47,11 @@ function useDropdownAutoClose(
       if (event.key === "Escape") onClose();
     }
 
-    document.addEventListener("pointerdown", handlePointerOrFocus);
-    document.addEventListener("focusin", handlePointerOrFocus);
+    document.addEventListener("pointerdown", handlePointerDown);
     document.addEventListener("keydown", handleEscape);
 
     return () => {
-      document.removeEventListener("pointerdown", handlePointerOrFocus);
-      document.removeEventListener("focusin", handlePointerOrFocus);
+      document.removeEventListener("pointerdown", handlePointerDown);
       document.removeEventListener("keydown", handleEscape);
     };
   }, [isOpen, onClose, ref]);
@@ -357,11 +355,17 @@ export default function NewPetPage() {
               <input
                 type="text"
                 value={breedDropdownOpen ? breedSearch : form.breed}
+                onClick={() => {
+                  setBreedDropdownOpen((open) => {
+                    const nextOpen = !open;
+                    if (nextOpen) setBreedSearch(form.breed);
+                    return nextOpen;
+                  });
+                }}
                 onChange={(e) => {
                   setBreedSearch(e.target.value);
                   if (!breedDropdownOpen) setBreedDropdownOpen(true);
                 }}
-                onFocus={() => { setBreedDropdownOpen(true); setBreedSearch(form.breed); }}
                 placeholder={`Search ${form.type === "DOG" ? "dog" : "cat"} breeds...`}
                 className="input-field pr-10"
                 autoComplete="off"
