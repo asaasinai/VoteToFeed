@@ -14,23 +14,29 @@ const ACCEPTED_TYPES = new Set([
   "image/png",
   "image/gif",
   "image/webp",
-  "image/heic",
-  "image/heif",
 ]);
 
 const ACCEPTED_EXTENSIONS = new Set([
-  ".jpg", ".jpeg", ".png", ".gif", ".webp", ".heic", ".heif",
+  ".jpg", ".jpeg", ".png", ".gif", ".webp",
 ]);
+
+const HEIC_EXTENSIONS = new Set([".heic", ".heif"]);
+const HEIC_TYPES = new Set(["image/heic", "image/heif"]);
 
 const MAX_FILE_SIZE = 20 * 1024 * 1024; // 20MB per file
 const MAX_FILES = 10;
 
 function validateFile(file: File) {
   const ext = path.extname(file.name).toLowerCase();
-  const isValidType = ACCEPTED_TYPES.has(file.type) || ACCEPTED_EXTENSIONS.has(ext);
 
+  // HEIC/HEIF files cannot be displayed in browsers — reject with a helpful message
+  if (HEIC_EXTENSIONS.has(ext) || HEIC_TYPES.has(file.type)) {
+    return `HEIC/HEIF photos aren't supported yet. Please convert ${file.name} to JPG or PNG first (on iPhone: Settings → Camera → Formats → Most Compatible).`;
+  }
+
+  const isValidType = ACCEPTED_TYPES.has(file.type) || ACCEPTED_EXTENSIONS.has(ext);
   if (!isValidType) {
-    return `Unsupported file type: ${file.name}. Accepted: JPG, PNG, GIF, WebP, HEIC`;
+    return `Unsupported file type: ${file.name}. Accepted: JPG, PNG, GIF, WebP`;
   }
 
   if (file.size > MAX_FILE_SIZE) {
@@ -94,6 +100,15 @@ export async function POST(req: NextRequest) {
     }
 
     const useBlob = Boolean(process.env.BLOB_READ_WRITE_TOKEN);
+
+    // Vercel's filesystem is read-only in production — local disk fallback won't work
+    if (!useBlob && process.env.VERCEL) {
+      return NextResponse.json(
+        { error: "Image upload is not configured. Please contact support." },
+        { status: 503 }
+      );
+    }
+
     const urls: string[] = [];
 
     for (const file of files) {

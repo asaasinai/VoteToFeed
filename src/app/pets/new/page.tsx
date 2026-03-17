@@ -144,11 +144,16 @@ export default function NewPetPage() {
     if (remaining <= 0) { setError("Maximum 5 photos allowed"); return; }
 
     const selectedFiles = Array.from(files).slice(0, remaining);
-    const validExts = [".jpg", ".jpeg", ".png", ".gif", ".webp", ".heic", ".heif"];
+    const validExts = [".jpg", ".jpeg", ".png", ".gif", ".webp"];
+    const heicExts = [".heic", ".heif"];
     for (const file of selectedFiles) {
       const ext = file.name.toLowerCase().substring(file.name.lastIndexOf("."));
+      if (heicExts.includes(ext)) {
+        setError(`HEIC photos aren't supported. Please convert ${file.name} to JPG or PNG first (on iPhone: Settings → Camera → Formats → Most Compatible).`);
+        return;
+      }
       if (!validExts.includes(ext)) {
-        setError(`Unsupported file: ${file.name}. Use JPG, PNG, GIF, WebP, or HEIC.`);
+        setError(`Unsupported file: ${file.name}. Use JPG, PNG, GIF, or WebP.`);
         return;
       }
       if (file.size > 20 * 1024 * 1024) {
@@ -435,7 +440,7 @@ export default function NewPetPage() {
           )}
           {photos.length < 5 && (
             <div onClick={() => fileInputRef.current?.click()} className={`border-2 border-dashed rounded-xl p-6 text-center cursor-pointer transition-all ${uploading ? "border-brand-300 bg-brand-50" : "border-surface-200 hover:border-brand-300 hover:bg-brand-50/30"}`}>
-              <input ref={fileInputRef} type="file" multiple accept=".jpg,.jpeg,.png,.gif,.webp,.heic,.heif,image/jpeg,image/png,image/gif,image/webp,image/heic,image/heif" onChange={handleFileSelect} className="hidden" />
+              <input ref={fileInputRef} type="file" multiple accept=".jpg,.jpeg,.png,.gif,.webp,image/jpeg,image/png,image/gif,image/webp" onChange={handleFileSelect} className="hidden" />
               {uploading ? (
                 <div className="flex items-center justify-center gap-2">
                   <div className="w-5 h-5 rounded-full border-2 border-brand-500 border-t-transparent animate-spin" />
