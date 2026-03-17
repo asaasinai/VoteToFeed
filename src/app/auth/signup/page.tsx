@@ -12,6 +12,7 @@ function SignUpForm() {
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [success, setSuccess] = useState(false);
   const searchParams = useSearchParams();
   const callbackUrl = searchParams?.get("callbackUrl") || "/dashboard";
 
@@ -44,12 +45,47 @@ function SignUpForm() {
       }
 
       if (loginRes?.url) {
-        window.location.href = loginRes.url;
+        setSuccess(true);
+        setTimeout(() => { window.location.href = loginRes.url!; }, 4000);
       }
     } catch {
       setError("Something went wrong.");
       setLoading(false);
     }
+  }
+
+  if (success) {
+    return (
+      <div className="min-h-[70vh] flex items-center justify-center px-4">
+        <div className="w-full max-w-sm text-center">
+          <div className="w-16 h-16 mx-auto rounded-2xl bg-brand-500 flex items-center justify-center shadow-glow mb-6">
+            <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.5"><path d="M20 6L9 17l-5-5"/></svg>
+          </div>
+          <h2 className="text-2xl font-extrabold text-surface-900 mb-2">You're in! 🎉</h2>
+          <p className="text-surface-700 mb-6">Your account is ready. Taking you to your dashboard in a moment…</p>
+          <div className="rounded-2xl bg-brand-50 border border-brand-100 p-5 text-left space-y-3">
+            <p className="font-bold text-brand-700 text-sm flex items-center gap-2">
+              <span className="text-lg">📧</span> Check your email inbox now
+            </p>
+            <p className="text-sm text-surface-700">We'll send you contest updates, vote alerts, and rank notifications. To make sure they land:</p>
+            <ul className="space-y-2 text-sm text-surface-700">
+              <li className="flex items-start gap-2">
+                <span className="text-brand-500 font-bold mt-0.5">1.</span>
+                <span>Open the welcome email from <strong>noreply@votetofeed.com</strong></span>
+              </li>
+              <li className="flex items-start gap-2">
+                <span className="text-brand-500 font-bold mt-0.5">2.</span>
+                <span>If it's in spam — move it to your inbox</span>
+              </li>
+              <li className="flex items-start gap-2">
+                <span className="text-brand-500 font-bold mt-0.5">3.</span>
+                <span>⭐ Star it so contest alerts never get buried</span>
+              </li>
+            </ul>
+          </div>
+        </div>
+      </div>
+    );
   }
 
   return (

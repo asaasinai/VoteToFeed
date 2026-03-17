@@ -17,8 +17,21 @@ function appUrl() {
 
 function emailShell(content: string) {
   return `
-    <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; color: #111827; line-height: 1.6;">
-      ${content}
+    <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; background: #FAFAFA; border-radius: 12px; overflow: hidden;">
+      <!-- Header -->
+      <div style="background: #EF4444; padding: 20px 32px; text-align: center;">
+        <span style="color: white; font-size: 22px; font-weight: 800; letter-spacing: -0.5px;">❤️ VoteToFeed</span>
+        <p style="color: rgba(255,255,255,0.85); margin: 4px 0 0; font-size: 13px;">Every vote feeds a shelter pet</p>
+      </div>
+      <!-- Body -->
+      <div style="background: #ffffff; padding: 32px; color: #171717; line-height: 1.65;">
+        ${content}
+      </div>
+      <!-- Footer -->
+      <div style="padding: 20px 32px; text-align: center; color: #737373; font-size: 12px; background: #FAFAFA; border-top: 1px solid #E5E5E5;">
+        VoteToFeed &nbsp;·&nbsp; <a href="${appUrl()}" style="color: #EF4444; text-decoration: none;">votetofeed.com</a>
+        <br/><span style="font-size: 11px; color: #A3A3A3;">You're receiving this because you have an account on VoteToFeed.</span>
+      </div>
     </div>
   `;
 }
@@ -26,7 +39,7 @@ function emailShell(content: string) {
 function ctaButton(label: string, href: string) {
   return `
     <a href="${href}"
-       style="display: inline-block; padding: 12px 24px; background: #F97316; color: white; text-decoration: none; border-radius: 8px; margin-top: 16px; margin-right: 12px; font-weight: 700;">
+       style="display: inline-block; padding: 13px 26px; background: #EF4444; color: white; text-decoration: none; border-radius: 8px; margin-top: 16px; margin-right: 12px; font-weight: 700; font-size: 15px;">
       ${label}
     </a>
   `;
@@ -50,7 +63,7 @@ export async function sendVoteAlert(
     to: [to],
     subject: `Your pet ${petName} received a vote!`,
     html: emailShell(`
-      <h2 style="color: #F97316;">🐾 New Vote for ${petName}!</h2>
+      <h2 style="color: #EF4444;">🐾 New Vote for ${petName}!</h2>
       <p>${voterName} voted for ${petName}!</p>
       <p><strong>Total Votes:</strong> ${voteCount}</p>
       ${rank ? `<p><strong>Current Rank:</strong> #${rank}</p>` : ""}
@@ -72,7 +85,7 @@ export async function sendPurchaseConfirmation(
     to: [to],
     subject: `Purchase Confirmed - ${votes} Votes Added!`,
     html: emailShell(`
-      <h2 style="color: #F97316;">✅ ${votes} Votes Added to Your Account!</h2>
+      <h2 style="color: #EF4444;">✅ ${votes} Votes Added to Your Account!</h2>
       <p>Thank you for your purchase of <strong>$${(amount / 100).toFixed(2)}</strong>.</p>
       <p style="color: #16A34A; font-size: 18px;">
         Your purchase helps feed <strong>${Math.round(mealsProvided)}</strong> shelter pets in need!
@@ -93,7 +106,7 @@ export async function sendFreeVoteReminder(
     to: [to],
     subject: "Don't forget your free votes this week!",
     html: emailShell(`
-      <h2 style="color: #F97316;">🐾 Don't Forget Your Free Votes!</h2>
+      <h2 style="color: #EF4444;">🐾 Don't Forget Your Free Votes!</h2>
       <p>Hey ${userName}, you still have free votes available this week!</p>
       <p>Your votes help shelter pets in need.</p>
       ${streak > 0 ? `<p>🔥 You're on a <strong>${streak}-week voting streak</strong>! Keep it going!</p>` : ""}
@@ -121,9 +134,9 @@ export async function sendWeeklyDigest(
     to: [to],
     subject: "Your Weekly Vote to Feed Summary",
     html: emailShell(`
-      <h2 style="color: #F97316;">📊 Weekly Summary for ${userName}</h2>
+      <h2 style="color: #EF4444;">📊 Weekly Summary for ${userName}</h2>
       <table style="width: 100%; border-collapse: collapse; margin: 16px 0;">
-        <tr style="background: #F97316; color: white;">
+        <tr style="background: #EF4444; color: white;">
           <th style="padding: 8px;">Pet</th><th style="padding: 8px;">Votes</th><th style="padding: 8px;">Rank</th>
         </tr>
         ${petRows}
@@ -149,7 +162,7 @@ export async function sendWinnerNotification(
     to: [to],
     subject: `🏆 ${petName} Won ${label} - $${(prizeValue / 100).toLocaleString()} Prize Pack!`,
     html: emailShell(`
-      <h2 style="color: #FFD700;">🏆 Congratulations! ${petName} Won ${label}!</h2>
+      <h2 style="color: #EF4444;">🏆 Congratulations! ${petName} Won ${label}!</h2>
       <p style="font-size: 20px;">Prize Pack Value: <strong>$${(prizeValue / 100).toLocaleString()}</strong></p>
       <h3>Your Prize Pack Includes:</h3>
       <ul>
@@ -173,7 +186,7 @@ export async function sendContestCountdown(
     to: [to],
     subject: `⏰ ${daysLeft} days left — ${petName} is still in it!`,
     html: emailShell(`
-      <h2 style="color: #F97316;">⏰ ${daysLeft} day${daysLeft === 1 ? "" : "s"} left for ${petName}</h2>
+      <h2 style="color: #EF4444;">⏰ ${daysLeft} day${daysLeft === 1 ? "" : "s"} left for ${petName}</h2>
       <p>Hey ${userName}, <strong>${petName}</strong> is still competing in <strong>${contestName}</strong>.</p>
       <p>Current rank updates are coming in daily, and there is still time to climb. Every vote helps, every share matters, and every paid vote helps feed shelter pets in need.</p>
       <p><strong>Do this now:</strong> share ${petName}'s entry and rally supporters before the clock runs out.</p>
@@ -199,7 +212,7 @@ export async function sendDailyRankEmail(
     to: [to],
     subject: `${petName} is currently #${rank} — top 3 wins 👀`,
     html: emailShell(`
-      <h2 style="color: #F97316;">📈 ${petName} is currently #${rank}</h2>
+      <h2 style="color: #EF4444;">📈 ${petName} is currently #${rank}</h2>
       <p>Hey ${userName}, here's your latest update for <strong>${contestName}</strong>.</p>
       <p><strong>${petName}</strong> is ranked <strong>#${rank}</strong> out of <strong>${totalEntries}</strong> entries.</p>
       ${votesNeededForTop3 > 0
@@ -229,7 +242,7 @@ export async function sendContestReEntry(
     to: [to],
     subject: `${petName} was SO close… let's run it back 🐾`,
     html: emailShell(`
-      <h2 style="color: #F97316;">🐾 ${petName} was so close</h2>
+      <h2 style="color: #EF4444;">🐾 ${petName} was so close</h2>
       <p>Hey ${userName}, ${petName} made a strong run in <strong>${oldContestName}</strong> — and now it's time for another shot in <strong>${newContestName}</strong>.</p>
       <p>Your re-entry link will auto-fill the entry, place ${petName} into the next contest, and still let you update the photo afterward.</p>
       ${ctaButton("Re-Enter ${petName}", reentryUrl)}
@@ -260,7 +273,7 @@ export async function sendContestWinner(
     to: [to],
     subject,
     html: emailShell(`
-      <h2 style="color: ${placement === 1 ? "#FFD700" : "#F97316"};">
+      <h2 style="color: ${placement === 1 ? "#B91C1C" : "#EF4444"};">
         ${placement === 0 ? `🎉 ${petName} is our Random Winner!` : `🏆 ${petName} won ${rankSuffix(placement)} place!`}
       </h2>
       <p><strong>${petName}</strong> placed in <strong>${contestName}</strong>.</p>
