@@ -1,5 +1,6 @@
 import Link from "next/link";
 import prisma from "@/lib/prisma";
+import { formatDisplayName } from "@/lib/utils";
 
 export default async function WinnersPage() {
   const prizes = await prisma.prize.findMany({
@@ -15,7 +16,7 @@ export default async function WinnersPage() {
   const pets = winnerIds.length
     ? await prisma.pet.findMany({
         where: { id: { in: winnerIds } },
-        select: { id: true, name: true, photos: true, ownerName: true, type: true },
+        select: { id: true, name: true, photos: true, ownerName: true, ownerFirstName: true, ownerLastName: true, type: true },
       })
     : [];
   const petMap = Object.fromEntries(pets.map((p) => [p.id, p]));
@@ -55,7 +56,7 @@ export default async function WinnersPage() {
                   {pet && (
                     <>
                       <p className="font-bold text-surface-900">{pet.name}</p>
-                      <p className="text-sm text-surface-500">{pet.ownerName}</p>
+                      <p className="text-sm text-surface-500">{formatDisplayName(pet.ownerFirstName, pet.ownerLastName, pet.ownerName)}</p>
                     </>
                   )}
                   <p className="text-brand-600 font-semibold mt-2">

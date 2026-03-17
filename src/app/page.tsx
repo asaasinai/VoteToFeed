@@ -5,7 +5,7 @@ import { ShelterBanner } from "@/components/layout/ShelterBanner";
 import { VoteFeed } from "@/components/voting/VoteFeed";
 import { getAnimalType, getWeeklyVoteGoal, getFreeVotesConfig } from "@/lib/admin-settings";
 import prisma from "@/lib/prisma";
-import { getCurrentWeekId, getWeekDateRange, daysRemainingInWeek } from "@/lib/utils";
+import { getCurrentWeekId, getWeekDateRange, daysRemainingInWeek, formatDisplayName } from "@/lib/utils";
 
 async function getHomeData() {
   const weekId = getCurrentWeekId();
@@ -72,7 +72,7 @@ async function getHomeData() {
     recent: recentPets.map((p) => ({
       id: p.id,
       name: p.name,
-      ownerName: p.ownerName,
+      ownerName: formatDisplayName(p.ownerFirstName, p.ownerLastName, p.ownerName),
       state: p.state,
       photos: p.photos,
       type: p.type,
@@ -83,7 +83,7 @@ async function getHomeData() {
     popular: popularPets.map((s, i) => ({
       id: s.pet.id,
       name: s.pet.name,
-      ownerName: s.pet.ownerName,
+      ownerName: formatDisplayName(s.pet.ownerFirstName, s.pet.ownerLastName, s.pet.ownerName),
       state: s.pet.state,
       photos: s.pet.photos,
       type: s.pet.type,

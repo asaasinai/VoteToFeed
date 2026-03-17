@@ -1,3 +1,23 @@
+// Format owner display name as "First L." (e.g. "Justin P.")
+export function formatDisplayName(
+  ownerFirstName?: string | null,
+  ownerLastName?: string | null,
+  ownerName?: string | null
+): string {
+  if (ownerFirstName) {
+    const last = ownerLastName?.trim();
+    return last ? `${ownerFirstName} ${last[0].toUpperCase()}.` : ownerFirstName;
+  }
+  if (ownerName) {
+    const parts = ownerName.trim().split(/\s+/);
+    if (parts.length >= 2) {
+      return `${parts[0]} ${parts[parts.length - 1][0].toUpperCase()}.`;
+    }
+    return parts[0];
+  }
+  return "Anonymous";
+}
+
 // Simple class name merger
 export function cn(...inputs: (string | undefined | null | false)[]): string {
   return inputs.filter(Boolean).join(" ");

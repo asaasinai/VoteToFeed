@@ -307,8 +307,8 @@ export async function createBiWeeklyContest(
           {
             placement: 0,
             title: "Random Participant Prize",
-            value: 5000,
-            items: ["$50 Gift Card"],
+            value: 1000,
+            items: ["$10 Gift Card"],
           },
         ],
       },

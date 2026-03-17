@@ -3,7 +3,7 @@ import Link from "next/link";
 import prisma from "@/lib/prisma";
 import { PetCard } from "@/components/pets/PetCard";
 import { getAnimalType } from "@/lib/admin-settings";
-import { getCurrentWeekId } from "@/lib/utils";
+import { getCurrentWeekId, formatDisplayName } from "@/lib/utils";
 
 export const dynamic = "force-dynamic";
 
@@ -137,7 +137,7 @@ export default async function ContestDetailPage({
                     key={entry.pet.id}
                     id={entry.pet.id}
                     name={entry.pet.name}
-                    ownerName={entry.pet.ownerName}
+                    ownerName={formatDisplayName(entry.pet.ownerFirstName, entry.pet.ownerLastName, entry.pet.ownerName)}
                     state={entry.pet.state}
                     photos={entry.pet.photos}
                     type={entry.pet.type}

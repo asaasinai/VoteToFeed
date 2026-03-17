@@ -4,7 +4,7 @@ import { ShelterBanner } from "@/components/layout/ShelterBanner";
 import { getAnimalType, getWeeklyVoteGoal } from "@/lib/admin-settings";
 import prisma from "@/lib/prisma";
 import type { PetType } from "@prisma/client";
-import { getCurrentWeekId, getWeekDateRange } from "@/lib/utils";
+import { getCurrentWeekId, getWeekDateRange, formatDisplayName } from "@/lib/utils";
 
 type PetsPageProps = {
   searchParams: {
@@ -72,7 +72,7 @@ export default async function PetsPage({ searchParams }: PetsPageProps) {
     cards = entries.map((entry, index) => ({
       id: entry.pet.id,
       name: entry.pet.name,
-      ownerName: entry.pet.ownerName,
+      ownerName: formatDisplayName(entry.pet.ownerFirstName, entry.pet.ownerLastName, entry.pet.ownerName),
       state: entry.pet.state,
       photos: entry.pet.photos,
       type: entry.pet.type,
@@ -100,7 +100,7 @@ export default async function PetsPage({ searchParams }: PetsPageProps) {
     cards = pets.map((pet) => ({
       id: pet.id,
       name: pet.name,
-      ownerName: pet.ownerName,
+      ownerName: formatDisplayName(pet.ownerFirstName, pet.ownerLastName, pet.ownerName),
       state: pet.state,
       photos: pet.photos,
       type: pet.type,
