@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import Stripe from "stripe";
 import { getStripeAsync } from "@/lib/stripe";
 import prisma from "@/lib/prisma";
-import { sendPurchaseConfirmation } from "@/lib/sendgrid";
+import { sendPurchaseConfirmation } from "@/lib/email";
 import { getAnimalType } from "@/lib/admin-settings";
 
 async function findPurchase(metadata?: Record<string, string | undefined>, stripeSessionId?: string | null) {
