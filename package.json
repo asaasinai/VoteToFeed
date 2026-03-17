@@ -14,8 +14,10 @@
     "postinstall": "npx prisma generate"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.79.0",
     "@auth/prisma-adapter": "^2.0.0",
     "@prisma/client": "^6.0.0",
+    "@sendgrid/mail": "^8.1.6",
     "@stripe/stripe-js": "^4.0.0",
     "@vercel/blob": "^2.3.1",
     "bcryptjs": "^2.4.3",

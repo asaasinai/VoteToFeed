@@ -1,4 +1,5 @@
 import prisma from "@/lib/prisma";
+import { getContestLeaderboard } from "@/lib/contest-growth";
 
 function buildAddress(parts: Array<string | null | undefined>) {
   return parts.map((part) => part?.trim()).filter(Boolean).join(", ");
@@ -14,17 +15,6 @@ export async function ensureContestWinnersResolved(contestId?: string) {
       prizes: { some: {} },
     },
     include: {
-      entries: {
-        select: {
-          petId: true,
-          pet: {
-            select: {
-              id: true,
-              createdAt: true,
-            },
-          },
-        },
-      },
       prizes: {
         orderBy: { placement: "asc" },
       },
@@ -33,60 +23,36 @@ export async function ensureContestWinnersResolved(contestId?: string) {
 
   for (const contest of contests) {
     const unresolvedPrizes = contest.prizes.filter((prize) => !prize.winnerId);
-    if (unresolvedPrizes.length === 0 || contest.entries.length === 0) continue;
+    if (unresolvedPrizes.length === 0) continue;
 
-    const petIds = [...new Set(contest.entries.map((entry) => entry.petId))];
-    if (petIds.length === 0) continue;
-
-    const registeredVotes = await prisma.vote.groupBy({
-      by: ["petId"],
-      where: contest.weekId
-        ? { contestWeek: contest.weekId, petId: { in: petIds } }
-        : {
-            petId: { in: petIds },
-            createdAt: { gte: contest.startDate, lte: contest.endDate },
-          },
-      _sum: { quantity: true },
-      _count: { _all: true },
-    });
-
-    const anonymousVotes = await prisma.anonymousVote.groupBy({
-      by: ["petId"],
-      where: contest.weekId
-        ? { contestWeek: contest.weekId, petId: { in: petIds } }
-        : {
-            petId: { in: petIds },
-            createdAt: { gte: contest.startDate, lte: contest.endDate },
-          },
-      _count: { _all: true },
-    });
-
-    const totals = new Map<string, number>();
-    for (const petId of petIds) totals.set(petId, 0);
-
-    for (const vote of registeredVotes) {
-      totals.set(vote.petId, (totals.get(vote.petId) ?? 0) + (vote._sum.quantity ?? vote._count._all ?? 0));
-    }
-
-    for (const vote of anonymousVotes) {
-      totals.set(vote.petId, (totals.get(vote.petId) ?? 0) + vote._count._all);
-    }
-
-    const createdAtByPet = new Map(contest.entries.map((entry) => [entry.petId, entry.pet.createdAt.getTime()]));
-    const rankedPetIds = [...petIds].sort((a, b) => {
-      const totalDiff = (totals.get(b) ?? 0) - (totals.get(a) ?? 0);
-      if (totalDiff !== 0) return totalDiff;
-      return (createdAtByPet.get(a) ?? 0) - (createdAtByPet.get(b) ?? 0);
-    });
+    const leaderboard = await getContestLeaderboard(contest.id);
+    if (leaderboard.length === 0) continue;
 
     for (const prize of unresolvedPrizes) {
-      const winnerId = rankedPetIds[prize.placement - 1];
-      if (!winnerId) continue;
+      if (prize.placement === 0) {
+        const eligible = leaderboard.slice(3);
+        const randomWinner = eligible[Math.floor(Math.random() * eligible.length)];
+        if (!randomWinner) continue;
+
+        await prisma.prize.update({
+          where: { id: prize.id },
+          data: {
+            winnerId: randomWinner.petId,
+            awardedAt: prize.awardedAt ?? now,
+            status: prize.fulfilledAt ? "SHIPPED" : "AWARDED",
+          },
+        });
+
+        continue;
+      }
+
+      const winner = leaderboard[prize.placement - 1];
+      if (!winner) continue;
 
       await prisma.prize.update({
         where: { id: prize.id },
         data: {
-          winnerId,
+          winnerId: winner.petId,
           awardedAt: prize.awardedAt ?? now,
           status: prize.fulfilledAt ? "SHIPPED" : "AWARDED",
         },

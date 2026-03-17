@@ -286,6 +286,33 @@ model ContestEntry {
   @@unique([contestId, petId])
 }
 
+model ContestEmailLog {
+  id        String   @id @default(cuid())
+  contestId String
+  userId    String
+  emailType String
+  sentAt    DateTime @default(now())
+
+  @@unique([contestId, userId, emailType])
+  @@index([contestId])
+  @@index([userId])
+}
+
+model ReEntryToken {
+  id            String   @id @default(cuid())
+  token         String   @unique @default(cuid())
+  userId        String
+  petId         String
+  fromContestId String
+  toContestId   String
+  usedAt        DateTime?
+  expiresAt     DateTime
+  createdAt     DateTime @default(now())
+
+  @@index([token])
+  @@index([userId])
+}
+
 // ─── PRIZES ──────────────────────────────────────────────
 
 model Prize {

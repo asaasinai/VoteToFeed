@@ -7,7 +7,13 @@ import { getCurrentWeekId } from "@/lib/utils";
 
 export const dynamic = "force-dynamic";
 
-export default async function ContestDetailPage({ params }: { params: { id: string } }) {
+export default async function ContestDetailPage({
+  params,
+  searchParams,
+}: {
+  params: { id: string };
+  searchParams?: { reentry?: string; petId?: string };
+}) {
   const weekId = getCurrentWeekId();
   const animalType = await getAnimalType();
   const now = new Date();
@@ -31,11 +37,14 @@ export default async function ContestDetailPage({ params }: { params: { id: stri
 
   if (!contest) notFound();
 
+  const reenteredPet = searchParams?.petId
+    ? contest.entries.find((entry) => entry.petId === searchParams.petId)?.pet
+    : null;
+
   const daysLeft = Math.max(0, Math.ceil((contest.endDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24)));
   const hasEnded = contest.endDate < now;
   const prizeTotal = contest.prizes.reduce((s, p) => s + p.value, 0);
 
-  // Sort entries by weekly votes
   const sortedEntries = contest.entries
     .filter((e) => e.pet.isActive)
     .sort((a, b) => {
@@ -55,7 +64,6 @@ export default async function ContestDetailPage({ params }: { params: { id: stri
 
   return (
     <div className="min-h-screen">
-      {/* Hero banner */}
       <div className="relative h-48 sm:h-64 lg:h-72 bg-surface-100 overflow-hidden">
         {contest.coverImage ? (
           <img src={contest.coverImage} alt="" className="w-full h-full object-cover" />
@@ -90,7 +98,12 @@ export default async function ContestDetailPage({ params }: { params: { id: stri
       </div>
 
       <div className="max-w-7xl mx-auto px-4 sm:px-6 py-8">
-        {/* Stats row */}
+        {searchParams?.reentry === "success" && (
+          <div className="mb-6 rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-medium text-emerald-800">
+            ✅ {reenteredPet?.name || "Your pet"} is entered! Share to get more votes.
+          </div>
+        )}
+
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-8">
           <div className="card p-4 text-center">
             <p className="text-xs font-medium text-surface-400 uppercase">Entries</p>
@@ -111,7 +124,6 @@ export default async function ContestDetailPage({ params }: { params: { id: stri
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-          {/* Left: Entries */}
           <div className="lg:col-span-2">
             <div className="flex items-center justify-between mb-4">
               <h2 className="section-title">Contestants ({sortedEntries.length})</h2>
@@ -148,9 +160,7 @@ export default async function ContestDetailPage({ params }: { params: { id: stri
             )}
           </div>
 
-          {/* Right: Details sidebar */}
           <div className="space-y-5">
-            {/* Dates */}
             <div className="card p-5">
               <h3 className="text-sm font-bold text-surface-900 mb-3">Contest Details</h3>
               <div className="space-y-2.5 text-sm">
@@ -175,7 +185,6 @@ export default async function ContestDetailPage({ params }: { params: { id: stri
               </div>
             </div>
 
-            {/* Description */}
             {contest.description && (
               <div className="card p-5">
                 <h3 className="text-sm font-bold text-surface-900 mb-2">About</h3>
@@ -183,7 +192,6 @@ export default async function ContestDetailPage({ params }: { params: { id: stri
               </div>
             )}
 
-            {/* Rules */}
             {contest.rules && (
               <div className="card p-5">
                 <h3 className="text-sm font-bold text-surface-900 mb-2">Rules</h3>
@@ -191,7 +199,6 @@ export default async function ContestDetailPage({ params }: { params: { id: stri
               </div>
             )}
 
-            {/* Prizes */}
             {contest.prizes.length > 0 && (
               <div className="card p-5">
                 <h3 className="text-sm font-bold text-surface-900 mb-3">Prizes</h3>
@@ -229,7 +236,6 @@ export default async function ContestDetailPage({ params }: { params: { id: stri
               </div>
             )}
 
-            {/* Prize summary fallback */}
             {contest.prizes.length === 0 && contest.prizeDescription && (
               <div className="card p-5">
                 <h3 className="text-sm font-bold text-surface-900 mb-2">Prizes</h3>
@@ -237,7 +243,6 @@ export default async function ContestDetailPage({ params }: { params: { id: stri
               </div>
             )}
 
-            {/* CTA */}
             {!hasEnded && (
               <Link href="/pets/new" className="btn-primary w-full py-3 text-center block">
                 Enter your pet — free
