@@ -1,8 +1,93 @@
 import Anthropic from "@anthropic-ai/sdk";
+import { put } from "@vercel/blob";
 import prisma from "@/lib/prisma";
 import { rankSuffix } from "@/lib/utils";
 
 const anthropic = process.env.ANTHROPIC_API_KEY ? new Anthropic() : null;
+
+function getGoogleImageApiKey() {
+  return process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY || null;
+}
+
+function getContestCoverPrompt(contestName: string, petType: "DOG" | "CAT") {
+  const lower = contestName.toLowerCase();
+  const isFunny = /funny|hilarious|laugh|goofy|silly/.test(lower);
+  const isFluffy = /fluffy|floofy|soft/.test(lower);
+  const isCute = /cute|cutest|adorable|sweet|loveable|lovable/.test(lower);
+
+  const subject = petType === "DOG"
+    ? isFunny
+      ? "dogs with playful goofy expressions"
+      : isFluffy
+        ? "fluffy long-haired dogs posing together"
+        : isCute
+          ? "adorable golden retriever puppies playing together"
+          : "happy photogenic dogs in a colorful playful scene"
+    : isFunny
+      ? "cats with funny surprised expressions"
+      : isFluffy
+        ? "fluffy long-haired cats lounging together"
+        : isCute
+          ? "adorable cuddly kittens playing together"
+          : "beautiful playful cats in a colorful cozy setting";
+
+  const mood = isFunny
+    ? "playful and humorous"
+    : isCute
+      ? "fun, warm, heartwarming"
+      : "joyful, colorful, family-friendly";
+
+  return `Create a 1200x630 contest cover image for a pet photo contest.
+Contest title text overlay: "${contestName}".
+Show ${subject}. Ultra-realistic, vibrant colors, professional pet photography, ${mood}. Clean composition with safe space for the title, highly readable overlay text, polished social banner design, no watermark, no logo.`;
+}
+
+async function generateContestCoverImage(contestId: string, contestName: string, petType: "DOG" | "CAT") {
+  const apiKey = getGoogleImageApiKey();
+  if (!apiKey || !process.env.BLOB_READ_WRITE_TOKEN) {
+    return null;
+  }
+
+  const response = await fetch(
+    "https://generativelanguage.googleapis.com/v1beta/models/imagen-3.0-generate-001:predict",
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-goog-api-key": apiKey,
+      },
+      body: JSON.stringify({
+        instances: [{ prompt: getContestCoverPrompt(contestName, petType) }],
+        parameters: { sampleCount: 1, aspectRatio: "16:9" },
+      }),
+    }
+  );
+
+  if (!response.ok) {
+    throw new Error(`Gemini image generation failed: ${response.status} ${await response.text()}`);
+  }
+
+  const data = await response.json();
+  const base64Image =
+    data?.predictions?.[0]?.bytesBase64Encoded ||
+    data?.instances?.[0]?.bytesBase64Encoded ||
+    data?.outputs?.[0]?.bytesBase64Encoded ||
+    null;
+
+  if (!base64Image) {
+    throw new Error("Gemini image generation response did not include bytesBase64Encoded");
+  }
+
+  const imageBuffer = Buffer.from(base64Image, "base64");
+  const blob = new Blob([imageBuffer], { type: "image/jpeg" });
+  const upload = await put(`contests/cover-${contestId}.jpg`, blob, {
+    access: "public",
+    addRandomSuffix: false,
+    contentType: "image/jpeg",
+  });
+
+  return upload.url;
+}
 
 export const CONTEST_EMAIL_TYPES = {
   COUNTDOWN_7D: "countdown_7d",
@@ -267,7 +352,7 @@ export async function createBiWeeklyContest(
   const { startDate, endDate } = getNextContestWindow();
   const name = await generateContestName(petType);
 
-  return prisma.contest.create({
+  const contest = await prisma.contest.create({
     data: {
       name,
       type,
@@ -277,42 +362,56 @@ export async function createBiWeeklyContest(
       isActive: true,
       isRecurring: true,
       recurringInterval: "biweekly",
-      description: `Enter your ${petType === "DOG" ? "dog" : "cat"} for a shot at featured prizes while helping feed shelter pets in need.`,
+      description: `Vote for the ${petType === "DOG" ? "cutest dog" : "most loveable cat"}! Top 3 win prizes. Every paid vote helps feed shelter pets.`,
       prizeDescription: "Top 3 placements plus one random participant win prize packs.",
       rules: "Winners are determined by votes cast during the contest window. No purchase necessary.",
       prizes: {
         create: [
           {
             placement: 1,
-            title: "Grand Prize Bundle",
+            title: "Grand Prize",
             value: 30000,
             items: [
-              "$250 product bundle (premium treats, toys, and swag)",
-              "$50 iHeartDogs/Cats Gift Card",
-              "Featured post to 5M+ audience",
+              "$250 product bundle (treats, toys, swag)",
+              "$50 Gift Card",
+              "Featured post to 5M+ iHeartDogs/Cats audience",
             ],
           },
           {
             placement: 2,
-            title: "Runner-Up",
+            title: "Runner-Up Prize",
             value: 5000,
             items: ["$50 Gift Card"],
           },
           {
             placement: 3,
-            title: "Third Place",
+            title: "Third Place Prize",
             value: 2500,
             items: ["$25 Gift Card"],
           },
           {
             placement: 0,
             title: "Random Participant Prize",
-            value: 1000,
-            items: ["$10 Gift Card"],
+            value: 5000,
+            items: ["$50 Gift Card"],
           },
         ],
       },
     },
     include: { prizes: true },
   });
+
+  try {
+    const coverImage = await generateContestCoverImage(contest.id, contest.name, petType);
+    if (!coverImage) return contest;
+
+    return prisma.contest.update({
+      where: { id: contest.id },
+      data: { coverImage },
+      include: { prizes: true },
+    });
+  } catch (error) {
+    console.error("Failed to generate contest cover image:", error);
+    return contest;
+  }
 }
