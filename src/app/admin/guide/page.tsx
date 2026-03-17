@@ -1,14 +1,7 @@
-import { redirect } from "next/navigation";
-import { getServerSession } from "next-auth";
-import { authOptions } from "@/lib/auth";
 import Link from "next/link";
 import React from "react";
 
 export default async function AdminGuidePage() {
-  const session = await getServerSession(authOptions);
-  if (!session?.user) redirect("/auth/signin");
-  const role = (session.user as { role?: string }).role;
-  if (role !== "ADMIN") redirect("/dashboard");
 
   return (
     <div className="min-h-screen bg-[#FAFAFA]">
