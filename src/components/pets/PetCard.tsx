@@ -30,6 +30,10 @@ function getFallbackImage(type: string): string {
   return FALLBACK_IMAGES.DEFAULT;
 }
 
+function isUnsupportedImageFormat(src?: string | null): boolean {
+  return !!src && /\.hei[cf](?:$|[?#])/i.test(src);
+}
+
 // Generate a consistent color for a pet based on its ID
 function getPetPlaceholderColor(petId: string): string {
   const colors = [
@@ -77,7 +81,7 @@ export function PetCard({
   const [fallbackError, setFallbackError] = useState(false);
 
   const photo = photos[0];
-  const hasPhoto = photo && photo.trim().length > 0;
+  const hasPhoto = photo && photo.trim().length > 0 && !isUnsupportedImageFormat(photo);
   // Only show placeholder if no photo AND fallback also failed
   const showPlaceholder = (!hasPhoto && fallbackError) || (imgError && fallbackError);
   const placeholderColor = getPetPlaceholderColor(id);

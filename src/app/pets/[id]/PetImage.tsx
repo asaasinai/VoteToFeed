@@ -40,6 +40,10 @@ function generateFallbackImage(petType: string): string {
   return RELIABLE_FALLBACKS.DEFAULT;
 }
 
+function isUnsupportedImageFormat(src?: string | null): boolean {
+  return !!src && /\.hei[cf](?:$|[?#])/i.test(src);
+}
+
 export function PetImage({
   src,
   alt,
@@ -59,7 +63,7 @@ export function PetImage({
   const [hasError, setHasError] = useState(false);
 
   // Check if source is empty or missing
-  const hasValidSource = src && src.trim().length > 0;
+  const hasValidSource = src && src.trim().length > 0 && !isUnsupportedImageFormat(src);
   
   // Use generated fallback if petType is provided, otherwise use provided fallback
   const actualFallback = fallback || 
@@ -90,7 +94,18 @@ export function PetImage({
       src={hasValidSource ? src : actualFallback}
       alt={alt}
       className={className}
-      onLoad={() => setImageLoaded(true)}
+      onLoad={(e) => {
+        const img = e.currentTarget;
+        if (img.naturalWidth === 0 || img.naturalHeight === 0) {
+          if (img.src !== actualFallback) {
+            img.src = actualFallback;
+            return;
+          }
+          setHasError(true);
+          return;
+        }
+        setImageLoaded(true);
+      }}
       onError={(e) => {
         const t = e.currentTarget;
         if (t.src !== actualFallback) {
