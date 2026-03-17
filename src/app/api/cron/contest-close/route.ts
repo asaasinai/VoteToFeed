@@ -75,7 +75,10 @@ export async function POST(req: NextRequest) {
         });
       }
 
-      const nextContest = await createBiWeeklyContest(contest.petType as "DOG" | "CAT", contest.type as "NATIONAL");
+      const nextContest = await createBiWeeklyContest(
+        contest.petType as "DOG" | "CAT",
+        contest.type as "NATIONAL" | "STATE" | "SEASONAL" | "BREED" | "CHARITY" | "CALENDAR"
+      );
       const winnerPetIds = new Set([...winnersByPlacement.values()]);
       const nonWinnerEntries = contest.entries.filter((entry) => !winnerPetIds.has(entry.petId));
 

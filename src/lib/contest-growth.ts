@@ -60,40 +60,23 @@ export async function getContestLeaderboard(contestId: string): Promise<ContestL
     return [];
   }
 
-  const [registeredVotes, anonymousVotes] = await Promise.all([
-    prisma.vote.groupBy({
-      by: ["petId"],
-      where: {
-        petId: { in: petIds },
-        createdAt: {
-          gte: contest.startDate,
-          lte: contest.endDate,
-        },
+  const registeredVotes = await prisma.vote.groupBy({
+    by: ["petId"],
+    where: {
+      petId: { in: petIds },
+      createdAt: {
+        gte: contest.startDate,
+        lte: contest.endDate,
       },
-      _sum: { quantity: true },
-    }),
-    prisma.anonymousVote.groupBy({
-      by: ["petId"],
-      where: {
-        petId: { in: petIds },
-        createdAt: {
-          gte: contest.startDate,
-          lte: contest.endDate,
-        },
-      },
-      _count: { _all: true },
-    }),
-  ]);
+    },
+    _sum: { quantity: true },
+  });
 
   const totals = new Map<string, number>();
   for (const petId of petIds) totals.set(petId, 0);
 
   for (const vote of registeredVotes) {
     totals.set(vote.petId, (totals.get(vote.petId) ?? 0) + (vote._sum.quantity ?? 0));
-  }
-
-  for (const vote of anonymousVotes) {
-    totals.set(vote.petId, (totals.get(vote.petId) ?? 0) + vote._count._all);
   }
 
   const entriesByPet = new Map(

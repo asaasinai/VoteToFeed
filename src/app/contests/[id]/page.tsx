@@ -37,10 +37,6 @@ export default async function ContestDetailPage({
 
   if (!contest) notFound();
 
-  const reenteredPet = searchParams?.petId
-    ? contest.entries.find((entry) => entry.petId === searchParams.petId)?.pet
-    : null;
-
   const daysLeft = Math.max(0, Math.ceil((contest.endDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24)));
   const hasEnded = contest.endDate < now;
   const prizeTotal = contest.prizes.reduce((s, p) => s + p.value, 0);
@@ -100,7 +96,7 @@ export default async function ContestDetailPage({
       <div className="max-w-7xl mx-auto px-4 sm:px-6 py-8">
         {searchParams?.reentry === "success" && (
           <div className="mb-6 rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-medium text-emerald-800">
-            ✅ {reenteredPet?.name || "Your pet"} is entered! Share to get more votes.
+            ✅ Your pet is entered! Share to get more votes.
           </div>
         )}
 
