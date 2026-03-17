@@ -3,6 +3,7 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import prisma from "@/lib/prisma";
 import { AdminDashboardClient } from "@/components/admin/AdminDashboardClient";
+import { AdminSectionNav } from "@/components/admin/AdminSectionNav";
 import { getCurrentWeekId } from "@/lib/utils";
 
 export default async function AdminPage() {
@@ -91,7 +92,11 @@ export default async function AdminPage() {
   settings.forEach((s) => (settingsMap[s.key] = s.value));
 
   return (
-    <AdminDashboardClient
+    <>
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 pt-6">
+        <AdminSectionNav currentPath="/admin" />
+      </div>
+      <AdminDashboardClient
       settings={{
         mealRate: settingsMap.meal_rate ?? "10",
         animalType: settingsMap.animal_type ?? "dogs",
@@ -165,5 +170,6 @@ export default async function AdminPage() {
       }))}
       weekId={weekId}
     />
+    </>
   );
 }
