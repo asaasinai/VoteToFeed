@@ -50,7 +50,7 @@ function normalizeSeedPhoto(photoUrl: string, type: "DOG" | "CAT", key: string) 
   return stablePhotoFor(type, key);
 }
 
-export const SEED_ACCOUNTS = [
+const SEED_ACCOUNTS = [
   {
     email: "vote@iheartdogs.com",
     name: "Max the Golden",
