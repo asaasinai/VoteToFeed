@@ -160,6 +160,7 @@ export default async function HomePage() {
   const data = await getHomeData();
   const daysLeft = daysRemainingInWeek();
   const pets = data.popular.length ? data.popular : data.recent;
+  const featuredPet = pets[0] ?? null;
   const topPets = (data.popular.length ? data.popular : data.recent).slice(0, 8);
   const newPets = data.recent.slice(0, 8);
 
