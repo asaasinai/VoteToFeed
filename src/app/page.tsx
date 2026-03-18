@@ -206,61 +206,35 @@ export default async function HomePage() {
               </div>
             </div>
 
-            {/* Right: Featured pet photos */}
-            {pets.length >= 3 && (
+            {/* Right: Featured pet photo */}
+            {featuredPet && (
               <div className="hidden md:block flex-shrink-0 w-[320px] lg:w-[400px]">
-                <div className="relative">
-                  {/* Main featured image */}
-                  <Link href={`/pets/${pets[0].id}`} className="block relative rounded-2xl overflow-hidden shadow-card-hover aspect-[4/5] bg-surface-100 group">
-                    <PetImage
-                      src={pets[0].photos[0] || ""}
-                      alt={pets[0].name}
-                      className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
-                      petId={pets[0].id}
-                      petType={pets[0].type}
-                    />
-                    <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/60 via-black/20 to-transparent pt-16 pb-4 px-4">
-                      <div className="flex items-end justify-between">
-                        <div>
-                          <p className="text-white font-bold text-lg leading-tight">{pets[0].name}</p>
-                          <p className="text-white/70 text-xs mt-0.5">{pets[0].ownerName}</p>
-                        </div>
-                        <div className="flex items-center gap-1.5 bg-white/90 backdrop-blur-sm rounded-full px-2.5 py-1 shadow-sm">
-                          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" className="text-brand-500">
-                            <path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z" fill="currentColor"/>
-                          </svg>
-                          <span className="text-xs font-bold text-surface-900">{pets[0].weeklyVotes.toLocaleString()}</span>
-                        </div>
+                <Link href={`/pets/${featuredPet.id}`} className="block relative rounded-2xl overflow-hidden shadow-card-hover aspect-[4/5] bg-surface-100 group">
+                  <PetImage
+                    src={featuredPet.photos[0] || ""}
+                    alt={featuredPet.name}
+                    className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
+                    petId={featuredPet.id}
+                    petType={featuredPet.type}
+                  />
+                  <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/60 via-black/20 to-transparent pt-16 pb-4 px-4">
+                    <div className="flex items-end justify-between gap-4">
+                      <div className="min-w-0">
+                        <p className="text-white font-bold text-lg leading-tight truncate">{featuredPet.name}</p>
+                        <p className="text-white/70 text-xs mt-0.5 truncate">{featuredPet.ownerName}</p>
+                      </div>
+                      <div className="flex items-center gap-1.5 bg-white/90 backdrop-blur-sm rounded-full px-2.5 py-1 shadow-sm flex-shrink-0">
+                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" className="text-brand-500">
+                          <path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z" fill="currentColor"/>
+                        </svg>
+                        <span className="text-xs font-bold text-surface-900">{featuredPet.weeklyVotes.toLocaleString()}</span>
                       </div>
                     </div>
-                    {/* Rank badge */}
-                    <div className="absolute top-3 left-3 w-8 h-8 rounded-full bg-brand-500 text-white flex items-center justify-center text-xs font-bold shadow-md">
-                      1
-                    </div>
-                  </Link>
-
-                  {/* Two smaller overlapping images */}
-                  <div className="absolute -bottom-4 -left-4 flex gap-2">
-                    <Link href={`/pets/${pets[1].id}`} className="block w-20 h-20 lg:w-24 lg:h-24 rounded-xl overflow-hidden shadow-lg border-2 border-white bg-surface-100 group">
-                      <PetImage
-                        src={pets[1].photos[0] || ""}
-                        alt={pets[1].name}
-                        className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-300"
-                        petId={pets[1].id}
-                        petType={pets[1].type}
-                      />
-                    </Link>
-                    <Link href={`/pets/${pets[2].id}`} className="block w-20 h-20 lg:w-24 lg:h-24 rounded-xl overflow-hidden shadow-lg border-2 border-white bg-surface-100 group">
-                      <PetImage
-                        src={pets[2].photos[0] || ""}
-                        alt={pets[2].name}
-                        className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-300"
-                        petId={pets[2].id}
-                        petType={pets[2].type}
-                      />
-                    </Link>
                   </div>
-                </div>
+                  <div className="absolute top-3 left-3 w-8 h-8 rounded-full bg-brand-500 text-white flex items-center justify-center text-xs font-bold shadow-md">
+                    1
+                  </div>
+                </Link>
               </div>
             )}
           </div>
@@ -316,7 +290,7 @@ export default async function HomePage() {
                 View all &rarr;
               </Link>
             </div>
-            <div className="flex gap-4 overflow-x-auto pb-2 hide-scrollbar snap-x snap-mandatory -mx-1 px-1">
+            <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4">
               {data.contests.map((contest) => {
                 const typeLabel: Record<string, string> = { NATIONAL: "Weekly", SEASONAL: "Seasonal", CHARITY: "Charity", CALENDAR: "Calendar", BREED: "Breed", STATE: "Regional" };
                 const typeBadge: Record<string, string> = { NATIONAL: "bg-brand-100 text-brand-700", SEASONAL: "bg-amber-100 text-amber-700", CHARITY: "bg-emerald-100 text-emerald-700", CALENDAR: "bg-violet-100 text-violet-700", BREED: "bg-sky-100 text-sky-700", STATE: "bg-orange-100 text-orange-700" };
@@ -324,7 +298,7 @@ export default async function HomePage() {
                   <Link
                     key={contest.id}
                     href={`/contests/${contest.id}`}
-                    className="flex-shrink-0 snap-start w-[280px] sm:w-[320px] rounded-xl overflow-hidden bg-white border border-surface-200/80 shadow-sm hover:shadow-md transition-shadow group"
+                    className="min-w-0 rounded-xl overflow-hidden bg-white border border-surface-200/80 shadow-sm hover:shadow-md transition-shadow group"
                   >
                     {/* Cover image */}
                     <div className="relative h-28 sm:h-32 bg-surface-100 overflow-hidden">
