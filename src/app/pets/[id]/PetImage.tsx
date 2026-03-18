@@ -70,8 +70,9 @@ export function PetImage({
     (petType ? generateFallbackImage(petType) : undefined) ||
     RELIABLE_FALLBACKS.DEFAULT;
 
-  if (!hasValidSource && petId && petType) {
-    // Show placeholder for missing photo
+  const showPlaceholder = !hasValidSource && hasError && petId;
+
+  if (showPlaceholder) {
     const placeholderColor = getPetPlaceholderColor(petId);
     return (
       <div
