@@ -12,6 +12,7 @@ function SignInForm() {
   const [error, setError] = useState("");
   const searchParams = useSearchParams();
   const callbackUrl = searchParams?.get("callbackUrl") || "/dashboard";
+  const reset = searchParams?.get("reset");
 
   async function handleCredentials(e: React.FormEvent) {
     e.preventDefault();
@@ -52,6 +53,12 @@ function SignInForm() {
           <div className="absolute inset-0 flex items-center"><div className="w-full border-t border-surface-200" /></div>
           <div className="relative flex justify-center text-xs"><span className="px-3 bg-[#FAFAFA] text-surface-800">or</span></div>
         </div>
+
+        {reset === "1" && (
+          <div className="mb-4 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-medium text-emerald-700">
+            Password updated — you can now log in.
+          </div>
+        )}
 
         <form onSubmit={handleCredentials} className="space-y-3">
           <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="Email" className="input-field" required />

@@ -253,6 +253,21 @@ export async function sendContestReEntry(
   });
 }
 
+export async function sendPasswordResetEmail(to: string, resetUrl: string) {
+  await getResend().emails.send({
+    from: FROM_EMAIL,
+    to: [to],
+    subject: "Reset your VoteToFeed password",
+    html: emailShell(`
+      <h2 style="color: #EF4444;">Reset Your Password</h2>
+      <p>We received a request to reset your password. Click the button below to choose a new one.</p>
+      <p>This link expires in 1 hour.</p>
+      ${ctaButton("Reset Password", resetUrl)}
+      <p style="margin-top: 20px; font-size: 13px; color: #737373;">If you didn't request this, you can safely ignore this email.</p>
+    `),
+  });
+}
+
 export async function sendContestWinner(
   to: string,
   petName: string,
