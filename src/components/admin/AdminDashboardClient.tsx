@@ -681,12 +681,12 @@ export function AdminDashboardClient({
                           </thead>
                           <tbody className="text-xs">
                             {[
-                              { label: "Starter", price: 0.99, votes: 10 },
-                              { label: "Friend", price: 4.99, votes: 60 },
-                              { label: "Supporter", price: 9.99, votes: 120 },
-                              { label: "Champion", price: 24.99, votes: 300 },
-                              { label: "Hero", price: 49.99, votes: 600 },
-                              { label: "Legend", price: 99.99, votes: 1200 },
+                              { label: "Starter", price: 0.99, votes: 5 },
+                              { label: "Friend", price: 4.99, votes: 30 },
+                              { label: "Supporter", price: 9.99, votes: 60 },
+                              { label: "Champion", price: 24.99, votes: 150 },
+                              { label: "Hero", price: 49.99, votes: 300 },
+                              { label: "Legend", price: 99.99, votes: 600 },
                             ].map((pkg) => (
                               <tr key={pkg.label} className="border-t border-surface-100/50">
                                 <td className="py-1 font-medium">{pkg.label}</td>
