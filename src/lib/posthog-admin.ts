@@ -28,6 +28,19 @@ const eventList = [
   "analytics_health_viewed",
 ];
 
+type DisabledConfig = {
+  enabled: false;
+  host: string;
+  reason: string;
+};
+
+type EnabledConfig = {
+  enabled: true;
+  projectId: string;
+  apiKey: string;
+  host: string;
+};
+
 function normalizePostHogHost(raw?: string) {
   if (!raw) return "https://us.posthog.com";
   return raw
@@ -36,7 +49,7 @@ function normalizePostHogHost(raw?: string) {
     .replace("https://i.posthog.com", "https://app.posthog.com");
 }
 
-function getConfig() {
+function getConfig(): DisabledConfig | EnabledConfig {
   const projectId = process.env.POSTHOG_PROJECT_ID;
   const apiKey = process.env.POSTHOG_PERSONAL_API_KEY || process.env.POSTHOG_API_KEY;
   const host = normalizePostHogHost(process.env.POSTHOG_HOST || process.env.NEXT_PUBLIC_POSTHOG_HOST);
@@ -105,6 +118,7 @@ export async function getAdminAnalyticsData(): Promise<AdminAnalyticsData> {
     };
   }
 
+  const { projectId, apiKey, host } = config;
   const eventSql = eventList.map((event) => `'${event}'`).join(", ");
 
   try {
@@ -127,9 +141,9 @@ export async function getAdminAnalyticsData(): Promise<AdminAnalyticsData> {
         GROUP BY utm_source, utm_medium, utm_campaign
         ORDER BY purchases DESC, signups DESC, landings DESC
         LIMIT 50`,
-        config.projectId,
-        config.apiKey,
-        config.host
+        projectId,
+        apiKey,
+        host
       ),
       runQuery(
         "admin_analytics_funnel_summary_7d",
@@ -142,9 +156,9 @@ export async function getAdminAnalyticsData(): Promise<AdminAnalyticsData> {
           AND event IN (${eventSql})
         GROUP BY event
         ORDER BY total_events DESC`,
-        config.projectId,
-        config.apiKey,
-        config.host
+        projectId,
+        apiKey,
+        host
       ),
       runQuery(
         "admin_analytics_recent_paid_14d",
@@ -162,9 +176,9 @@ export async function getAdminAnalyticsData(): Promise<AdminAnalyticsData> {
           AND event = 'checkout_completed'
         ORDER BY timestamp DESC
         LIMIT 50`,
-        config.projectId,
-        config.apiKey,
-        config.host
+        projectId,
+        apiKey,
+        host
       ),
       runQuery(
         "admin_analytics_recent_events_3d",
@@ -182,15 +196,15 @@ export async function getAdminAnalyticsData(): Promise<AdminAnalyticsData> {
           AND event IN (${eventSql})
         ORDER BY timestamp DESC
         LIMIT 100`,
-        config.projectId,
-        config.apiKey,
-        config.host
+        projectId,
+        apiKey,
+        host
       ),
     ]);
 
     return {
       enabled: true,
-      host: config.host,
+      host,
       trafficSummary,
       funnelSummary,
       recentPurchases,
@@ -199,7 +213,7 @@ export async function getAdminAnalyticsData(): Promise<AdminAnalyticsData> {
   } catch (error) {
     return {
       enabled: false,
-      host: config.host,
+      host,
       reason: error instanceof Error ? error.message : "Unknown PostHog query error",
       trafficSummary: [],
       funnelSummary: [],
