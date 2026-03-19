@@ -107,8 +107,8 @@ export default async function RootLayout({
         ) : null}
       </head>
       <body className={`${inter.variable} ${nunito.variable} font-sans antialiased min-h-screen flex flex-col`}>
-        <PostHogProvider>
-          <SessionProvider>
+        <SessionProvider>
+          <PostHogProvider>
             <Nav
               shelterCount={stats.count}
               animalType={stats.animalType}
@@ -116,8 +116,8 @@ export default async function RootLayout({
             />
             <main className="flex-1">{children}</main>
             <Footer />
-          </SessionProvider>
-        </PostHogProvider>
+          </PostHogProvider>
+        </SessionProvider>
       </body>
     </html>
   );
