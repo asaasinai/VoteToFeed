@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { useSession } from "next-auth/react";
 import Link from "next/link";
 import { getCreativeSource, trackMetaPixel, trackVoteToFeedEvent } from "@/lib/meta-pixel";
+import { trackPostHogEvent } from "@/lib/analytics";
 import { US_STATES } from "@/lib/utils";
 
 type BreedOption = { id: string; name: string; petType: string; slug: string };
@@ -180,6 +181,12 @@ export default function NewPetPage() {
         source: getCreativeSource(form.breed || form.type),
         value: 1.0,
       });
+      trackPostHogEvent("pet_photo_upload_completed", {
+        pet_type: form.type,
+        breed: form.breed || undefined,
+        photo_count_added: newPhotos.length,
+        total_photo_count: photos.length + newPhotos.length,
+      });
     } catch {
       setError("Upload failed. Please try again.");
     } finally {
@@ -258,6 +265,17 @@ export default function NewPetPage() {
         petName: form.name,
         petType: form.type,
         contestCount: selectedContests.size,
+      });
+      trackPostHogEvent("pet_entry_completed", {
+        pet_id: data.id,
+        pet_name: form.name,
+        pet_type: form.type,
+        breed: form.breed || undefined,
+        contest_count: selectedContests.size,
+        photo_count: photos.length,
+        has_bio: Boolean(form.bio),
+        has_address: Boolean(form.address),
+        has_state: Boolean(form.state),
       });
       router.push(`/pets/${data.id}`);
     } catch {
