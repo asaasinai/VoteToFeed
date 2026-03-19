@@ -4,7 +4,7 @@ import { useState, useEffect } from "react";
 import Link from "next/link";
 import { formatVotes, rankSuffix, daysRemainingInWeek, VOTE_PACKAGES, calculateMeals } from "@/lib/utils";
 import { trackStripePurchaseEvent } from "@/lib/meta-pixel";
-import { getAnalyticsContext, trackPostHogEvent } from "@/lib/analytics";
+import { trackPostHogEvent } from "@/lib/analytics";
 
 type Pet = {
   id: string;
@@ -60,6 +60,7 @@ export function DashboardClient({
   const [buyingTier, setBuyingTier] = useState<string | null>(null);
   const daysLeft = daysRemainingInWeek();
 
+  // Auto-switch tab based on URL hash (e.g. /dashboard#votes)
   useEffect(() => {
     const hash = window.location.hash.replace("#", "") as Tab;
     const validTabs: Tab[] = ["overview", "pets", "votes", "purchases", "impact"];
@@ -75,16 +76,13 @@ export function DashboardClient({
       amountDollars: latestPurchase.amount / 100,
       voteQuantity: latestPurchase.votes,
     });
-    trackPostHogEvent(
-      "checkout_completed",
-      {
-        package_tier: latestPurchase.tier,
-        amount_dollars: latestPurchase.amount / 100,
-        votes: latestPurchase.votes,
-        meals: latestPurchase.meals,
-      },
-      { internal: false }
-    );
+    trackPostHogEvent("checkout_completed", {
+      package_tier: latestPurchase.tier,
+      amount_cents: latestPurchase.amount,
+      amount_dollars: latestPurchase.amount / 100,
+      votes: latestPurchase.votes,
+      meals: latestPurchase.meals,
+    });
   }, [purchaseStatus, recentPurchases]);
 
   useEffect(() => {
@@ -100,20 +98,14 @@ export function DashboardClient({
     trackPostHogEvent("checkout_started", {
       package_tier: tier,
       votes: selectedPackage?.votes,
+      amount_cents: selectedPackage?.price,
       amount_dollars: selectedPackage ? selectedPackage.price / 100 : undefined,
     });
     try {
       const res = await fetch("/api/stripe/checkout", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          tier,
-          analyticsContext: getAnalyticsContext({
-            packageTier: tier,
-            votes: selectedPackage?.votes,
-            amountDollars: selectedPackage ? selectedPackage.price / 100 : undefined,
-          }),
-        }),
+        body: JSON.stringify({ tier }),
       });
       const data = await res.json();
       if (data.url) window.location.href = data.url;
@@ -166,6 +158,7 @@ export function DashboardClient({
   return (
     <div className="min-h-screen bg-[#FAFAFA]">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 py-8">
+        {/* Header */}
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-8">
           <div>
             <h1 className="text-2xl font-bold text-surface-900 tracking-tight">
@@ -191,6 +184,7 @@ export function DashboardClient({
           </div>
         )}
 
+        {/* Tab Navigation */}
         <div className="flex gap-1 mb-8 overflow-x-auto pb-1 hide-scrollbar">
           {tabs.map((tab) => (
             <button
@@ -208,14 +202,46 @@ export function DashboardClient({
           ))}
         </div>
 
+        {/* Overview Tab */}
         {activeTab === "overview" && (
           <div className="space-y-6 animate-fade-in">
+            {/* Quick Stats */}
             <div className="grid grid-cols-1 xs:grid-cols-2 lg:grid-cols-5 gap-3 sm:gap-4">
-              <StatCard label="Free Votes" value={String(freeVotesRemaining)} sub={`Resets in ${daysLeft}d`} color="accent" icon={<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M20.84 4.61a5.5 5.5 0 00-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 00-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 000-7.78z"/></svg>} />
-              <StatCard label="Paid Balance" value={formatVotes(paidVoteBalance)} sub="Never expires" color="brand" icon={<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/><path d="M9 12l2 2 4-4"/></svg>} />
-              <StatCard label="Voting Streak" value={`${votingStreak}w`} sub="Consecutive weeks" color="default" icon={<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>} />
-              <StatCard label="Pets Entered" value={String(pets.length)} sub="In active contests" color="default" icon={<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 01-2.83 2.83l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg>} />
-              <StatCard label="Shelter Impact" value={`~${Math.round(lifetimeMeals)}`} sub={`${animalType} helped`} color="accent" icon={<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>} />
+              <StatCard
+                label="Free Votes"
+                value={String(freeVotesRemaining)}
+                sub={`Resets in ${daysLeft}d`}
+                color="accent"
+                icon={<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M20.84 4.61a5.5 5.5 0 00-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 00-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 000-7.78z"/></svg>}
+              />
+              <StatCard
+                label="Paid Balance"
+                value={formatVotes(paidVoteBalance)}
+                sub="Never expires"
+                color="brand"
+                icon={<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/><path d="M9 12l2 2 4-4"/></svg>}
+              />
+              <StatCard
+                label="Voting Streak"
+                value={`${votingStreak}w`}
+                sub="Consecutive weeks"
+                color="default"
+                icon={<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>}
+              />
+              <StatCard
+                label="Pets Entered"
+                value={String(pets.length)}
+                sub="In active contests"
+                color="default"
+                icon={<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 01-2.83 2.83l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg>}
+              />
+              <StatCard
+                label="Shelter Impact"
+                value={`~${Math.round(lifetimeMeals)}`}
+                sub={`${animalType} helped`}
+                color="accent"
+                icon={<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>}
+              />
             </div>
           </div>
         )}
@@ -225,7 +251,11 @@ export function DashboardClient({
 }
 
 function StatCard({ label, value, sub, color, icon }: { label: string; value: string; sub: string; color: "brand" | "accent" | "default"; icon: React.ReactNode }) {
-  const colorClasses = { brand: "text-brand-600", accent: "text-accent-600", default: "text-surface-900" };
+  const colorClasses = {
+    brand: "text-brand-600",
+    accent: "text-accent-600",
+    default: "text-surface-900",
+  };
   return (
     <div className="card p-4">
       <div className="flex items-center justify-between mb-2">
