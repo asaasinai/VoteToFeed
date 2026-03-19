@@ -13,12 +13,13 @@ declare global {
 
 const posthogKey = process.env.NEXT_PUBLIC_POSTHOG_KEY;
 const posthogHost = process.env.NEXT_PUBLIC_POSTHOG_HOST || "https://us.i.posthog.com";
+let didInitPostHog = false;
 
 export function PostHogProvider({ children }: { children: React.ReactNode }) {
   const { data: session, status } = useSession();
 
   useEffect(() => {
-    if (!posthogKey || posthog.__loaded) return;
+    if (!posthogKey || didInitPostHog) return;
 
     posthog.init(posthogKey, {
       api_host: posthogHost,
@@ -33,6 +34,8 @@ export function PostHogProvider({ children }: { children: React.ReactNode }) {
         },
       },
     });
+
+    didInitPostHog = true;
   }, []);
 
   useEffect(() => {
