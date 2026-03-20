@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import prisma from "@/lib/prisma";
 import { getCurrentWeekId } from "@/lib/utils";
 import { getMealRate, getAnimalType } from "@/lib/admin-settings";
+import { getWeeklyVoteSummaryMap } from "@/lib/weekly-vote-stats";
 
 // GET /api/leaderboard - Get leaderboard data
 export async function GET(req: NextRequest) {
@@ -16,8 +17,6 @@ export async function GET(req: NextRequest) {
     const weekId = getCurrentWeekId();
 
     if (view === "weekly") {
-      // Weekly leaderboard from PetWeeklyStats
-      const where: Record<string, unknown> = { weekId };
       const petWhere: Record<string, unknown> = {
         isActive: true,
         type: petType,
@@ -25,59 +24,54 @@ export async function GET(req: NextRequest) {
       if (state) petWhere.state = state;
       if (breed) petWhere.breed = { contains: breed, mode: "insensitive" };
 
-      const stats = await prisma.petWeeklyStats.findMany({
-        where: {
-          weekId,
-          pet: petWhere,
-        },
+      const pets = await prisma.pet.findMany({
+        where: petWhere,
         include: {
-          pet: {
-            include: {
-              user: { select: { id: true, name: true, image: true } },
-            },
-          },
-        },
-        orderBy: { totalVotes: "desc" },
-        skip: (page - 1) * limit,
-        take: limit,
-      });
-
-      const total = await prisma.petWeeklyStats.count({
-        where: {
-          weekId,
-          pet: petWhere,
+          user: { select: { id: true, name: true, image: true } },
         },
       });
 
-      // Get admin settings
+      const summaryMap = await getWeeklyVoteSummaryMap(
+        pets.map((pet) => pet.id),
+        weekId,
+      );
+
+      const sortedPets = [...pets].sort((a, b) => {
+        const aVotes = summaryMap.get(a.id)?.totalVotes || 0;
+        const bVotes = summaryMap.get(b.id)?.totalVotes || 0;
+        if (bVotes !== aVotes) return bVotes - aVotes;
+        return a.createdAt.getTime() - b.createdAt.getTime();
+      });
+
+      const total = sortedPets.length;
+      const pagePets = sortedPets.slice((page - 1) * limit, page * limit);
+
       const [mealRate, animalType] = await Promise.all([
         getMealRate(),
         getAnimalType(),
       ]);
 
-      // Calculate total votes this week for this pet type
-      const weeklyAgg = await prisma.petWeeklyStats.aggregate({
-        where: { weekId, pet: { type: petType as "DOG" | "CAT" } },
-        _sum: { totalVotes: true, paidVotes: true },
-      });
+      const summaries = Array.from(summaryMap.values());
+      const totalWeeklyVotes = summaries.reduce((sum, item) => sum + item.totalVotes, 0);
+      const totalPaidVotes = summaries.reduce((sum, item) => sum + item.paidVotes, 0);
 
       return NextResponse.json({
-        entries: stats.map((s, i) => ({
+        entries: pagePets.map((pet, i) => ({
           rank: (page - 1) * limit + i + 1,
           pet: {
-            id: s.pet.id,
-            name: s.pet.name,
-            type: s.pet.type,
-            breed: s.pet.breed,
-            ownerName: s.pet.ownerName,
-            state: s.pet.state,
-            photos: s.pet.photos,
-            user: s.pet.user,
-            createdAt: s.pet.createdAt,
+            id: pet.id,
+            name: pet.name,
+            type: pet.type,
+            breed: pet.breed,
+            ownerName: pet.ownerName,
+            state: pet.state,
+            photos: pet.photos,
+            user: pet.user,
+            createdAt: pet.createdAt,
           },
-          weeklyVotes: s.totalVotes,
+          weeklyVotes: summaryMap.get(pet.id)?.totalVotes || 0,
           isNew:
-            new Date().getTime() - new Date(s.pet.createdAt).getTime() <
+            new Date().getTime() - new Date(pet.createdAt).getTime() <
             7 * 24 * 60 * 60 * 1000,
         })),
         total,
@@ -85,8 +79,8 @@ export async function GET(req: NextRequest) {
         totalPages: Math.ceil(total / limit),
         weekId,
         meta: {
-          totalWeeklyVotes: weeklyAgg._sum.totalVotes || 0,
-          totalPaidVotes: weeklyAgg._sum.paidVotes || 0,
+          totalWeeklyVotes,
+          totalPaidVotes,
           mealRate,
           animalType,
         },
@@ -116,6 +110,10 @@ export async function GET(req: NextRequest) {
       });
 
       const total = await prisma.pet.count({ where: petWhere });
+      const summaryMap = await getWeeklyVoteSummaryMap(
+        pets.map((pet) => pet.id),
+        weekId,
+      );
 
       return NextResponse.json({
         entries: pets.map((pet, i) => ({
@@ -132,7 +130,7 @@ export async function GET(req: NextRequest) {
             createdAt: pet.createdAt,
           },
           totalVotes: pet._count.votes,
-          weeklyVotes: pet.weeklyStats[0]?.totalVotes || 0,
+          weeklyVotes: summaryMap.get(pet.id)?.totalVotes || 0,
         })),
         total,
         page,

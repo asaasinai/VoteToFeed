@@ -4,6 +4,7 @@ import { authOptions } from "@/lib/auth";
 import prisma from "@/lib/prisma";
 import { schedulePetWelcomeComments } from "@/lib/scheduled-comments";
 import { getCurrentWeekId } from "@/lib/utils";
+import { getRankMap, getWeeklyVoteSummaryMap } from "@/lib/weekly-vote-stats";
 
 export const dynamic = "force-dynamic";
 
@@ -38,36 +39,41 @@ export async function GET(req: NextRequest) {
       orderBy = { createdAt: "desc" }; // Fallback, real sorting done below
     }
 
-    const [pets, total] = await Promise.all([
+    const [allPets, total] = await Promise.all([
       prisma.pet.findMany({
         where,
         include: {
           user: { select: { id: true, name: true, image: true } },
-          weeklyStats: {
-            where: { weekId },
-            take: 1,
-          },
           _count: { select: { votes: true, comments: true } },
         },
         orderBy,
-        skip: (page - 1) * limit,
-        take: limit,
       }),
       prisma.pet.count({ where }),
     ]);
 
-    // If sorting by popular, sort by this week's votes
-    let sortedPets = pets;
+    const summaryMap = await getWeeklyVoteSummaryMap(
+      allPets.map((pet) => pet.id),
+      weekId,
+    );
+    const rankMap = getRankMap(
+      allPets.map((pet) => ({ id: pet.id, createdAt: pet.createdAt })),
+      summaryMap,
+    );
+
+    let sortedPets = allPets;
     if (sort === "popular" || sort === "votes") {
-      sortedPets = [...pets].sort((a, b) => {
-        const aVotes = a.weeklyStats[0]?.totalVotes || 0;
-        const bVotes = b.weeklyStats[0]?.totalVotes || 0;
-        return bVotes - aVotes;
+      sortedPets = [...allPets].sort((a, b) => {
+        const aVotes = summaryMap.get(a.id)?.totalVotes || 0;
+        const bVotes = summaryMap.get(b.id)?.totalVotes || 0;
+        if (bVotes !== aVotes) return bVotes - aVotes;
+        return a.createdAt.getTime() - b.createdAt.getTime();
       });
     }
 
+    const pagedPets = sortedPets.slice((page - 1) * limit, page * limit);
+
     return NextResponse.json({
-      pets: sortedPets.map((pet) => ({
+      pets: pagedPets.map((pet) => ({
         id: pet.id,
         name: pet.name,
         type: pet.type,
@@ -80,8 +86,8 @@ export async function GET(req: NextRequest) {
         tags: pet.tags,
         createdAt: pet.createdAt,
         user: pet.user,
-        weeklyVotes: pet.weeklyStats[0]?.totalVotes || 0,
-        weeklyRank: pet.weeklyStats[0]?.rank || null,
+        weeklyVotes: summaryMap.get(pet.id)?.totalVotes || 0,
+        weeklyRank: rankMap.get(pet.id) || null,
         totalVotes: pet._count.votes,
         commentCount: pet._count.comments,
         isNew:

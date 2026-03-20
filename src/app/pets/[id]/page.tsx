@@ -4,6 +4,7 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import prisma from "@/lib/prisma";
 import { getCurrentWeekId } from "@/lib/utils";
+import { getRankMap, getWeeklyVoteSummary, getWeeklyVoteSummaryMap } from "@/lib/weekly-vote-stats";
 import { getAnimalType } from "@/lib/admin-settings";
 import { VoteButton } from "@/components/voting/VoteButton";
 import { CommentForm } from "@/components/pets/CommentForm";
@@ -49,8 +50,9 @@ export async function generateMetadata({
 
   if (!pet) return { title: "Pet not found" };
 
-  const weeklyVotes = pet.weeklyStats[0]?.totalVotes ?? 0;
-  const rank = pet.weeklyStats[0]?.rank ?? null;
+  const summary = await getWeeklyVoteSummary(params.id, weekId);
+  const weeklyVotes = summary.totalVotes;
+  const rank = null;
   // Use first photo for OG image (same as page display)
   const photo = pet.photos && pet.photos.length > 0 ? pet.photos[0] : "";
   const appUrl = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
@@ -125,8 +127,24 @@ export default async function PetDetailPage({
 
   if (!pet || !pet.isActive) notFound();
 
-  const weeklyVotes = pet.weeklyStats[0]?.totalVotes ?? 0;
-  const weeklyRank = pet.weeklyStats[0]?.rank ?? null;
+  const [summary, rankMap] = await Promise.all([
+    getWeeklyVoteSummary(pet.id, weekId),
+    prisma.pet
+      .findMany({
+        where: { isActive: true, type: pet.type },
+        select: { id: true, createdAt: true },
+      })
+      .then(async (pets) => {
+        const summaryMap = await getWeeklyVoteSummaryMap(
+          pets.map((entry) => entry.id),
+          weekId,
+        );
+        return getRankMap(pets, summaryMap);
+      }),
+  ]);
+
+  const weeklyVotes = summary.totalVotes;
+  const weeklyRank = rankMap.get(pet.id) ?? null;
   const isOwner = session?.user && (session.user as { id?: string }).id === pet.userId;
   const freeVotes = session?.user
     ? await prisma.user
@@ -145,12 +163,22 @@ export default async function PetDetailPage({
       id: { not: pet.id },
     },
     include: {
-      weeklyStats: { where: { weekId }, take: 1 },
       _count: { select: { votes: true } },
     },
     take: 20,
     orderBy: { createdAt: "desc" },
   });
+  const morePetSummaryMap = await getWeeklyVoteSummaryMap(
+    morePets.map((entry) => entry.id),
+    weekId,
+  );
+  const morePetRankMap = getRankMap(
+    [...morePets, { id: pet.id, createdAt: pet.createdAt }].map((entry) => ({
+      id: entry.id,
+      createdAt: entry.createdAt,
+    })),
+    new Map([...morePetSummaryMap, [pet.id, summary]]),
+  );
   // Shuffle and take 12
   const shuffled = morePets.sort(() => Math.random() - 0.5).slice(0, 12);
 
@@ -320,8 +348,8 @@ export default async function PetDetailPage({
           <div className="flex gap-3 overflow-x-auto pb-4 hide-scrollbar snap-x snap-mandatory -mx-4 px-4">
             {shuffled.map((p) => {
               const pPhoto = p.photos[0] || (p.type === "CAT" ? "https://images.unsplash.com/photo-1514888286974-6c03e2ca1dba?w=600&h=600&fit=crop" : "https://images.dog.ceo/breeds/labrador/n02099712_365.jpg");
-              const pVotes = p.weeklyStats[0]?.totalVotes ?? 0;
-              const pRank = p.weeklyStats[0]?.rank ?? null;
+              const pVotes = morePetSummaryMap.get(p.id)?.totalVotes ?? 0;
+              const pRank = morePetRankMap.get(p.id) ?? null;
               return (
                 <Link
                   key={p.id}

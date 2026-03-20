@@ -3,6 +3,7 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import prisma from "@/lib/prisma";
 import { getCurrentWeekId } from "@/lib/utils";
+import { getRankMap, getWeeklyVoteSummary, getWeeklyVoteSummaryMap } from "@/lib/weekly-vote-stats";
 
 export const dynamic = "force-dynamic";
 
@@ -64,10 +65,26 @@ export async function GET(
       return NextResponse.json({ error: "Pet not found" }, { status: 404 });
     }
 
+    const [summary, rankMap] = await Promise.all([
+      getWeeklyVoteSummary(pet.id, weekId),
+      prisma.pet
+        .findMany({
+          where: { isActive: true, type: pet.type },
+          select: { id: true, createdAt: true },
+        })
+        .then(async (pets) => {
+          const summaryMap = await getWeeklyVoteSummaryMap(
+            pets.map((entry) => entry.id),
+            weekId,
+          );
+          return getRankMap(pets, summaryMap);
+        }),
+    ]);
+
     return NextResponse.json({
       ...pet,
-      weeklyVotes: pet.weeklyStats[0]?.totalVotes || 0,
-      weeklyRank: pet.weeklyStats[0]?.rank || null,
+      weeklyVotes: summary.totalVotes,
+      weeklyRank: rankMap.get(pet.id) || null,
       isNew:
         new Date().getTime() - new Date(pet.createdAt).getTime() <
         7 * 24 * 60 * 60 * 1000,

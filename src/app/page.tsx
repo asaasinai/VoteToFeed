@@ -3,6 +3,7 @@ import { PetImage } from "@/app/pets/[id]/PetImage";
 import { getAnimalType, getWeeklyVoteGoal } from "@/lib/admin-settings";
 import prisma from "@/lib/prisma";
 import { getCurrentWeekId, getWeekDateRange, formatDisplayName } from "@/lib/utils";
+import { getWeeklyVoteSummaryMap } from "@/lib/weekly-vote-stats";
 
 const signupHref = "/auth/signup?callbackUrl=%2Fpets%2Fnew";
 
@@ -15,25 +16,17 @@ async function getHomeData() {
     getWeeklyVoteGoal(),
   ]);
 
-  const [stats, weeklyMealsAgg, totalPets, topPets, featuredContest] = await Promise.all([
-    prisma.petWeeklyStats.aggregate({
-      where: { weekId, pet: { isActive: true } },
-      _sum: { totalVotes: true },
-    }),
+  const [weeklyMealsAgg, totalPets, allPets, featuredContest] = await Promise.all([
     prisma.purchase.aggregate({
       where: { status: "COMPLETED", createdAt: { gte: start, lt: end } },
       _sum: { mealsProvided: true },
     }),
     prisma.pet.count({ where: { isActive: true } }),
-    prisma.petWeeklyStats.findMany({
-      where: { weekId, pet: { isActive: true } },
+    prisma.pet.findMany({
+      where: { isActive: true },
       include: {
-        pet: {
-          include: { user: { select: { name: true } } },
-        },
+        user: { select: { name: true } },
       },
-      orderBy: { totalVotes: "desc" },
-      take: 3,
     }),
     prisma.contest.findFirst({
       where: { isActive: true, endDate: { gte: now }, startDate: { lte: now } },
@@ -45,10 +38,22 @@ async function getHomeData() {
     }),
   ]);
 
+  const summaryMap = await getWeeklyVoteSummaryMap(
+    allPets.map((pet) => pet.id),
+    weekId,
+  );
+  const rankedPets = [...allPets].sort((a, b) => {
+    const aVotes = summaryMap.get(a.id)?.totalVotes ?? 0;
+    const bVotes = summaryMap.get(b.id)?.totalVotes ?? 0;
+    if (bVotes !== aVotes) return bVotes - aVotes;
+    return a.createdAt.getTime() - b.createdAt.getTime();
+  });
+  const topPets = rankedPets.slice(0, 3);
+
   return {
     animalType,
     weeklyGoal,
-    weeklyVotes: stats._sum.totalVotes ?? 0,
+    weeklyVotes: Array.from(summaryMap.values()).reduce((sum, item) => sum + item.totalVotes, 0),
     mealsHelped: Math.round(weeklyMealsAgg._sum.mealsProvided ?? 0),
     totalPets,
     featuredContest: featuredContest
@@ -60,13 +65,13 @@ async function getHomeData() {
           totalPrizeValue: featuredContest.prizes.reduce((sum, prize) => sum + prize.value, 0),
         }
       : null,
-    topPets: topPets.map((entry, index) => ({
-      id: entry.pet.id,
-      name: entry.pet.name,
-      ownerName: formatDisplayName(entry.pet.ownerFirstName, entry.pet.ownerLastName, entry.pet.ownerName),
-      photos: entry.pet.photos,
-      type: entry.pet.type,
-      weeklyVotes: entry.totalVotes,
+    topPets: topPets.map((pet, index) => ({
+      id: pet.id,
+      name: pet.name,
+      ownerName: formatDisplayName(pet.ownerFirstName, pet.ownerLastName, pet.ownerName),
+      photos: pet.photos,
+      type: pet.type,
+      weeklyVotes: summaryMap.get(pet.id)?.totalVotes ?? 0,
       weeklyRank: index + 1,
     })),
   };

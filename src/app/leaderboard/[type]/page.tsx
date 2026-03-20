@@ -5,6 +5,7 @@ import { ShelterBanner } from "@/components/layout/ShelterBanner";
 import { getAnimalType, getWeeklyVoteGoal } from "@/lib/admin-settings";
 import prisma from "@/lib/prisma";
 import { getCurrentWeekId, getWeekDateRange } from "@/lib/utils";
+import { getWeeklyVoteSummaryMap } from "@/lib/weekly-vote-stats";
 
 type PageProps = { params: { type: string }; searchParams: { state?: string; page?: string } };
 
@@ -18,35 +19,39 @@ export default async function LeaderboardPage({ params, searchParams }: PageProp
   const weekId = getCurrentWeekId();
   const { start, end } = getWeekDateRange();
 
-  const [animalType, weeklyGoal, stats, weeklyMealsAgg, entries] = await Promise.all([
+  const [animalType, weeklyGoal, weeklyMealsAgg, pets] = await Promise.all([
     getAnimalType(),
     getWeeklyVoteGoal(),
-    prisma.petWeeklyStats.aggregate({
-      where: { weekId, pet: { type: type as "DOG" | "CAT", isActive: true, ...(state ? { state } : {}) } },
-      _sum: { totalVotes: true, paidVotes: true },
-    }),
     // Use stored mealsProvided from actual purchases — not recalculated
     prisma.purchase.aggregate({
       where: { status: "COMPLETED", createdAt: { gte: start, lt: end } },
       _sum: { mealsProvided: true },
     }),
-    prisma.petWeeklyStats.findMany({
-      where: { weekId, pet: { type: type as "DOG" | "CAT", isActive: true, ...(state ? { state } : {}) } },
+    prisma.pet.findMany({
+      where: { type: type as "DOG" | "CAT", isActive: true, ...(state ? { state } : {}) },
       include: {
-        pet: {
-          include: { user: { select: { name: true, image: true } } },
-        },
+        user: { select: { name: true, image: true } },
       },
-      orderBy: { totalVotes: "desc" },
-      skip: (page - 1) * limit,
-      take: limit,
     }),
   ]);
 
-  const total = await prisma.petWeeklyStats.count({
-    where: { weekId, pet: { type: type as "DOG" | "CAT", isActive: true, ...(state ? { state } : {}) } },
+  const summaryMap = await getWeeklyVoteSummaryMap(
+    pets.map((pet) => pet.id),
+    weekId,
+  );
+  const rankedEntries = [...pets].sort((a, b) => {
+    const aVotes = summaryMap.get(a.id)?.totalVotes ?? 0;
+    const bVotes = summaryMap.get(b.id)?.totalVotes ?? 0;
+    if (bVotes !== aVotes) return bVotes - aVotes;
+    return a.createdAt.getTime() - b.createdAt.getTime();
   });
-  const weeklyVotes = stats._sum.totalVotes ?? 0;
+
+  const total = rankedEntries.length;
+  const entries = rankedEntries.slice((page - 1) * limit, page * limit).map((pet) => ({
+    pet,
+    totalVotes: summaryMap.get(pet.id)?.totalVotes ?? 0,
+  }));
+  const weeklyVotes = Array.from(summaryMap.values()).reduce((sum, item) => sum + item.totalVotes, 0);
   const mealsHelped = Math.round(weeklyMealsAgg._sum.mealsProvided ?? 0);
 
   return (
