@@ -1,7 +1,6 @@
 import { NextAuthOptions } from "next-auth";
 import { PrismaAdapter } from "@auth/prisma-adapter";
 import GoogleProvider from "next-auth/providers/google";
-import FacebookProvider from "next-auth/providers/facebook";
 import CredentialsProvider from "next-auth/providers/credentials";
 import bcrypt from "bcryptjs";
 import prisma from "./prisma";
@@ -12,9 +11,6 @@ const googleClientSecret =
   process.env.GOOGLE_CLIENT_SECRET || process.env.CLIENT_SECRET || "";
 const googleRedirectUri =
   process.env.GOOGLE_REDIRECT_URI || process.env.REDIRECT_URI || "";
-
-const facebookClientId = process.env.FACEBOOK_CLIENT_ID || "";
-const facebookClientSecret = process.env.FACEBOOK_CLIENT_SECRET || "";
 
 const providers: NextAuthOptions["providers"] = [
   ...(googleClientId && googleClientSecret
@@ -31,14 +27,6 @@ const providers: NextAuthOptions["providers"] = [
                 },
               }
             : {}),
-        }),
-      ]
-    : []),
-  ...(facebookClientId && facebookClientSecret
-    ? [
-        FacebookProvider({
-          clientId: facebookClientId,
-          clientSecret: facebookClientSecret,
         }),
       ]
     : []),
@@ -108,7 +96,7 @@ export const authOptions: NextAuthOptions = {
   events: {
     async signIn({ user, account, isNewUser }) {
       if (!user?.id || !account?.provider || !isNewUser) return;
-      if (!["google", "facebook"].includes(account.provider)) return;
+      if (!["google"].includes(account.provider)) return;
 
       await recordAnalyticsEvent({
         eventName: "auth_signup_completed",
