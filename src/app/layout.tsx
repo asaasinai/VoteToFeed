@@ -78,7 +78,8 @@ async function getShelterStats() {
     const total = agg._sum.totalVotes ?? 0;
     const meals = Math.round(weeklyMealsAgg._sum.mealsProvided ?? 0);
     return { count: total, animalType, meals };
-  } catch (_e) {
+  } catch (e) {
+    console.error("Error fetching shelter stats:", e);
     return { count: 0, animalType: "animals", meals: 0 };
   }
 }
@@ -86,7 +87,14 @@ async function getShelterStats() {
 export default async function RootLayout({
   children,
 }: Readonly<{ children: React.ReactNode }>) {
-  const stats = await getShelterStats();
+  let stats = { count: 0, animalType: "animals", meals: 0 };
+  
+  try {
+    stats = await getShelterStats();
+  } catch (e) {
+    console.error("Fatal error in RootLayout:", e);
+    // Continue with default stats rather than crashing
+  }
 
   return (
     <html lang="en">
