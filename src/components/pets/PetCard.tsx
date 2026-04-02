@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useCallback } from "react";
 import Link from "next/link";
 import { formatVotes, rankSuffix, cn } from "@/lib/utils";
 
@@ -79,6 +79,7 @@ export function PetCard({
 }: PetCardProps) {
   const [imgError, setImgError] = useState(false);
   const [fallbackError, setFallbackError] = useState(false);
+  const [imgLoaded, setImgLoaded] = useState(false);
 
   const photo = photos[0];
   const hasPhoto = photo && photo.trim().length > 0 && !isUnsupportedImageFormat(photo);
@@ -91,14 +92,29 @@ export function PetCard({
   // Determine what image src to use
   const imageSrc = hasPhoto && !imgError ? photo : (!fallbackError ? fallbackSrc : null);
 
+  // Handle cached images: if img is already loaded when ref attaches, mark as loaded
+  const imgRef = useCallback((node: HTMLImageElement | null) => {
+    if (node && node.complete && node.naturalWidth > 0 && node.naturalHeight > 0) {
+      setImgLoaded(true);
+    }
+  }, []);
+
   return (
     <Link href={`/pets/${id}`} className="card card-hover group block overflow-hidden">
       <div className="aspect-[4/5] relative bg-surface-100 overflow-hidden">
+        {/* Loading skeleton */}
+        {imageSrc && !imgLoaded && !showPlaceholder && (
+          <div className="absolute inset-0 bg-surface-200 animate-pulse" />
+        )}
+
         {imageSrc ? (
           <img
+            ref={imgRef}
             src={imageSrc}
             alt={name}
-            className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500 ease-out"
+            className={`w-full h-full object-cover object-center group-hover:scale-105 transition-all duration-500 ease-out ${
+              imgLoaded ? "opacity-100" : "opacity-0"
+            }`}
             onLoad={(e) => {
               const img = e.currentTarget;
               if (img.naturalWidth === 0 || img.naturalHeight === 0) {
@@ -107,7 +123,9 @@ export function PetCard({
                 } else {
                   setFallbackError(true);
                 }
+                return;
               }
+              setImgLoaded(true);
             }}
             onError={() => {
               if (hasPhoto && !imgError) {
