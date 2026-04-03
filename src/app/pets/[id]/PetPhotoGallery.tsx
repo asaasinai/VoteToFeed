@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { PetImage } from "./PetImage";
+import { ImageLightbox } from "@/components/shared/ImageLightbox";
 
 type PetPhotoGalleryProps = {
   photos: string[];
@@ -11,6 +12,10 @@ type PetPhotoGalleryProps = {
   isNew: boolean;
   weeklyRank: number | null;
   rankLabel?: string;
+  weeklyVotes?: number;
+  canVote?: boolean;
+  votesRemaining?: number;
+  isOwner?: boolean;
 };
 
 export function PetPhotoGallery({
@@ -21,6 +26,10 @@ export function PetPhotoGallery({
   isNew,
   weeklyRank,
   rankLabel,
+  weeklyVotes = 0,
+  canVote = true,
+  votesRemaining,
+  isOwner = false,
 }: PetPhotoGalleryProps) {
   const galleryPhotos = useMemo(() => {
     const valid = photos.filter((photo) => typeof photo === "string" && photo.trim().length > 0);
@@ -31,8 +40,10 @@ export function PetPhotoGallery({
   }, [photos]);
 
   const [activeIndex, setActiveIndex] = useState(0);
+  const [lightboxOpen, setLightboxOpen] = useState(false);
   const hasMultiplePhotos = galleryPhotos.length > 1;
   const activePhoto = galleryPhotos[activeIndex] ?? galleryPhotos[0] ?? "";
+  const hasValidPhotos = galleryPhotos.length > 0 && galleryPhotos[0] !== "";
 
   const goToPhoto = (index: number) => {
     setActiveIndex((index + galleryPhotos.length) % galleryPhotos.length);
@@ -44,13 +55,20 @@ export function PetPhotoGallery({
   return (
     <div>
       <div className="relative rounded-2xl overflow-hidden bg-surface-100 aspect-[4/3] group shadow-sm">
-        <PetImage
-          src={activePhoto}
-          alt={petName}
-          className="w-full h-full object-cover"
-          petId={petId}
-          petType={petType}
-        />
+        <button
+          type="button"
+          onClick={() => hasValidPhotos && setLightboxOpen(true)}
+          className={`w-full h-full block ${hasValidPhotos ? "cursor-zoom-in" : "cursor-default"}`}
+          aria-label={hasValidPhotos ? `View ${petName} photo full size` : undefined}
+        >
+          <PetImage
+            src={activePhoto}
+            alt={petName}
+            className="w-full h-full object-cover"
+            petId={petId}
+            petType={petType}
+          />
+        </button>
 
         <div className="absolute top-4 left-4 flex flex-wrap gap-2 max-w-[calc(100%-2rem)]">
           {isNew && <span className="badge-new">New</span>}
@@ -63,6 +81,23 @@ export function PetPhotoGallery({
             </span>
           )}
         </div>
+
+        {/* Zoom hint */}
+        {hasValidPhotos && (
+          <button
+            type="button"
+            onClick={() => setLightboxOpen(true)}
+            className="absolute top-4 right-4 z-10 flex h-9 w-9 items-center justify-center rounded-full bg-black/60 text-white shadow-lg backdrop-blur-sm transition-all opacity-0 group-hover:opacity-100 hover:bg-black/80 focus:opacity-100 focus:outline-none focus:ring-2 focus:ring-white/80"
+            aria-label="View full size"
+          >
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+              <circle cx="11" cy="11" r="8" />
+              <line x1="21" y1="21" x2="16.65" y2="16.65" />
+              <line x1="11" y1="8" x2="11" y2="14" />
+              <line x1="8" y1="11" x2="14" y2="11" />
+            </svg>
+          </button>
+        )}
 
         {hasMultiplePhotos && (
           <>
@@ -139,6 +174,39 @@ export function PetPhotoGallery({
             })}
           </div>
         </div>
+      )}
+
+      {lightboxOpen && hasValidPhotos && (
+        <ImageLightbox
+          photos={galleryPhotos}
+          initialIndex={activeIndex}
+          petName={petName}
+          onClose={() => setLightboxOpen(false)}
+          petId={petId}
+          weeklyVotes={weeklyVotes}
+          canVote={canVote && !isOwner}
+          votesRemaining={votesRemaining}
+          onVote={
+            !isOwner
+              ? async () => {
+                  try {
+                    const res = await fetch("/api/votes", {
+                      method: "POST",
+                      headers: { "Content-Type": "application/json" },
+                      body: JSON.stringify({ petId, quantity: 1 }),
+                    });
+                    const data = await res.json();
+                    if (res.ok) {
+                      return { success: true, newVoteCount: data.pet.weeklyVotes };
+                    }
+                    return { success: false };
+                  } catch {
+                    return { success: false };
+                  }
+                }
+              : undefined
+          }
+        />
       )}
     </div>
   );

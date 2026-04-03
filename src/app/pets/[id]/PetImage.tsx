@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useRef, useCallback, useEffect } from "react";
 
 // Generate a consistent color for a pet based on its ID
 function getPetPlaceholderColor(petId: string): string {
@@ -59,9 +59,6 @@ export function PetImage({
   petType?: string;
   fallback?: string;
 }) {
-  const [imageLoaded, setImageLoaded] = useState(false);
-  const [hasError, setHasError] = useState(false);
-
   // Check if source is empty or missing
   const hasValidSource = src && src.trim().length > 0 && !isUnsupportedImageFormat(src);
   
@@ -70,9 +67,33 @@ export function PetImage({
     (petType ? generateFallbackImage(petType) : undefined) ||
     RELIABLE_FALLBACKS.DEFAULT;
 
-  const showPlaceholder = !hasValidSource && hasError && petId;
+  const [imageLoaded, setImageLoaded] = useState(false);
+  const [hasError, setHasError] = useState(false);
+  const [currentSrc, setCurrentSrc] = useState<string>(() => {
+    if (hasValidSource) return src;
+    return actualFallback;
+  });
+  const triedFallback = useRef(!hasValidSource);
 
-  if (showPlaceholder) {
+  // Reset state when src prop changes (e.g. navigating between pets)
+  useEffect(() => {
+    setImageLoaded(false);
+    setHasError(false);
+    setCurrentSrc(hasValidSource ? src : actualFallback);
+    triedFallback.current = !hasValidSource;
+  }, [src]);
+
+  // Show placeholder when ALL image sources have failed
+  const showPlaceholder = hasError;
+
+  // Handle cached images: if img is already loaded when ref attaches, mark as loaded
+  const imgRef = useCallback((node: HTMLImageElement | null) => {
+    if (node && node.complete && node.naturalWidth > 0 && node.naturalHeight > 0) {
+      setImageLoaded(true);
+    }
+  }, []);
+
+  if (showPlaceholder && petId) {
     const placeholderColor = getPetPlaceholderColor(petId);
     return (
       <div
@@ -90,33 +111,49 @@ export function PetImage({
     );
   }
 
+  if (showPlaceholder) {
+    return (
+      <div className={`${className} bg-surface-200 flex items-center justify-center`}>
+        <div className="text-sm font-medium text-surface-400">No photo</div>
+      </div>
+    );
+  }
+
   return (
-    <img
-      src={hasValidSource ? src : actualFallback}
-      alt={alt}
-      className={className}
-      onLoad={(e) => {
-        const img = e.currentTarget;
-        if (img.naturalWidth === 0 || img.naturalHeight === 0) {
-          if (img.src !== actualFallback) {
-            img.src = actualFallback;
+    <div className={`${className} relative overflow-hidden`}>
+      {/* Skeleton loading state */}
+      {!imageLoaded && (
+        <div className="absolute inset-0 bg-surface-200 animate-pulse" />
+      )}
+      <img
+        ref={imgRef}
+        src={currentSrc}
+        alt={alt}
+        className={`w-full h-full object-cover object-center transition-opacity duration-300 ${
+          imageLoaded ? "opacity-100" : "opacity-0"
+        }`}
+        onLoad={(e) => {
+          const img = e.currentTarget;
+          if (img.naturalWidth === 0 || img.naturalHeight === 0) {
+            if (!triedFallback.current) {
+              triedFallback.current = true;
+              setCurrentSrc(actualFallback);
+              return;
+            }
+            setHasError(true);
             return;
           }
-          setHasError(true);
-          return;
-        }
-        setImageLoaded(true);
-      }}
-      onError={(e) => {
-        const t = e.currentTarget;
-        if (t.src !== actualFallback) {
-          // Try fallback image
-          t.src = actualFallback;
-        } else {
-          // Fallback failed too
-          setHasError(true);
-        }
-      }}
-    />
+          setImageLoaded(true);
+        }}
+        onError={() => {
+          if (!triedFallback.current) {
+            triedFallback.current = true;
+            setCurrentSrc(actualFallback);
+          } else {
+            setHasError(true);
+          }
+        }}
+      />
+    </div>
   );
 }

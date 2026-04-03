@@ -480,12 +480,12 @@ export default function NewPetPage() {
         <div>
           <label className="block text-sm font-medium text-surface-700 mb-1.5">Photos * <span className="text-surface-400 font-normal">({photos.length}/5)</span></label>
           {photos.length > 0 && (
-            <div className="flex gap-2 mb-3 overflow-x-auto pb-2 hide-scrollbar">
+            <div className="grid grid-cols-3 sm:grid-cols-5 gap-2 mb-3">
               {photos.map((photo, i) => (
-                <div key={i} className="relative flex-shrink-0 w-20 h-20 rounded-xl overflow-hidden bg-surface-100 group">
-                  <img src={photo.url} alt={photo.name} className="w-full h-full object-cover" />
-                  <button type="button" onClick={() => removePhoto(i)} className="absolute top-1 right-1 w-5 h-5 rounded-full bg-black/60 text-white flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
-                  {i === 0 && <span className="absolute bottom-1 left-1 text-[8px] font-bold bg-brand-500 text-white px-1 py-0.5 rounded">Main</span>}
+                <div key={i} className="relative aspect-square rounded-xl overflow-hidden bg-surface-100 group">
+                  <img src={photo.url} alt={photo.name} className="w-full h-full object-cover object-center" />
+                  <button type="button" onClick={() => removePhoto(i)} className="absolute top-1 right-1 w-6 h-6 rounded-full bg-black/60 text-white flex items-center justify-center opacity-0 group-hover:opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity active:opacity-100"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
+                  {i === 0 && <span className="absolute bottom-1 left-1 text-[8px] font-bold bg-brand-500 text-white px-1.5 py-0.5 rounded">Main</span>}
                 </div>
               ))}
             </div>

@@ -179,6 +179,10 @@ export default async function PetDetailPage({
             isNew={isNew}
             weeklyRank={weeklyRank}
             rankLabel={weeklyRank != null && weeklyRank <= 10 ? `${rankSuffix(weeklyRank)} this week` : undefined}
+            weeklyVotes={weeklyVotes}
+            canVote={freeVotes.free > 0 || freeVotes.paid > 0}
+            votesRemaining={freeVotes.free + freeVotes.paid}
+            isOwner={!!isOwner}
           />
         </div>
 
