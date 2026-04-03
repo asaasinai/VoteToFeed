@@ -52,7 +52,7 @@ export async function generateMetadata({
   const weeklyVotes = pet.weeklyStats[0]?.totalVotes ?? 0;
   const rank = pet.weeklyStats[0]?.rank ?? null;
   const photo = pet.photos && pet.photos.length > 0 ? pet.photos[0] : "";
-  const appUrl = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL || "https://votetofeed.com";
 
   const title = `Vote for ${pet.name} to win! | Vote to Feed`;
   const description = pet.bio
