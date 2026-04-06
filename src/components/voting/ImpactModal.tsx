@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import Link from "next/link";
+import { useRouter } from "next/navigation";
 
 type Props = {
   open: boolean;
@@ -36,11 +36,14 @@ export function ImpactModal({
 }: Props) {
   const factRef = useRef(Math.floor(Math.random() * SHELTER_FACTS.length));
   const [closing, setClosing] = useState(false);
+  const [navigating, setNavigating] = useState<string | null>(null);
+  const router = useRouter();
 
   useEffect(() => {
     if (open) {
       factRef.current = Math.floor(Math.random() * SHELTER_FACTS.length);
       setClosing(false);
+      setNavigating(null);
     }
   }, [open]);
 
@@ -103,27 +106,53 @@ export function ImpactModal({
               Feed even more shelter pets
             </p>
             <div className="grid grid-cols-2 gap-2">
-              <Link
-                href={isAuthenticated ? `/dashboard?buy=FRIEND&pet=${petId}` : `/auth/signin?callbackUrl=/dashboard?buy=FRIEND&pet=${petId}`}
-                className="rounded-xl bg-gradient-to-b from-brand-500 to-brand-600 text-white p-3 text-center hover:shadow-lg transition-all active:scale-95"
+              <button
+                onClick={() => {
+                  setNavigating("FRIEND");
+                  const url = isAuthenticated ? `/dashboard?buy=FRIEND&pet=${petId}` : `/auth/signin?callbackUrl=/dashboard?buy=FRIEND&pet=${petId}`;
+                  router.push(url);
+                }}
+                disabled={!!navigating}
+                className="rounded-xl bg-gradient-to-b from-brand-500 to-brand-600 text-white p-3 text-center hover:shadow-lg transition-all active:scale-95 disabled:opacity-70"
               >
-                <p className="text-lg font-black">30</p>
-                <p className="text-[10px] opacity-80">votes</p>
-                <p className="text-sm font-bold mt-1">$4.99</p>
-                <p className="text-[10px] mt-0.5 text-emerald-200">~{Math.round(4.99 * mealRate)} meals 🐾</p>
-              </Link>
-              <Link
-                href={isAuthenticated ? `/dashboard?buy=SUPPORTER&pet=${petId}` : `/auth/signin?callbackUrl=/dashboard?buy=SUPPORTER&pet=${petId}`}
-                className="rounded-xl bg-gradient-to-b from-amber-400 to-amber-500 text-white p-3 text-center hover:shadow-lg transition-all active:scale-95 relative"
+                {navigating === "FRIEND" ? (
+                  <div className="flex items-center justify-center py-3">
+                    <div className="w-5 h-5 rounded-full border-2 border-white border-t-transparent animate-spin" />
+                  </div>
+                ) : (
+                  <>
+                    <p className="text-lg font-black">30</p>
+                    <p className="text-[10px] opacity-80">votes</p>
+                    <p className="text-sm font-bold mt-1">$4.99</p>
+                    <p className="text-[10px] mt-0.5 text-emerald-200">~{Math.round(4.99 * mealRate)} meals 🐾</p>
+                  </>
+                )}
+              </button>
+              <button
+                onClick={() => {
+                  setNavigating("SUPPORTER");
+                  const url = isAuthenticated ? `/dashboard?buy=SUPPORTER&pet=${petId}` : `/auth/signin?callbackUrl=/dashboard?buy=SUPPORTER&pet=${petId}`;
+                  router.push(url);
+                }}
+                disabled={!!navigating}
+                className="rounded-xl bg-gradient-to-b from-amber-400 to-amber-500 text-white p-3 text-center hover:shadow-lg transition-all active:scale-95 relative disabled:opacity-70"
               >
-                <span className="absolute -top-2 left-1/2 -translate-x-1/2 px-2 py-0.5 rounded-full bg-red-500 text-[8px] font-bold uppercase text-white whitespace-nowrap">
-                  Most Popular
-                </span>
-                <p className="text-lg font-black">60</p>
-                <p className="text-[10px] opacity-80">votes</p>
-                <p className="text-sm font-bold mt-1">$9.99</p>
-                <p className="text-[10px] mt-0.5 text-emerald-100">~{Math.round(9.99 * mealRate)} meals 🐾</p>
-              </Link>
+                {navigating === "SUPPORTER" ? (
+                  <div className="flex items-center justify-center py-3">
+                    <div className="w-5 h-5 rounded-full border-2 border-white border-t-transparent animate-spin" />
+                  </div>
+                ) : (
+                  <>
+                    <span className="absolute -top-2 left-1/2 -translate-x-1/2 px-2 py-0.5 rounded-full bg-red-500 text-[8px] font-bold uppercase text-white whitespace-nowrap">
+                      Most Popular
+                    </span>
+                    <p className="text-lg font-black">60</p>
+                    <p className="text-[10px] opacity-80">votes</p>
+                    <p className="text-sm font-bold mt-1">$9.99</p>
+                    <p className="text-[10px] mt-0.5 text-emerald-100">~{Math.round(9.99 * mealRate)} meals 🐾</p>
+                  </>
+                )}
+              </button>
             </div>
           </div>
 
