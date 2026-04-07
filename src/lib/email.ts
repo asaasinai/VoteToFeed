@@ -1,5 +1,5 @@
 import { Resend } from "resend";
-import { rankSuffix } from "@/lib/utils";
+import { rankSuffix, VOTE_PACKAGES } from "@/lib/utils";
 
 const FROM_EMAIL = "VoteToFeed <noreply@votetofeed.com>";
 
@@ -333,6 +333,35 @@ export async function sendContestReEntry(
       <p style="margin-top:20px;font-size:14px;color:#16a34a;">🐾 Each new round means more chances to win while helping shelter pets in need.</p>
       <p style="margin-top:16px;font-size:12px;color:#a1a1aa;">Button not working? Copy this link into your browser:<br/><span style="color:#71717a;">${reentryUrl}</span></p>
     `, `${petName} has a spot in ${newContestName} — one click to enter!`),
+  });
+}
+
+export async function sendAlmostWonEmail(
+  to: string,
+  userName: string,
+  petName: string,
+  contestName: string,
+  rank: number,
+  votesFromTop3: number,
+  nextContestId: string,
+) {
+  const rSuffix = rankSuffix(rank);
+  const bestPkg = VOTE_PACKAGES.find(p => p.votes >= votesFromTop3) ?? VOTE_PACKAGES[VOTE_PACKAGES.length - 1];
+  const suggestedPkg = `${bestPkg.votes} votes for $${(bestPkg.price / 100).toFixed(2)}`;
+  await sendEmail({
+    from: FROM_EMAIL,
+    to: [to],
+    subject: `😢 ${petName} was SO close — finished ${rSuffix}, only ${votesFromTop3} votes from Top 3`,
+    html: emailShell(`
+      <p style="margin:0 0 6px;font-size:13px;font-weight:700;color:#dc2626;text-transform:uppercase;letter-spacing:1px;">So Close!</p>
+      <h1 style="margin:0 0 20px;font-size:28px;font-weight:900;color:#18181b;line-height:1.2;">${petName} finished ${rSuffix} 😢<br/>Just ${votesFromTop3} vote${votesFromTop3 !== 1 ? "s" : ""} from winning!</h1>
+      <p style="margin:0 0 20px;color:#52525b;font-size:16px;">Hey ${userName}, <strong>${petName}</strong> was <strong>only ${votesFromTop3} vote${votesFromTop3 !== 1 ? "s" : ""} away</strong> from cracking the top 3 in <strong>${contestName}</strong>. That's heartbreakingly close.</p>
+      ${statRow([{ label: "Final Rank", value: `#${rank}` }, { label: "Votes Short", value: String(votesFromTop3) }, { label: "Next Contest", value: "LIVE NOW" }])}
+      ${infoBox(`💡 <strong>Don't let it happen again.</strong> A quick boost of ${suggestedPkg} would have changed everything. Start the next contest with an advantage.`, "#fef2f2", "#fca5a5")}
+      ${ctaButton("Enter Next Contest — Win This Time", `${appUrl()}/contests/${nextContestId}`)}
+      ${ctaButton("Buy Votes Now", `${appUrl()}/dashboard#votes`, "#71717a")}
+      <p style="margin-top:20px;font-size:14px;color:#16a34a;">🐾 Every vote purchase feeds shelter pets — your support matters win or lose.</p>
+    `, `${petName} was ${rSuffix} — only ${votesFromTop3} votes from Top 3. Next contest is live!`),
   });
 }
 
