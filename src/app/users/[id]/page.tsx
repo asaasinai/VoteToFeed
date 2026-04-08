@@ -122,6 +122,7 @@ export default async function PublicProfilePage({
         isOwnProfile: currentUserId === params.id,
       }}
       isLoggedIn={!!currentUserId}
+      currentUserId={currentUserId || undefined}
     />
   );
 }

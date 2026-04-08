@@ -70,9 +70,11 @@ type UserPost = {
 export function PublicProfileClient({
   profile,
   isLoggedIn,
+  currentUserId,
 }: {
   profile: Profile;
   isLoggedIn: boolean;
+  currentUserId?: string;
 }) {
   const [tab, setTab] = useState<Tab>("pets");
   const [followerCount, setFollowerCount] = useState(profile.followerCount);
@@ -151,12 +153,14 @@ export function PublicProfileClient({
   }
 
   async function deletePost(postId: string) {
-    await fetch(`/api/users/${profile.id}/posts`, {
+    const res = await fetch(`/api/users/${profile.id}/posts`, {
       method: "DELETE",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ postId }),
     });
-    setPosts((prev) => prev.filter((p) => p.id !== postId));
+    if (res.ok) {
+      setPosts((prev) => prev.filter((p) => p.id !== postId));
+    }
   }
 
   async function toggleLike(postId: string) {
@@ -212,12 +216,14 @@ export function PublicProfileClient({
   }
 
   async function deleteComment(postId: string, commentId: string) {
-    await fetch(`/api/users/${profile.id}/posts/${postId}/comment`, {
+    const res = await fetch(`/api/users/${profile.id}/posts/${postId}/comment`, {
       method: "DELETE",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ commentId }),
     });
-    setPosts((prev) => prev.map((p) => p.id === postId ? { ...p, comments: p.comments.filter((c) => c.id !== commentId), commentCount: Math.max(0, p.commentCount - 1) } : p));
+    if (res.ok) {
+      setPosts((prev) => prev.map((p) => p.id === postId ? { ...p, comments: p.comments.filter((c) => c.id !== commentId), commentCount: Math.max(0, p.commentCount - 1) } : p));
+    }
   }
 
   const memberSince = new Date(profile.createdAt).toLocaleDateString("en-US", {
@@ -658,7 +664,7 @@ export function PublicProfileClient({
                             <span className="text-[10px] text-surface-400">
                               {new Date(c.createdAt).toLocaleDateString("en-US", { month: "short", day: "numeric" })}
                             </span>
-                            {(profile.isOwnProfile || c.user.id === profile.id) && (
+                            {(profile.isOwnProfile || c.user.id === currentUserId) && (
                               <button
                                 onClick={() => deleteComment(post.id, c.id)}
                                 className="ml-auto text-[10px] text-surface-300 hover:text-red-400 transition-colors opacity-0 group-hover:opacity-100"
