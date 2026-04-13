@@ -870,6 +870,7 @@ model ChatConversation {
   userName    String?  // visitor-provided name or user name
   userEmail   String?
   status      ChatStatus @default(OPEN)
+  aiPaused    Boolean  @default(false) // true = admin took over, AI won't respond
   lastMessage String?  @db.Text
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt

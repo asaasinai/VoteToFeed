@@ -3,7 +3,10 @@ import Anthropic from "@anthropic-ai/sdk";
 import OpenAI from "openai";
 import prisma from "@/lib/prisma";
 import { CHAT_SYSTEM_PROMPT } from "@/lib/chat-knowledge";
+import { getContestLeaderboard } from "@/lib/contest-growth";
 import { getCurrentWeekId, getWeekDateRange } from "@/lib/utils";
+import { sendEmail } from "@/lib/email";
+import { emailShell } from "@/lib/email";
 
 const anthropic = process.env.ANTHROPIC_API_KEY ? new Anthropic() : null;
 const openai = process.env.OPENAI_API_KEY ? new OpenAI({ apiKey: process.env.OPENAI_API_KEY }) : null;
@@ -119,6 +122,33 @@ async function getLiveContext(userId?: string) {
       const stats = p.weeklyStats[0];
       lines.push(`- ${p.name} (${p.type}) — ${stats?.totalVotes ?? 0} votes this week, rank #${stats?.rank ?? "unranked"}`);
     });
+
+    // Fetch contest-specific standings for each of the user's pets
+    try {
+      const userPetIds = new Set(userPets.map((p) => p.id));
+      const contestLines: string[] = [];
+
+      for (const contest of activeContests) {
+        const leaderboard = await getContestLeaderboard(contest.id);
+        const userEntries = leaderboard.filter((row) => userPetIds.has(row.petId));
+        if (userEntries.length === 0) continue;
+
+        const daysLeft = Math.ceil((contest.endDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
+        for (const entry of userEntries) {
+          const aboveEntry = entry.rank > 1 ? leaderboard.find((r) => r.rank === entry.rank - 1) : null;
+          const votesNeeded = aboveEntry ? aboveEntry.totalVotes - entry.totalVotes + 1 : 0;
+          contestLines.push(`- ${entry.petName} in "${contest.name}": rank #${entry.rank}, ${entry.totalVotes} votes, ${daysLeft} days left${votesNeeded > 0 ? `, needs ${votesNeeded} more votes to move up to #${entry.rank - 1}` : ""}`);
+        }
+      }
+
+      if (contestLines.length > 0) {
+        lines.push(`\nThis user's pets in active contests:`);
+        lines.push(...contestLines);
+      }
+    } catch (err) {
+      // Contest details are supplementary, don't fail the whole context
+      console.error("Error fetching contest standings for chat:", err);
+    }
   }
 
   if (userData) {
@@ -177,6 +207,65 @@ async function getAIResponse(
   }
 
   return "I'm sorry, I'm having trouble right now. Would you like me to connect you with a human support agent? Just say 'yes' and we'll get someone to help you! 🐾";
+}
+
+// Detect if the user wants to talk to a human
+const ESCALATION_PATTERNS = [
+  /\bhuman\b/i, /\breal\s*person\b/i, /\bsupport\s*agent\b/i,
+  /\bconnect\s*me\b/i, /\btalk\s*to\s*(someone|a\s*person|support|agent|admin)\b/i,
+  /\bspeak\s*to/i, /\bcontact\s*(support|someone|admin|team)\b/i,
+  /\byes\b.*\b(connect|human|agent|person)\b/i,
+  /\bnjeri\b/i, /\bdikush\b/i, /\bme\s*fol\b/i, /\bna\s*kontakto/i,
+  /\bpo\b.*\b(ndihm|kontakt)/i,
+];
+
+function isEscalationRequest(message: string, aiResponse: string): boolean {
+  const combined = message.toLowerCase();
+  if (ESCALATION_PATTERNS.some((p) => p.test(combined))) return true;
+  // Also check if the AI itself suggested human escalation and user said yes/ok/sure
+  if (/\b(yes|ok|sure|yeah|po|ok|aha)\b/i.test(message) && /connect|human|support agent/i.test(aiResponse)) return true;
+  return false;
+}
+
+function escHtml(s: string): string {
+  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+}
+
+async function sendEscalationEmail(conversationId: string, userName: string | null, userEmail: string | null, lastMessage: string) {
+  try {
+    const url = process.env.NEXT_PUBLIC_APP_URL || "https://www.votetofeed.com";
+    const safeName = escHtml(userName || "Anonymous");
+    const safeEmail = escHtml(userEmail || "Not provided");
+    const safeMessage = escHtml(lastMessage.slice(0, 500));
+    await sendEmail({
+      from: "VoteToFeed Support <noreply@votetofeed.com>",
+      to: "krenar@homelifemedia.com",
+      subject: `🔔 Support Request — ${userName || "Anonymous User"} needs help`,
+      html: emailShell(`
+        <p style="margin:0 0 6px;font-size:13px;font-weight:700;color:#dc2626;text-transform:uppercase;letter-spacing:1px;">🔔 Live Support Request</p>
+        <h1 style="margin:0 0 16px;font-size:24px;font-weight:900;color:#18181b;">Someone needs help!</h1>
+        <table width="100%" cellpadding="0" cellspacing="0" role="presentation" style="margin:0 0 16px;border:1px solid #e5e7eb;border-radius:8px;overflow:hidden;">
+          <tr><td style="padding:12px 16px;border-bottom:1px solid #f4f4f5;">
+            <p style="margin:0;font-size:13px;color:#71717a;">Name</p>
+            <p style="margin:4px 0 0;font-size:15px;font-weight:600;color:#18181b;">${safeName}</p>
+          </td></tr>
+          <tr><td style="padding:12px 16px;border-bottom:1px solid #f4f4f5;">
+            <p style="margin:0;font-size:13px;color:#71717a;">Email</p>
+            <p style="margin:4px 0 0;font-size:15px;font-weight:600;color:#18181b;">${safeEmail}</p>
+          </td></tr>
+          <tr><td style="padding:12px 16px;">
+            <p style="margin:0;font-size:13px;color:#71717a;">Last Message</p>
+            <p style="margin:4px 0 0;font-size:15px;color:#18181b;">${safeMessage}</p>
+          </td></tr>
+        </table>
+        <p style="margin:0 0 16px;font-size:14px;color:#52525b;">Reply to this user from the admin chat panel:</p>
+        <a href="${url}/admin/chat" style="display:inline-block;padding:12px 24px;background:#dc2626;color:#fff;font-weight:700;font-size:14px;border-radius:8px;text-decoration:none;">Open Admin Chat →</a>
+      `, "A user needs live support — check the admin chat panel."),
+    });
+    console.log("Escalation email sent for conversation", conversationId);
+  } catch (err) {
+    console.error("Failed to send escalation email:", err);
+  }
 }
 
 // POST: Send a message and get AI response
@@ -238,7 +327,18 @@ export async function POST(req: NextRequest) {
         },
         include: { messages: { orderBy: { createdAt: "asc" }, take: 50 } },
       });
-    } else if (verifiedUserId && !conversation.userId) {
+    }
+
+    // If conversation was CLOSED and user sends a new message, re-enable AI
+    if (conversation.status === "CLOSED") {
+      conversation = await prisma.chatConversation.update({
+        where: { id: conversation.id },
+        data: { status: "OPEN", aiPaused: false },
+        include: { messages: { orderBy: { createdAt: "asc" }, take: 50 } },
+      });
+    }
+
+    if (verifiedUserId && !conversation.userId) {
       // Link user if they logged in after starting the conversation
       await prisma.chatConversation.update({
         where: { id: conversation.id },
@@ -258,6 +358,20 @@ export async function POST(req: NextRequest) {
         content: trimmedMessage,
       },
     });
+
+    // Update last message
+    await prisma.chatConversation.update({
+      where: { id: conversation.id },
+      data: { lastMessage: trimmedMessage },
+    });
+
+    // If AI is paused (admin is handling), don't generate AI response
+    if (conversation.aiPaused) {
+      return NextResponse.json({
+        reply: null,
+        aiPaused: true,
+      });
+    }
 
     // Build message history
     const history: { role: "user" | "assistant"; content: string }[] =
@@ -282,6 +396,41 @@ export async function POST(req: NextRequest) {
 
     const aiResponse = await getAIResponse(history, fullPrompt);
 
+    // Check if user is requesting human support
+    const wantsHuman = isEscalationRequest(trimmedMessage, aiResponse);
+
+    if (wantsHuman) {
+      // Save a human-escalation message instead of (or alongside) AI response
+      const escalationReply = verifiedUserName || conversation.userName
+        ? `Got it, ${(verifiedUserName || conversation.userName || "").split(" ")[0]}! 🙋‍♂️\n\nI've notified our support team — **someone will reach out to you within 5-10 minutes**.\n\nIn the meantime, feel free to keep chatting here and I'll do my best to help! 🐾`
+        : `Got it! 🙋‍♂️\n\nI've notified our support team — **someone will reach out to you within 5-10 minutes**.\n\nIf you'd like a faster response, make sure you're logged in so we can see your account. Feel free to keep chatting here! 🐾`;
+
+      // Save the escalation reply
+      await prisma.chatMessage.create({
+        data: {
+          conversationId: conversation.id,
+          role: "ASSISTANT",
+          content: escalationReply,
+        },
+      });
+
+      // Update conversation last message
+      await prisma.chatConversation.update({
+        where: { id: conversation.id },
+        data: { lastMessage: `[⚡ NEEDS HUMAN SUPPORT] ${trimmedMessage}` },
+      });
+
+      // Send email notification to admin (fire and forget)
+      sendEscalationEmail(
+        conversation.id,
+        verifiedUserName || conversation.userName,
+        verifiedUserEmail || conversation.userEmail,
+        trimmedMessage,
+      );
+
+      return NextResponse.json({ reply: escalationReply });
+    }
+
     // Save AI response
     await prisma.chatMessage.create({
       data: {
@@ -289,12 +438,6 @@ export async function POST(req: NextRequest) {
         role: "ASSISTANT",
         content: aiResponse,
       },
-    });
-
-    // Update conversation
-    await prisma.chatConversation.update({
-      where: { id: conversation.id },
-      data: { lastMessage: trimmedMessage },
     });
 
     return NextResponse.json({ reply: aiResponse });
@@ -331,5 +474,6 @@ export async function GET(req: NextRequest) {
       content: m.content,
       createdAt: m.createdAt,
     })),
+    aiPaused: conversation.aiPaused,
   });
 }
