@@ -100,6 +100,7 @@ export function ChatWidget() {
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
   const [loaded, setLoaded] = useState(false);
+  const [escalated, setEscalated] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -121,6 +122,9 @@ export function ChatWidget() {
             if (data.messages?.length) {
               setMessages(data.messages);
             }
+            if (data.aiPaused) {
+              setEscalated(true);
+            }
           })
           .catch(() => {});
       }
@@ -128,9 +132,10 @@ export function ChatWidget() {
     }
   }, [open, loaded]);
 
-  // Poll for new messages (admin replies) every 5 seconds while open
+  // Poll for new messages (admin replies) — faster after escalation
   useEffect(() => {
     if (open && loaded) {
+      const pollInterval = escalated ? 5000 : 10000;
       pollRef.current = setInterval(() => {
         const sessionId = getSessionId();
         if (!sessionId) return;
@@ -147,7 +152,7 @@ export function ChatWidget() {
             }
           })
           .catch(() => {});
-      }, 10000);
+      }, pollInterval);
     }
     return () => {
       if (pollRef.current) {
@@ -155,7 +160,7 @@ export function ChatWidget() {
         pollRef.current = null;
       }
     };
-  }, [open, loaded]);
+  }, [open, loaded, escalated]);
 
   useEffect(() => {
     scrollToBottom();
@@ -197,6 +202,13 @@ export function ChatWidget() {
       const data = await res.json();
       if (data.reply) {
         setMessages((prev) => [...prev, { role: "assistant", content: data.reply }]);
+        // Detect escalation — speed up polling for admin replies
+        if (data.reply.includes("5-10 minutes") || data.reply.includes("5-10 minut")) {
+          setEscalated(true);
+        }
+      } else if (data.aiPaused) {
+        // AI is paused — admin is handling. Speed up polling for admin response.
+        setEscalated(true);
       }
     } catch {
       setMessages((prev) => [
