@@ -15,8 +15,8 @@ export default async function AdminChatPage() {
       <div className="max-w-7xl mx-auto px-4 sm:px-6 pt-6">
         <AdminSectionNav currentPath="/admin/chat" />
       </div>
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 pb-12">
-        <h1 className="text-2xl font-black text-surface-800 mb-6">Chat Support</h1>
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 pb-4">
+        <h1 className="text-2xl font-black text-surface-800 mb-4">Chat Support</h1>
         <AdminChatClient />
       </div>
     </>
