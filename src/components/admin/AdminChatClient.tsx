@@ -46,7 +46,9 @@ export function AdminChatClient() {
   const [replyText, setReplyText] = useState("");
   const [sendingReply, setSendingReply] = useState(false);
   const [replyError, setReplyError] = useState<string | null>(null);
+  const [mobileShowDetail, setMobileShowDetail] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const messagesContainerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     loadConversations();
@@ -61,7 +63,9 @@ export function AdminChatClient() {
   }, [filter]);
 
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    if (messagesContainerRef.current) {
+      messagesContainerRef.current.scrollTop = messagesContainerRef.current.scrollHeight;
+    }
   }, [selected?.messages]);
 
   async function loadConversations() {
@@ -89,6 +93,7 @@ export function AdminChatClient() {
       } else {
         setSelected(conv);
         setReplyText("");
+        setMobileShowDetail(true);
       }
     } catch {
       if (forCompare) setCompareWith(null);
@@ -169,14 +174,22 @@ export function AdminChatClient() {
     return (
       <div className="flex-1 bg-white rounded-2xl border border-surface-200 flex flex-col overflow-hidden">
         {/* Header */}
-        <div className="px-5 py-3 border-b border-surface-200 bg-surface-50 shrink-0">
+        <div className="px-4 py-3 border-b border-surface-200 bg-surface-50 shrink-0">
+          {!isCompare && (
+            <button
+              onClick={() => setMobileShowDetail(false)}
+              className="md:hidden flex items-center gap-1 text-xs text-brand-500 font-semibold mb-2"
+            >
+              ← Back
+            </button>
+          )}
           <div className="flex items-center justify-between mb-1.5">
-            <div className="flex items-center gap-2">
-              <span className="font-bold text-sm text-surface-800">
+            <div className="flex items-center gap-2 min-w-0">
+              <span className="font-bold text-sm text-surface-800 truncate">
                 {conv.user?.name || conv.userName || "Anonymous Visitor"}
               </span>
               {(conv.userEmail || conv.user?.email) && (
-                <span className="text-xs text-surface-500">{conv.userEmail || conv.user?.email}</span>
+                <span className="text-xs text-surface-500 truncate hidden sm:block">{conv.userEmail || conv.user?.email}</span>
               )}
             </div>
             <div className="flex items-center gap-1.5">
@@ -245,7 +258,7 @@ export function AdminChatClient() {
         </div>
 
         {/* Messages */}
-        <div className="flex-1 overflow-y-auto px-5 py-2 space-y-1">
+        <div ref={!isCompare ? messagesContainerRef : undefined} className="flex-1 overflow-y-auto px-5 py-2 space-y-1">
           {conv.messages.map((msg) => (
             <div
               key={msg.id}
@@ -332,9 +345,9 @@ export function AdminChatClient() {
   }
 
   return (
-    <div className="flex flex-col gap-4">
+    <div className="flex flex-col gap-3 h-[calc(100dvh-190px)] sm:h-[calc(100dvh-210px)] md:h-[calc(100vh-230px)]">
       {/* Quick Stats */}
-      <div className="grid grid-cols-4 gap-3">
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-2 md:gap-3">
         {[
           {
             label: "Total",
@@ -357,16 +370,16 @@ export function AdminChatClient() {
             color: "bg-orange-50 text-orange-700",
           },
         ].map((s) => (
-          <div key={s.label} className={`rounded-xl px-4 py-3 ${s.color}`}>
-            <div className="text-2xl font-black">{s.value}</div>
+          <div key={s.label} className={`rounded-xl px-3 py-2.5 md:px-4 md:py-3 ${s.color}`}>
+            <div className="text-xl md:text-2xl font-black">{s.value}</div>
             <div className="text-[11px] font-semibold opacity-80">{s.label}</div>
           </div>
         ))}
       </div>
 
-      <div className="flex gap-6 min-h-[600px]">
+      <div className="flex gap-4 flex-1 overflow-hidden">
         {/* Conversations List */}
-        <div className="w-80 shrink-0">
+        <div className={`${mobileShowDetail ? "hidden" : "flex"} md:flex w-full md:w-72 lg:w-80 shrink-0 flex-col overflow-hidden`}>
           <div className="flex gap-1 mb-4">
             {(["all", "OPEN", "CLOSED"] as const).map((f) => (
               <button
@@ -408,7 +421,7 @@ export function AdminChatClient() {
           ) : conversations.length === 0 ? (
             <div className="text-sm text-surface-500 py-8 text-center">No conversations yet</div>
           ) : (
-            <div className="space-y-2 max-h-[560px] overflow-y-auto">
+            <div className="space-y-2 flex-1 overflow-y-auto">
               {/* Sort: needs-human first, then open, then closed */}
               {[...conversations]
                 .sort((a, b) => {
@@ -477,15 +490,15 @@ export function AdminChatClient() {
 
       {/* Conversation Detail / Compare */}
       {!selected && !loadingDetail ? (
-        <div className="flex-1 bg-white rounded-2xl border border-surface-200 flex items-center justify-center text-surface-400 text-sm">
+        <div className={`${mobileShowDetail ? "flex" : "hidden"} md:flex flex-1 bg-white rounded-2xl border border-surface-200 items-center justify-center text-surface-400 text-sm`}>
           Select a conversation to view
         </div>
       ) : loadingDetail ? (
-        <div className="flex-1 bg-white rounded-2xl border border-surface-200 flex items-center justify-center text-surface-400 text-sm">
+        <div className={`${mobileShowDetail ? "flex" : "hidden"} md:flex flex-1 bg-white rounded-2xl border border-surface-200 items-center justify-center text-surface-400 text-sm`}>
           Loading...
         </div>
       ) : selected ? (
-        <div className={`flex gap-4 flex-1 ${compareWith ? "" : ""}`}>
+        <div className={`${mobileShowDetail ? "flex" : "hidden"} md:flex gap-4 flex-1`}>
           {renderConversationPanel(selected)}
           {compareWith && renderConversationPanel(compareWith, true)}
         </div>
