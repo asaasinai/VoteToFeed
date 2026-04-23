@@ -69,6 +69,14 @@ export async function GET(req: NextRequest) {
         isStoryteller: c.isStoryteller,
         entryCount: c._count.entries,
         prizes: c.prizes,
+        // FLAGSHIP round fields
+        currentPhase: c.currentPhase,
+        round2StartDate: c.round2StartDate,
+        round3StartDate: c.round3StartDate,
+        finaleStartDate: c.finaleStartDate,
+        top100CutSize: c.top100CutSize,
+        top25CutSize: c.top25CutSize,
+        top5CutSize: c.top5CutSize,
         // Computed fields
         daysLeft: Math.max(0, Math.ceil((new Date(c.endDate).getTime() - now.getTime()) / (1000 * 60 * 60 * 24))),
         totalPrizeValue: c.prizes.reduce((sum, p) => sum + p.value, 0),
@@ -104,11 +112,18 @@ export async function POST(req: NextRequest) {
       name, type, petType, state, startDate, endDate, description, rules,
       coverImage, entryFee, maxEntries, prizeDescription, sponsorName,
       sponsorLogo, sponsorUrl, isFeatured, isRecurring, recurringInterval, prizes, isStoryteller,
+      currentPhase, round2StartDate, round3StartDate, finaleStartDate,
+      top100CutSize, top25CutSize, top5CutSize,
     } = body;
 
     if (!name || !type || !petType || !startDate || !endDate) {
       return NextResponse.json({ error: "Name, type, petType, startDate, endDate are required" }, { status: 400 });
     }
+
+    const VALID_PHASES = ["OPEN", "TOP100", "TOP25", "TOP5", "ENDED"] as const;
+    const validatedPhase = VALID_PHASES.includes(currentPhase as typeof VALID_PHASES[number])
+      ? (currentPhase as string)
+      : "OPEN";
 
     const contest = await prisma.contest.create({
       data: {
@@ -132,6 +147,14 @@ export async function POST(req: NextRequest) {
         recurringInterval: isRecurring ? (recurringInterval || "biweekly") : null,
         isStoryteller: isStoryteller || false,
         isActive: true,
+        // FLAGSHIP round fields
+        currentPhase: validatedPhase,
+        round2StartDate: round2StartDate ? new Date(round2StartDate) : null,
+        round3StartDate: round3StartDate ? new Date(round3StartDate) : null,
+        finaleStartDate: finaleStartDate ? new Date(finaleStartDate) : null,
+        top100CutSize: top100CutSize || 100,
+        top25CutSize: top25CutSize || 25,
+        top5CutSize: top5CutSize || 5,
         prizes: prizes?.length
           ? {
               create: prizes.map((p: { placement: number; title: string; description?: string; value: number; items?: string[] }) => ({
