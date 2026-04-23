@@ -56,9 +56,14 @@ export async function GET(req: NextRequest) {
         _sum: { totalVotes: true, paidVotes: true },
       });
 
-      // Gap-to-#1: first entry (rank 1) votes
-      const topEntry = stats[0];
-      const topVotes = topEntry?.totalVotes || 0;
+      // Gap-to-#1: fetch the global rank-1 independently of pagination so
+      // the value is correct on page 2+ as well.
+      const rank1Entry = await prisma.petWeeklyStats.findFirst({
+        where: { weekId, pet: petWhere },
+        orderBy: { totalVotes: "desc" },
+        select: { totalVotes: true },
+      });
+      const topVotes = rank1Entry?.totalVotes ?? 0;
 
       return NextResponse.json({
         entries: stats.map((s, i) => {

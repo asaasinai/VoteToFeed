@@ -56,7 +56,9 @@ export async function POST(req: NextRequest) {
         contest.finaleStartDate <= now
       ) {
         await advancePhase(contest.id, "TOP5", contest.top5CutSize, "TOP25", contest.startDate);
-        await sendRoundEmails(contest.id, "qualified_top5", "eliminated", contest.startDate);
+        await sendRoundEmails(contest.id, "qualified_top5", "eliminated", contest.startDate).catch((err) =>
+          console.error(`[advance-rounds] emails failed for contest ${contest.id}:`, err)
+        );
         results.push({ contestId: contest.id, name: contest.name, action: "TOP25 → TOP5" });
       } else if (
         contest.currentPhase === "TOP100" &&
@@ -64,7 +66,9 @@ export async function POST(req: NextRequest) {
         contest.round3StartDate <= now
       ) {
         await advancePhase(contest.id, "TOP25", contest.top25CutSize, "TOP100", contest.startDate);
-        await sendRoundEmails(contest.id, "qualified_top25", "eliminated", contest.startDate);
+        await sendRoundEmails(contest.id, "qualified_top25", "eliminated", contest.startDate).catch((err) =>
+          console.error(`[advance-rounds] emails failed for contest ${contest.id}:`, err)
+        );
         results.push({ contestId: contest.id, name: contest.name, action: "TOP100 → TOP25" });
       } else if (
         contest.currentPhase === "OPEN" &&
@@ -72,7 +76,9 @@ export async function POST(req: NextRequest) {
         contest.round2StartDate <= now
       ) {
         await advancePhase(contest.id, "TOP100", contest.top100CutSize, "OPEN", contest.startDate);
-        await sendRoundEmails(contest.id, "qualified_top100", "eliminated", contest.startDate);
+        await sendRoundEmails(contest.id, "qualified_top100", "eliminated", contest.startDate).catch((err) =>
+          console.error(`[advance-rounds] emails failed for contest ${contest.id}:`, err)
+        );
         results.push({ contestId: contest.id, name: contest.name, action: "OPEN → TOP100" });
       }
     }
@@ -199,8 +205,10 @@ async function sendRoundEmails(
   );
 
   const firstVotes = voteMap.get(sorted[0]?.petId) ?? 0;
-  const emailPromises: Promise<unknown>[] = [];
+  const CONCURRENCY = 10; // max simultaneous Resend calls
 
+  // Build the list of {to, subject, html} for each entry
+  const tasks: Array<() => Promise<unknown>> = [];
   sorted.forEach((entry, idx) => {
     const userEmail = entry.pet.user?.email;
     if (!userEmail) return;
@@ -221,12 +229,10 @@ async function sendRoundEmails(
       prizeDescription: "",
       nextContestName: contest.name,
     };
-
     const templateId = entry.isEliminated ? eliminatedTemplate : qualifiedTemplate;
     const rendered = renderBuiltinTemplate(templateId, s);
     if (!rendered) return;
-
-    emailPromises.push(
+    tasks.push(() =>
       sendEmail({
         from: "VoteToFeed <noreply@votetofeed.com>",
         to: userEmail,
@@ -238,6 +244,9 @@ async function sendRoundEmails(
     );
   });
 
-  await Promise.all(emailPromises);
-  console.log(`[advance-rounds] Sent ${emailPromises.length} emails for contest ${contestId}`);
+  // Drain tasks in batches of CONCURRENCY to avoid OOM / Resend rate limits
+  for (let i = 0; i < tasks.length; i += CONCURRENCY) {
+    await Promise.all(tasks.slice(i, i + CONCURRENCY).map((fn) => fn()));
+  }
+  console.log(`[advance-rounds] Sent ${tasks.length} emails for contest ${contestId}`);
 }

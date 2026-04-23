@@ -2160,6 +2160,14 @@ function ContestManager() {
     isRecurring: false,
     recurringInterval: "biweekly",
     isStoryteller: false,
+    // FLAGSHIP round fields
+    round2StartDate: "",
+    round3StartDate: "",
+    finaleStartDate: "",
+    currentPhase: "OPEN" as "OPEN" | "TOP100" | "TOP25" | "TOP5" | "ENDED",
+    top100CutSize: 100,
+    top25CutSize: 25,
+    top5CutSize: 5,
     prizes: [
       { placement: 1, title: "1st Place", value: "", items: "" },
       { placement: 2, title: "2nd Place", value: "", items: "" },
@@ -2316,7 +2324,7 @@ function ContestManager() {
       if (res.ok) {
         setCreateMsg("Contest created!");
         setShowForm(false);
-        setCf({ name: "", type: "SEASONAL", petType: "DOG", startDate: new Date().toISOString().split("T")[0], endDate: "", description: "", rules: "", coverImage: "", prizeDescription: "", sponsorName: "", isFeatured: false, isRecurring: false, recurringInterval: "biweekly", isStoryteller: false, prizes: [
+        setCf({ name: "", type: "SEASONAL", petType: "DOG", startDate: new Date().toISOString().split("T")[0], endDate: "", description: "", rules: "", coverImage: "", prizeDescription: "", sponsorName: "", isFeatured: false, isRecurring: false, recurringInterval: "biweekly", isStoryteller: false, round2StartDate: "", round3StartDate: "", finaleStartDate: "", currentPhase: "OPEN", top100CutSize: 100, top25CutSize: 25, top5CutSize: 5, prizes: [
           { placement: 1, title: "1st Place", value: "", items: "" },
           { placement: 2, title: "2nd Place", value: "", items: "" },
           { placement: 3, title: "3rd Place", value: "", items: "" },
@@ -2601,19 +2609,19 @@ function ContestManager() {
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
                 <div>
                   <label className="block text-[10px] font-medium text-surface-600 mb-1">Round 2 Start (Top 100)</label>
-                  <input type="date" value={(cf as unknown as Record<string, string>).round2StartDate || ""} onChange={(e) => setCf((f) => ({ ...f, round2StartDate: e.target.value } as typeof f))} className="input-field text-xs" />
+                  <input type="date" value={cf.round2StartDate || ""} onChange={(e) => setCf((f) => ({ ...f, round2StartDate: e.target.value }))} className="input-field text-xs" />
                 </div>
                 <div>
                   <label className="block text-[10px] font-medium text-surface-600 mb-1">Round 3 Start (Top 25)</label>
-                  <input type="date" value={(cf as unknown as Record<string, string>).round3StartDate || ""} onChange={(e) => setCf((f) => ({ ...f, round3StartDate: e.target.value } as typeof f))} className="input-field text-xs" />
+                  <input type="date" value={cf.round3StartDate || ""} onChange={(e) => setCf((f) => ({ ...f, round3StartDate: e.target.value }))} className="input-field text-xs" />
                 </div>
                 <div>
                   <label className="block text-[10px] font-medium text-surface-600 mb-1">Finale Start (Top 5)</label>
-                  <input type="date" value={(cf as unknown as Record<string, string>).finaleStartDate || ""} onChange={(e) => setCf((f) => ({ ...f, finaleStartDate: e.target.value } as typeof f))} className="input-field text-xs" />
+                  <input type="date" value={cf.finaleStartDate || ""} onChange={(e) => setCf((f) => ({ ...f, finaleStartDate: e.target.value }))} className="input-field text-xs" />
                 </div>
                 <div>
                   <label className="block text-[10px] font-medium text-surface-600 mb-1">Current Phase</label>
-                  <select value={(cf as unknown as Record<string, string>).currentPhase || "OPEN"} onChange={(e) => setCf((f) => ({ ...f, currentPhase: e.target.value } as typeof f))} className="input-field text-xs">
+                  <select value={cf.currentPhase || "OPEN"} onChange={(e) => setCf((f) => ({ ...f, currentPhase: e.target.value as typeof cf.currentPhase }))} className="input-field text-xs">
                     <option value="OPEN">OPEN (All entries)</option>
                     <option value="TOP100">TOP 100</option>
                     <option value="TOP25">TOP 25</option>
@@ -2625,15 +2633,15 @@ function ContestManager() {
               <div className="grid grid-cols-3 gap-3">
                 <div>
                   <label className="block text-[10px] font-medium text-surface-600 mb-1">Top 100 cut size</label>
-                  <input type="number" min="1" value={(cf as Record<string, unknown>).top100CutSize as number || 100} onChange={(e) => setCf((f) => ({ ...f, top100CutSize: parseInt(e.target.value) } as typeof f))} className="input-field text-xs" />
+                  <input type="number" min="1" value={cf.top100CutSize ?? 100} onChange={(e) => setCf((f) => ({ ...f, top100CutSize: parseInt(e.target.value) }))} className="input-field text-xs" />
                 </div>
                 <div>
                   <label className="block text-[10px] font-medium text-surface-600 mb-1">Top 25 cut size</label>
-                  <input type="number" min="1" value={(cf as Record<string, unknown>).top25CutSize as number || 25} onChange={(e) => setCf((f) => ({ ...f, top25CutSize: parseInt(e.target.value) } as typeof f))} className="input-field text-xs" />
+                  <input type="number" min="1" value={cf.top25CutSize ?? 25} onChange={(e) => setCf((f) => ({ ...f, top25CutSize: parseInt(e.target.value) }))} className="input-field text-xs" />
                 </div>
                 <div>
                   <label className="block text-[10px] font-medium text-surface-600 mb-1">Top 5 cut size</label>
-                  <input type="number" min="1" value={(cf as Record<string, unknown>).top5CutSize as number || 5} onChange={(e) => setCf((f) => ({ ...f, top5CutSize: parseInt(e.target.value) } as typeof f))} className="input-field text-xs" />
+                  <input type="number" min="1" value={cf.top5CutSize ?? 5} onChange={(e) => setCf((f) => ({ ...f, top5CutSize: parseInt(e.target.value) }))} className="input-field text-xs" />
                 </div>
               </div>
             </div>

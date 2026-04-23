@@ -120,6 +120,11 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Name, type, petType, startDate, endDate are required" }, { status: 400 });
     }
 
+    const VALID_PHASES = ["OPEN", "TOP100", "TOP25", "TOP5", "ENDED"] as const;
+    const validatedPhase = VALID_PHASES.includes(currentPhase as typeof VALID_PHASES[number])
+      ? (currentPhase as string)
+      : "OPEN";
+
     const contest = await prisma.contest.create({
       data: {
         name,
@@ -143,7 +148,7 @@ export async function POST(req: NextRequest) {
         isStoryteller: isStoryteller || false,
         isActive: true,
         // FLAGSHIP round fields
-        currentPhase: currentPhase || "OPEN",
+        currentPhase: validatedPhase,
         round2StartDate: round2StartDate ? new Date(round2StartDate) : null,
         round3StartDate: round3StartDate ? new Date(round3StartDate) : null,
         finaleStartDate: finaleStartDate ? new Date(finaleStartDate) : null,

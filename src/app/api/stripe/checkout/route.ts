@@ -73,9 +73,11 @@ export async function POST(req: NextRequest) {
       meals: meals.toString(),
     };
 
-    // Check if first-time buyer (no previous completed purchases)
+    // Check if first-time buyer — include PENDING to block the race condition
+    // where two parallel tabs both create PENDING purchases before either completes,
+    // and both incorrectly qualify for the 20% discount.
     const previousPurchase = await prisma.purchase.findFirst({
-      where: { userId, status: "COMPLETED", id: { not: purchase.id } },
+      where: { userId, status: { in: ["COMPLETED", "PENDING"] }, id: { not: purchase.id } },
     });
     const isFirstTimeBuyer = !previousPurchase;
 
@@ -113,9 +115,6 @@ export async function POST(req: NextRequest) {
       payment_intent_data: {
         metadata,
         description: `VoteToFeed ${pkg.label} vote pack (${pkg.votes} votes)`,
-        ...(requires3DS && {
-          capture_method: "automatic",
-        }),
       },
       ...(requires3DS && {
         payment_method_options: {

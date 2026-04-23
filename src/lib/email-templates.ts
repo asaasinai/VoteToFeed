@@ -231,16 +231,22 @@ export function renderBuiltinTemplate(templateId: string, s: TemplateData): { su
       };
 
     case "eliminated": {
-      // couponCode passed via dynamic data — fall back to generic message
+      // couponCode optionally passed via dynamic data
       const extData = s as TemplateData & { couponCode?: string; couponExpiry?: string };
+      const hasCoupon = !!extData.couponCode;
       return {
-        subject: `💔 ${s.petName} was eliminated — here's your 20% off coupon`,
+        subject: hasCoupon
+          ? `💔 ${s.petName} was eliminated — here's your 20% off coupon`
+          : `💔 ${s.petName} didn't advance — thank you for competing`,
         html: emailShell(`
           <p style="margin:0 0 6px;font-size:13px;font-weight:700;color:#dc2626;text-transform:uppercase;letter-spacing:1px;">Round Update</p>
           <h1 style="margin:0 0 20px;font-size:28px;font-weight:900;color:#18181b;line-height:1.2;">Sadly, ${s.petName}<br/>didn't advance 💔</h1>
           <p style="margin:0 0 20px;color:#52525b;font-size:16px;">Hey ${s.userName}, <strong>${s.petName}</strong> finished at <strong>#${s.rank}</strong> and didn't make the next cut in <strong>${s.contestName}</strong>. You made it this far — that's worth celebrating!</p>
-          ${infoBox(`🎁 <strong>As a thank-you for competing, here's an exclusive 20% off coupon</strong> for your next vote purchase. Use it when the next contest starts!`, "#f0fdf4", "#86efac")}
-          ${extData.couponCode ? `
+          ${hasCoupon
+            ? infoBox(`🎁 <strong>As a thank-you for competing, here's an exclusive 20% off coupon</strong> for your next vote purchase. Use it when the next contest starts!`, "#f0fdf4", "#86efac")
+            : infoBox(`🎁 <strong>Thank you for competing!</strong> Keep an eye out for the next contest — every round is a fresh start.`, "#f0fdf4", "#86efac")
+          }
+          ${hasCoupon ? `
           <table width="100%" cellpadding="0" cellspacing="0" role="presentation" style="margin:0 0 20px;border:2px dashed #16a34a;border-radius:12px;background:#f0fdf4;">
             <tr><td style="padding:20px;text-align:center;">
               <p style="margin:0 0 4px;font-size:12px;font-weight:700;color:#166534;text-transform:uppercase;letter-spacing:1px;">Your Coupon Code</p>
@@ -250,8 +256,8 @@ export function renderBuiltinTemplate(templateId: string, s: TemplateData): { su
           </table>
           ` : ""}
           ${ctaButton("Enter the Next Contest →", `${url}/contests`, "#16a34a")}
-          ${ctaButton("Buy Votes (20% off) →", `${url}/dashboard#votes`, "#71717a")}
-        `, `${s.petName} was eliminated — here's a 20% off coupon for you.`),
+          ${ctaButton(hasCoupon ? "Buy Votes (20% off) →" : "Buy Votes →", `${url}/dashboard#votes`, "#71717a")}
+        `, hasCoupon ? `${s.petName} was eliminated — here's a 20% off coupon for you.` : `${s.petName} didn't advance — thank you for competing.`),
       };
     }
 
