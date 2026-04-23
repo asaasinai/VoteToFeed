@@ -683,10 +683,10 @@ export function AdminDashboardClient({
                             {[
                               { label: "Starter", price: 0.99, votes: 5 },
                               { label: "Friend", price: 4.99, votes: 30 },
-                              { label: "Supporter", price: 9.99, votes: 60 },
                               { label: "Champion", price: 24.99, votes: 150 },
-                              { label: "Hero", price: 49.99, votes: 300 },
-                              { label: "Legend", price: 99.99, votes: 600 },
+                              { label: "Hero", price: 99, votes: 750 },
+                              { label: "Legend", price: 249, votes: 2500 },
+                              { label: "Icon", price: 499, votes: 6000 },
                             ].map((pkg) => (
                               <tr key={pkg.label} className="border-t border-surface-100/50">
                                 <td className="py-1 font-medium">{pkg.label}</td>
@@ -2109,6 +2109,7 @@ type ContestData = {
   isRecurring: boolean;
   recurringInterval: string | null;
   recurringCounter: number;
+  isStoryteller: boolean;
   hasEnded: boolean;
   prizes?: { placement: number; title: string; value: number; items: string[] }[];
 };
@@ -2158,6 +2159,15 @@ function ContestManager() {
     isFeatured: false,
     isRecurring: false,
     recurringInterval: "biweekly",
+    isStoryteller: false,
+    // FLAGSHIP round fields
+    round2StartDate: "",
+    round3StartDate: "",
+    finaleStartDate: "",
+    currentPhase: "OPEN" as "OPEN" | "TOP100" | "TOP25" | "TOP5" | "ENDED",
+    top100CutSize: 100,
+    top25CutSize: 25,
+    top5CutSize: 5,
     prizes: [
       { placement: 1, title: "1st Place", value: "", items: "" },
       { placement: 2, title: "2nd Place", value: "", items: "" },
@@ -2230,6 +2240,7 @@ function ContestManager() {
       isFeatured: c.isFeatured, isActive: c.isActive,
       entryFee: c.entryFee || 0, maxEntries: c.maxEntries || "",
       isRecurring: c.isRecurring || false, recurringInterval: c.recurringInterval || "biweekly",
+      isStoryteller: c.isStoryteller || false,
       prizes: prizes,
     });
   }
@@ -2313,7 +2324,7 @@ function ContestManager() {
       if (res.ok) {
         setCreateMsg("Contest created!");
         setShowForm(false);
-        setCf({ name: "", type: "SEASONAL", petType: "DOG", startDate: new Date().toISOString().split("T")[0], endDate: "", description: "", rules: "", coverImage: "", prizeDescription: "", sponsorName: "", isFeatured: false, isRecurring: false, recurringInterval: "biweekly", prizes: [
+        setCf({ name: "", type: "SEASONAL", petType: "DOG", startDate: new Date().toISOString().split("T")[0], endDate: "", description: "", rules: "", coverImage: "", prizeDescription: "", sponsorName: "", isFeatured: false, isRecurring: false, recurringInterval: "biweekly", isStoryteller: false, round2StartDate: "", round3StartDate: "", finaleStartDate: "", currentPhase: "OPEN", top100CutSize: 100, top25CutSize: 25, top5CutSize: 5, prizes: [
           { placement: 1, title: "1st Place", value: "", items: "" },
           { placement: 2, title: "2nd Place", value: "", items: "" },
           { placement: 3, title: "3rd Place", value: "", items: "" },
@@ -2396,6 +2407,7 @@ function ContestManager() {
               <div>
                 <label className="block text-xs font-medium text-surface-500 mb-1">Type *</label>
                 <select value={cf.type} onChange={(e) => setCf((f) => ({ ...f, type: e.target.value }))} className="input-field">
+                  <option value="FLAGSHIP">👑 Flagship (Multi-Round)</option>
                   <option value="NATIONAL">National (Weekly)</option>
                   <option value="SEASONAL">Seasonal</option>
                   <option value="CHARITY">Charity</option>
@@ -2407,8 +2419,10 @@ function ContestManager() {
               <div>
                 <label className="block text-xs font-medium text-surface-500 mb-1">Pet Type *</label>
                 <select value={cf.petType} onChange={(e) => setCf((f) => ({ ...f, petType: e.target.value }))} className="input-field">
+                  <option value="ALL">🐶🐱 Dog + Cat (Combined)</option>
                   <option value="DOG">Dog</option>
                   <option value="CAT">Cat</option>
+                  <option value="OTHER">Other</option>
                 </select>
               </div>
             </div>
@@ -2588,6 +2602,51 @@ function ContestManager() {
               </details>
             </div>
           </div>
+          {/* Round configuration — only for FLAGSHIP */}
+          {cf.type === "FLAGSHIP" && (
+            <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 space-y-3">
+              <p className="text-xs font-bold text-amber-800 uppercase tracking-wider">👑 Round Configuration</p>
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                <div>
+                  <label className="block text-[10px] font-medium text-surface-600 mb-1">Round 2 Start (Top 100)</label>
+                  <input type="date" value={cf.round2StartDate || ""} onChange={(e) => setCf((f) => ({ ...f, round2StartDate: e.target.value }))} className="input-field text-xs" />
+                </div>
+                <div>
+                  <label className="block text-[10px] font-medium text-surface-600 mb-1">Round 3 Start (Top 25)</label>
+                  <input type="date" value={cf.round3StartDate || ""} onChange={(e) => setCf((f) => ({ ...f, round3StartDate: e.target.value }))} className="input-field text-xs" />
+                </div>
+                <div>
+                  <label className="block text-[10px] font-medium text-surface-600 mb-1">Finale Start (Top 5)</label>
+                  <input type="date" value={cf.finaleStartDate || ""} onChange={(e) => setCf((f) => ({ ...f, finaleStartDate: e.target.value }))} className="input-field text-xs" />
+                </div>
+                <div>
+                  <label className="block text-[10px] font-medium text-surface-600 mb-1">Current Phase</label>
+                  <select value={cf.currentPhase || "OPEN"} onChange={(e) => setCf((f) => ({ ...f, currentPhase: e.target.value as typeof cf.currentPhase }))} className="input-field text-xs">
+                    <option value="OPEN">OPEN (All entries)</option>
+                    <option value="TOP100">TOP 100</option>
+                    <option value="TOP25">TOP 25</option>
+                    <option value="TOP5">TOP 5 Finale</option>
+                    <option value="ENDED">ENDED</option>
+                  </select>
+                </div>
+              </div>
+              <div className="grid grid-cols-3 gap-3">
+                <div>
+                  <label className="block text-[10px] font-medium text-surface-600 mb-1">Top 100 cut size</label>
+                  <input type="number" min="1" value={cf.top100CutSize ?? 100} onChange={(e) => setCf((f) => ({ ...f, top100CutSize: parseInt(e.target.value) }))} className="input-field text-xs" />
+                </div>
+                <div>
+                  <label className="block text-[10px] font-medium text-surface-600 mb-1">Top 25 cut size</label>
+                  <input type="number" min="1" value={cf.top25CutSize ?? 25} onChange={(e) => setCf((f) => ({ ...f, top25CutSize: parseInt(e.target.value) }))} className="input-field text-xs" />
+                </div>
+                <div>
+                  <label className="block text-[10px] font-medium text-surface-600 mb-1">Top 5 cut size</label>
+                  <input type="number" min="1" value={cf.top5CutSize ?? 5} onChange={(e) => setCf((f) => ({ ...f, top5CutSize: parseInt(e.target.value) }))} className="input-field text-xs" />
+                </div>
+              </div>
+            </div>
+          )}
+
           <div className="flex flex-wrap gap-4">
             <label className="flex items-center gap-2 cursor-pointer">
               <input type="checkbox" checked={cf.isFeatured} onChange={(e) => setCf((f) => ({ ...f, isFeatured: e.target.checked }))} className="w-4 h-4 rounded border-surface-300 text-brand-600" />
@@ -2596,6 +2655,10 @@ function ContestManager() {
             <label className="flex items-center gap-2 cursor-pointer">
               <input type="checkbox" checked={cf.isRecurring} onChange={(e) => setCf((f) => ({ ...f, isRecurring: e.target.checked }))} className="w-4 h-4 rounded border-surface-300 text-brand-600" />
               <span className="text-sm text-surface-700">Recurring</span>
+            </label>
+            <label className="flex items-center gap-2 cursor-pointer">
+              <input type="checkbox" checked={cf.isStoryteller} onChange={(e) => setCf((f) => ({ ...f, isStoryteller: e.target.checked }))} className="w-4 h-4 rounded border-surface-300 text-brand-600" />
+              <span className="text-sm text-surface-700">Storyteller Mode</span>
             </label>
             {cf.isRecurring && (
               <select value={cf.recurringInterval} onChange={(e) => setCf((f) => ({ ...f, recurringInterval: e.target.value }))} className="input-field text-sm w-auto">
@@ -2632,6 +2695,7 @@ function ContestManager() {
                     <div>
                       <label className="block text-[10px] font-medium text-surface-500 mb-0.5">Type</label>
                       <select value={editForm.type as string} onChange={e => setEditForm(f => ({...f, type: e.target.value}))} className="input-field text-sm">
+                        <option value="FLAGSHIP">👑 Flagship</option>
                         <option value="NATIONAL">National</option><option value="SEASONAL">Seasonal</option>
                         <option value="CHARITY">Charity</option><option value="CALENDAR">Calendar</option>
                         <option value="BREED">Breed</option><option value="STATE">State</option>
@@ -2640,7 +2704,7 @@ function ContestManager() {
                     <div>
                       <label className="block text-[10px] font-medium text-surface-500 mb-0.5">Pet Type</label>
                       <select value={editForm.petType as string} onChange={e => setEditForm(f => ({...f, petType: e.target.value}))} className="input-field text-sm">
-                        <option value="DOG">Dog</option><option value="CAT">Cat</option><option value="OTHER">Other</option>
+                        <option value="ALL">Dog + Cat</option><option value="DOG">Dog</option><option value="CAT">Cat</option><option value="OTHER">Other</option>
                       </select>
                     </div>
                   </div>
@@ -2741,6 +2805,7 @@ function ContestManager() {
                     <label className="flex items-center gap-1.5 cursor-pointer text-xs"><input type="checkbox" checked={editForm.isFeatured as boolean} onChange={e => setEditForm(f => ({...f, isFeatured: e.target.checked}))} className="w-3.5 h-3.5 rounded" /> Featured</label>
                     <label className="flex items-center gap-1.5 cursor-pointer text-xs"><input type="checkbox" checked={editForm.isActive as boolean} onChange={e => setEditForm(f => ({...f, isActive: e.target.checked}))} className="w-3.5 h-3.5 rounded" /> Active</label>
                     <label className="flex items-center gap-1.5 cursor-pointer text-xs"><input type="checkbox" checked={editForm.isRecurring as boolean} onChange={e => setEditForm(f => ({...f, isRecurring: e.target.checked}))} className="w-3.5 h-3.5 rounded" /> Recurring</label>
+                    <label className="flex items-center gap-1.5 cursor-pointer text-xs"><input type="checkbox" checked={Boolean(editForm.isStoryteller)} onChange={e => setEditForm(f => ({...f, isStoryteller: e.target.checked}))} className="w-3.5 h-3.5 rounded" /> Storyteller Mode</label>
                     {Boolean(editForm.isRecurring) && (
                       <select value={editForm.recurringInterval as string} onChange={e => setEditForm(f => ({...f, recurringInterval: e.target.value}))} className="input-field text-xs w-auto py-0.5">
                         <option value="weekly">Weekly</option><option value="biweekly">Biweekly</option><option value="monthly">Monthly</option>

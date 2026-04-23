@@ -189,12 +189,55 @@ export async function POST(req: NextRequest) {
         break;
       }
 
+      case "charge.dispute.created": {
+        const dispute = event.data.object as Stripe.Dispute;
+        // dispute.charge is a charge ID (ch_...), but stripePaymentId stores
+        // the PaymentIntent ID (pi_...). Resolve via the Charge object.
+        const chargeId = typeof dispute.charge === "string" ? dispute.charge : dispute.charge?.id;
+        if (!chargeId) break;
+        const chargeObj = await stripe.charges.retrieve(chargeId);
+        const paymentIntentId = typeof chargeObj.payment_intent === "string"
+          ? chargeObj.payment_intent
+          : chargeObj.payment_intent?.id;
+        if (!paymentIntentId) {
+          console.warn(`charge.dispute.created: no payment_intent on charge ${chargeId}`);
+          break;
+        }
+        const disputedPurchase = await prisma.purchase.findFirst({
+          where: { stripePaymentId: paymentIntentId },
+        });
+        if (!disputedPurchase) {
+          console.warn(`charge.dispute.created: no purchase found for pi ${paymentIntentId}`);
+          break;
+        }
+        // Idempotency guard: skip if already refunded. Clamp votes to avoid negative balance.
+        await prisma.$transaction(async (tx) => {
+          const updated = await tx.purchase.updateMany({
+            where: { id: disputedPurchase.id, status: { not: "REFUNDED" } },
+            data: { status: "REFUNDED" },
+          });
+          if (updated.count === 0) return; // already processed
+          const u = await tx.user.findUnique({
+            where: { id: disputedPurchase.userId },
+            select: { paidVoteBalance: true },
+          });
+          const clawback = Math.min(disputedPurchase.votes, u?.paidVoteBalance ?? 0);
+          if (clawback > 0) {
+            await tx.user.update({
+              where: { id: disputedPurchase.userId },
+              data: { paidVoteBalance: { decrement: clawback } },
+            });
+          }
+          console.warn(`Dispute on purchase ${disputedPurchase.id} — revoked ${clawback} votes from user ${disputedPurchase.userId}`);
+        });
+        break;
+      }
+
       case "invoice.payment_succeeded":
       case "invoice.payment_failed":
       case "customer.subscription.deleted":
       case "customer.subscription.updated": {
-        // Placeholder for future recurring support. We verify and accept these events now so
-        // Stripe can deliver them cleanly when VoteToFeed adds subscriptions.
+        // Placeholder for future recurring support.
         break;
       }
 
