@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
+import { AdminSupportTab } from "./AdminSupportTab";
 
 /* ─── Types ────────────────────────────────────────────── */
 type EmailStats = {
@@ -61,7 +62,7 @@ const BUILTIN_TEMPLATE_IDS = [
 
 const CATEGORIES = ["Daily", "Countdown", "Engagement", "Post-Contest", "Winner"];
 
-type Tab = "overview" | "preview" | "generate" | "saved" | "send" | "contest" | "logs";
+type Tab = "overview" | "support" | "preview" | "generate" | "saved" | "send" | "contest" | "logs";
 
 type ContestEmailType = {
   type: string;
@@ -416,6 +417,7 @@ export function AdminEmailsClient() {
 
   const TABS: Array<{ id: Tab; label: string }> = [
     { id: "overview", label: "📊 Dashboard" },
+    { id: "support", label: "🎫 Support" },
     { id: "preview", label: "👁️ Preview" },
     { id: "generate", label: "🤖 AI Generate" },
     { id: "saved", label: "💾 Templates" },
@@ -1132,6 +1134,9 @@ export function AdminEmailsClient() {
           </div>
         </div>
       )}
+
+      {/* ═══════ TAB: SUPPORT (tickets + sent/received emails) ═══════ */}
+      {tab === "support" && <AdminSupportTab />}
 
       {/* ═══════ TAB: LOGS ═══════ */}
       {tab === "logs" && (
