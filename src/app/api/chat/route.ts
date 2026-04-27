@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import Anthropic from "@anthropic-ai/sdk";
-import OpenAI from "openai";
+import { GoogleGenerativeAI } from "@google/generative-ai";
 import prisma from "@/lib/prisma";
 import { CHAT_SYSTEM_PROMPT } from "@/lib/chat-knowledge";
 import { getContestLeaderboard } from "@/lib/contest-growth";
@@ -8,8 +7,11 @@ import { getCurrentWeekId, getWeekDateRange } from "@/lib/utils";
 import { sendEmail } from "@/lib/email";
 import { emailShell } from "@/lib/email";
 
-const anthropic = process.env.ANTHROPIC_API_KEY ? new Anthropic() : null;
-const openai = process.env.OPENAI_API_KEY ? new OpenAI({ apiKey: process.env.OPENAI_API_KEY }) : null;
+const gemini = process.env.GEMINI_API_KEY
+  ? new GoogleGenerativeAI(process.env.GEMINI_API_KEY)
+  : process.env.GOOGLE_API_KEY
+  ? new GoogleGenerativeAI(process.env.GOOGLE_API_KEY)
+  : null;
 
 // Simple in-memory rate limiter (per session) — resets on redeploy
 const rateLimitMap = new Map<string, { count: number; resetAt: number }>();
@@ -28,16 +30,7 @@ function isRateLimited(sessionId: string): boolean {
   return false;
 }
 
-// Auto-detect preferred provider based on which API keys are present
-// CHAT_AI_PROVIDER can still override manually if needed
-const preferredProvider: "openai" | "anthropic" =
-  process.env.CHAT_AI_PROVIDER === "anthropic"
-    ? "anthropic"
-    : process.env.CHAT_AI_PROVIDER === "openai"
-    ? "openai"
-    : process.env.OPENAI_API_KEY
-    ? "openai"
-    : "anthropic";
+// Only Gemini is used for AI responses
 
 // Fetch live site context for the AI
 async function getLiveContext(userId?: string) {
@@ -218,64 +211,82 @@ async function getAIResponse(
   history: { role: "user" | "assistant"; content: string }[],
   systemPrompt: string,
 ): Promise<string> {
-  // Try preferred provider first, then fallback
-  const providers = preferredProvider === "openai"
-    ? [{ name: "openai", client: openai }, { name: "anthropic", client: anthropic }]
-    : [{ name: "anthropic", client: anthropic }, { name: "openai", client: openai }];
-
-  for (const provider of providers) {
-    if (!provider.client) continue;
-
-    try {
-      if (provider.name === "openai") {
-        const response = await (provider.client as OpenAI).chat.completions.create({
-          model: "gpt-4o-mini",
-          max_tokens: 500,
-          messages: [
-            { role: "system", content: systemPrompt },
-            ...history,
-          ],
-        });
-        return response.choices[0]?.message?.content || "I'm sorry, I couldn't generate a response.";
-      } else {
-        const response = await (provider.client as Anthropic).messages.create({
-          model: "claude-sonnet-4-20250514",
-          max_tokens: 500,
-          system: systemPrompt,
-          messages: history,
-        });
-        const textBlock = response.content.find((b) => b.type === "text");
-        return textBlock ? textBlock.text : "I'm sorry, I couldn't generate a response.";
-      }
-    } catch (err) {
-      console.error(`Chat AI error (${provider.name}):`, err);
-      continue; // try next provider
-    }
+  if (!gemini) {
+    return "AI support is temporarily unavailable. Type \"open a ticket\" and our team will help you! 🐾";
   }
 
-  return "I'm sorry, I'm having trouble right now. Would you like me to connect you with a human support agent? Just say 'yes' and we'll get someone to help you! 🐾";
+  try {
+    const model = gemini.getGenerativeModel({
+      model: "gemini-2.0-flash",
+      systemInstruction: systemPrompt,
+      generationConfig: { maxOutputTokens: 600, temperature: 0.85 },
+    });
+    const geminiHistory = history.slice(0, -1).map((m) => ({
+      role: m.role === "user" ? "user" : "model",
+      parts: [{ text: m.content }],
+    }));
+    const lastMsg = history[history.length - 1]?.content ?? "";
+    const chat = model.startChat({ history: geminiHistory });
+    const result = await chat.sendMessage(lastMsg);
+    const text = await result.response.text();
+    if (text) return text;
+  } catch (err) {
+    console.error("Gemini chat error:", err);
+  }
+
+  return "Hmm, I'm having a small hiccup on my end. If you need help now, just type \"open a ticket\" and I'll get our team on it right away! 🐾";
 }
 
-// Detect if the user wants to talk to a human
+// Detect if the user wants to talk to a human / open a ticket
 const ESCALATION_PATTERNS = [
   /\bhuman\b/i, /\breal\s*person\b/i, /\bsupport\s*agent\b/i,
+  /\bopen\s*a?\s*ticket\b/i, /\bcreate\s*a?\s*ticket\b/i, /\bfile\s*a?\s*(ticket|complaint|report)\b/i,
   /\bconnect\s*me\b/i, /\btalk\s*to\s*(someone|a\s*person|support|agent|admin)\b/i,
   /\bspeak\s*to/i, /\bcontact\s*(support|someone|admin|team)\b/i,
-  /\byes\b.*\b(connect|human|agent|person)\b/i,
+  /\breport\s*a?\s*(bug|problem|issue)\b/i,
+  /\byes\b.*\b(connect|human|agent|person|ticket)\b/i,
   /\bnjeri\b/i, /\bdikush\b/i, /\bme\s*fol\b/i, /\bna\s*kontakto/i,
-  /\bpo\b.*\b(ndihm|kontakt)/i,
+  /\bhap\s*(nje|një)?\s*tiket/i, /\btiket/i, /\braporto/i,
+  /\bpo\b.*\b(ndihm|kontakt|tiket)/i,
 ];
 
 function isEscalationRequest(message: string, aiResponse: string): boolean {
   const combined = message.toLowerCase();
   if (ESCALATION_PATTERNS.some((p) => p.test(combined))) return true;
-  // Also check if the AI itself suggested human escalation and user said yes/ok/sure
-  if (/\b(yes|ok|sure|yeah|po|ok|aha)\b/i.test(message) && /connect|human|support agent/i.test(aiResponse)) return true;
+  // Also check if the AI itself suggested a ticket and user confirmed
+  if (/\b(yes|ok|sure|yeah|po|aha|please|please do|po te lutem|do)\b/i.test(message) && /ticket|support team|human/i.test(aiResponse)) return true;
   return false;
 }
 
 function escHtml(s: string): string {
   return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+}
+
+// Fetch every admin email (USER role = ADMIN). Falls back to SUPPORT_EMAIL or hard-coded address
+// if the DB has no admins (e.g. before seed runs).
+async function getAdminRecipients(): Promise<string[]> {
+  try {
+    const admins = await prisma.user.findMany({
+      where: { role: "ADMIN", email: { not: null } },
+      select: { email: true },
+    });
+    const list = admins.map((a) => a.email!).filter(Boolean);
+    if (list.length > 0) return Array.from(new Set(list));
+  } catch (err) {
+    console.error("getAdminRecipients error:", err);
+  }
+  // Fallback recipients
+  const fallback = (process.env.SUPPORT_EMAIL || "krenar@homelifemedia.com")
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
+  return fallback;
+}
+
+// Best-effort email regex (used to recover an address from chat text)
+function extractEmail(text: string): string | null {
+  const m = text.match(/[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}/i);
+  return m ? m[0] : null;
 }
 
 async function sendEscalationEmail(conversationId: string, userName: string | null, userEmail: string | null, lastMessage: string) {
@@ -284,9 +295,10 @@ async function sendEscalationEmail(conversationId: string, userName: string | nu
     const safeName = escHtml(userName || "Anonymous");
     const safeEmail = escHtml(userEmail || "Not provided");
     const safeMessage = escHtml(lastMessage.slice(0, 500));
+    const recipients = await getAdminRecipients();
     await sendEmail({
       from: "VoteToFeed Support <noreply@votetofeed.com>",
-      to: "krenar@homelifemedia.com",
+      to: recipients,
       subject: `🔔 Support Request — ${userName || "Anonymous User"} needs help`,
       html: emailShell(`
         <p style="margin:0 0 6px;font-size:13px;font-weight:700;color:#dc2626;text-transform:uppercase;letter-spacing:1px;">🔔 Live Support Request</p>
@@ -309,9 +321,73 @@ async function sendEscalationEmail(conversationId: string, userName: string | nu
         <a href="${url}/admin/chat" style="display:inline-block;padding:12px 24px;background:#dc2626;color:#fff;font-weight:700;font-size:14px;border-radius:8px;text-decoration:none;">Open Admin Chat →</a>
       `, "A user needs live support — check the admin chat panel."),
     });
-    console.log("Escalation email sent for conversation", conversationId);
+    console.log("Escalation email sent for conversation", conversationId, "to", recipients.length, "admin(s)");
   } catch (err) {
     console.error("Failed to send escalation email:", err);
+  }
+}
+
+// Send a richer email when a support TICKET is created from chat
+async function sendTicketCreatedEmail(args: {
+  conversationId: string;
+  userName: string | null;
+  userEmail: string | null;
+  problem: string;
+  recentMessages: { role: string; content: string }[];
+}) {
+  try {
+    const url = process.env.NEXT_PUBLIC_APP_URL || "https://www.votetofeed.com";
+    const safeName = escHtml(args.userName || "Anonymous");
+    const safeEmail = escHtml(args.userEmail || "Not provided");
+    const safeProblem = escHtml(args.problem.slice(0, 2000));
+    const ticketIdShort = args.conversationId.slice(-8).toUpperCase();
+
+    const transcript = args.recentMessages
+      .slice(-12)
+      .map((m) => {
+        const who =
+          m.role === "USER" ? "User" : m.role === "ADMIN" ? "Admin" : "AI";
+        const color =
+          m.role === "USER" ? "#0ea5e9" : m.role === "ADMIN" ? "#2563eb" : "#71717a";
+        return `<div style="margin:0 0 8px;"><span style="font-size:11px;font-weight:700;color:${color};">${who}</span><div style="font-size:13px;color:#18181b;white-space:pre-wrap;">${escHtml(m.content.slice(0, 600))}</div></div>`;
+      })
+      .join("");
+
+    const recipients = await getAdminRecipients();
+    await sendEmail({
+      from: "VoteToFeed Support <noreply@votetofeed.com>",
+      to: recipients,
+      replyTo: args.userEmail || undefined,
+      subject: `🎫 New Support Ticket #${ticketIdShort} — ${args.userName || "Anonymous"}`,
+      html: emailShell(`
+        <p style="margin:0 0 6px;font-size:13px;font-weight:700;color:#7c3aed;text-transform:uppercase;letter-spacing:1px;">🎫 New Support Ticket</p>
+        <h1 style="margin:0 0 12px;font-size:24px;font-weight:900;color:#18181b;">Ticket #${ticketIdShort}</h1>
+        <p style="margin:0 0 16px;font-size:14px;color:#52525b;">A user created a support ticket from the live chat. Please reply within 24–48 hours.</p>
+
+        <table width="100%" cellpadding="0" cellspacing="0" role="presentation" style="margin:0 0 16px;border:1px solid #e5e7eb;border-radius:8px;overflow:hidden;">
+          <tr><td style="padding:12px 16px;border-bottom:1px solid #f4f4f5;">
+            <p style="margin:0;font-size:13px;color:#71717a;">Name</p>
+            <p style="margin:4px 0 0;font-size:15px;font-weight:600;color:#18181b;">${safeName}</p>
+          </td></tr>
+          <tr><td style="padding:12px 16px;border-bottom:1px solid #f4f4f5;">
+            <p style="margin:0;font-size:13px;color:#71717a;">Email (reply directly to this email to respond)</p>
+            <p style="margin:4px 0 0;font-size:15px;font-weight:600;color:#18181b;">${safeEmail}</p>
+          </td></tr>
+          <tr><td style="padding:12px 16px;">
+            <p style="margin:0;font-size:13px;color:#71717a;">Problem Description</p>
+            <p style="margin:4px 0 0;font-size:15px;color:#18181b;white-space:pre-wrap;">${safeProblem}</p>
+          </td></tr>
+        </table>
+
+        <p style="margin:0 0 8px;font-size:13px;font-weight:700;color:#52525b;text-transform:uppercase;letter-spacing:1px;">Recent transcript</p>
+        <div style="margin:0 0 16px;padding:12px 16px;background:#f9fafb;border:1px solid #e5e7eb;border-radius:8px;">${transcript || '<span style="color:#a1a1aa;font-size:13px;">No previous messages.</span>'}</div>
+
+        <a href="${url}/admin/chat" style="display:inline-block;padding:12px 24px;background:#7c3aed;color:#fff;font-weight:700;font-size:14px;border-radius:8px;text-decoration:none;">Open Admin Chat →</a>
+      `, `New support ticket from ${args.userName || "an anonymous user"} — reply within 24-48 hours.`),
+    });
+    console.log("Ticket email sent for conversation", args.conversationId, "to", recipients.length, "admin(s)");
+  } catch (err) {
+    console.error("Failed to send ticket email:", err);
   }
 }
 
@@ -420,6 +496,106 @@ export async function POST(req: NextRequest) {
       });
     }
 
+    // ─── SUPPORT TICKET FLOW ────────────────────────────────────────
+    // Stages: null → AWAITING_PROBLEM → (AWAITING_EMAIL?) → OPEN_TICKET
+    const stage = (conversation.ticketStage || null) as
+      | null
+      | "AWAITING_PROBLEM"
+      | "AWAITING_EMAIL"
+      | "OPEN_TICKET"
+      | "RESOLVED";
+
+    const knownEmail = verifiedUserEmail || conversation.userEmail;
+    const ticketShort = conversation.id.slice(-8).toUpperCase();
+    // Capture in const so closures below always see a non-null reference
+    const conv = conversation;
+
+    async function finalizeTicket(opts: { problem: string; emailToUse: string }) {
+      await prisma.chatConversation.update({
+        where: { id: conv.id },
+        data: {
+          userEmail: knownEmail || opts.emailToUse,
+          ticketProblem: opts.problem,
+          ticketStage: "OPEN_TICKET",
+          isTicket: true,
+          ticketCreatedAt: new Date(),
+          aiPaused: true,
+          lastMessage: `[🎫 TICKET] ${opts.problem.slice(0, 200)}`,
+        },
+      });
+
+      const firstName = (verifiedUserName || conv.userName || "").split(" ")[0];
+      const greeting = firstName ? `Thanks, ${firstName}! ` : "Thanks! ";
+      const reply =
+        `🎫 **Ticket #${ticketShort} created!**\n\n` +
+        `${greeting}Our support team will email you at **${opts.emailToUse}** within **24–48 hours**.\n\n` +
+        `📬 Please check both your **inbox** and your **junk/spam folder** so you don't miss our reply.\n\n` +
+        `If anything else comes to mind, you can keep typing here and we'll see it. 🐾`;
+
+      await prisma.chatMessage.create({
+        data: { conversationId: conv.id, role: "ASSISTANT", content: reply },
+      });
+
+      // Pull full transcript and notify all admins
+      const recentMessages = await prisma.chatMessage.findMany({
+        where: { conversationId: conv.id },
+        orderBy: { createdAt: "asc" },
+        take: 50,
+      });
+      sendTicketCreatedEmail({
+        conversationId: conv.id,
+        userName: verifiedUserName || conv.userName,
+        userEmail: opts.emailToUse,
+        problem: opts.problem,
+        recentMessages,
+      });
+
+      return reply;
+    }
+
+    // Step 2: User is providing the problem description
+    if (stage === "AWAITING_PROBLEM") {
+      const fromMessage = extractEmail(trimmedMessage);
+      const emailToUse = knownEmail || fromMessage;
+
+      if (!emailToUse) {
+        // Save problem and ask for email
+        await prisma.chatConversation.update({
+          where: { id: conversation.id },
+          data: { ticketProblem: trimmedMessage, ticketStage: "AWAITING_EMAIL" },
+        });
+        const reply =
+          `Got it — thanks for the details! 🙏\n\n` +
+          `What's the **best email address** to reach you at? ` +
+          `We'll send our reply there within **24–48 hours** (please check **inbox AND junk/spam folder**).`;
+        await prisma.chatMessage.create({
+          data: { conversationId: conversation.id, role: "ASSISTANT", content: reply },
+        });
+        return NextResponse.json({ reply });
+      }
+
+      const reply = await finalizeTicket({ problem: trimmedMessage, emailToUse });
+      return NextResponse.json({ reply, ticketCreated: true });
+    }
+
+    // Step 3: Awaiting email after problem captured
+    if (stage === "AWAITING_EMAIL") {
+      const fromMessage = extractEmail(trimmedMessage);
+      if (!fromMessage) {
+        const reply =
+          `Hmm, I couldn't read an email there. ` +
+          `Could you type it like **name@example.com**? Then I'll create your ticket. 🙏`;
+        await prisma.chatMessage.create({
+          data: { conversationId: conversation.id, role: "ASSISTANT", content: reply },
+        });
+        return NextResponse.json({ reply });
+      }
+
+      const problem = conversation.ticketProblem || trimmedMessage;
+      const replyText = await finalizeTicket({ problem, emailToUse: fromMessage });
+      return NextResponse.json({ reply: replyText, ticketCreated: true });
+    }
+
     // Build message history
     const history: { role: "user" | "assistant"; content: string }[] =
       conversation.messages.map((m) => ({
@@ -443,31 +619,40 @@ export async function POST(req: NextRequest) {
 
     const aiResponse = await getAIResponse(history, fullPrompt);
 
-    // Check if user is requesting human support
+    // Check if user is requesting human support → start TICKET flow
     const wantsHuman = isEscalationRequest(trimmedMessage, aiResponse);
 
     if (wantsHuman) {
-      // Save a human-escalation message instead of (or alongside) AI response
-      const escalationReply = verifiedUserName || conversation.userName
-        ? `Got it, ${(verifiedUserName || conversation.userName || "").split(" ")[0]}! 🙋‍♂️\n\nI've notified our support team — **someone will reach out to you within 5-10 minutes**.\n\nIn the meantime, feel free to keep chatting here and I'll do my best to help! 🐾`
-        : `Got it! 🙋‍♂️\n\nI've notified our support team — **someone will reach out to you within 5-10 minutes**.\n\nIf you'd like a faster response, make sure you're logged in so we can see your account. Feel free to keep chatting here! 🐾`;
+      // Step 1: Ask the user to describe the problem (and gather email if missing)
+      await prisma.chatConversation.update({
+        where: { id: conversation.id },
+        data: {
+          ticketStage: "AWAITING_PROBLEM",
+          lastMessage: `[⚡ Wants to open ticket] ${trimmedMessage}`,
+        },
+      });
 
-      // Save the escalation reply
+      const firstName = (verifiedUserName || conversation.userName || "").split(" ")[0];
+      const greet = firstName ? `Hey ${firstName}! ` : "Of course! ";
+      const emailLine = knownEmail
+        ? `Our team will reach out to you at **${knownEmail}** within **24–48 hours** — just make sure to check your **spam/junk folder** too, sometimes emails land there.`
+        : `Once you describe what's happening, I'll need your **best email address** so our team can reply. We aim to get back to you within **24–48 hours** (don't forget to check **spam/junk** too!).`;
+
+      const ticketReply =
+        `${greet}No worries, let's get this sorted! 🐾\n\n` +
+        `I'll create a support ticket and a real person from our team will follow up with you over email. ` +
+        `${emailLine}\n\n` +
+        `**Tell me what's going on** — what issue are you running into? 👇`;
+
       await prisma.chatMessage.create({
         data: {
           conversationId: conversation.id,
           role: "ASSISTANT",
-          content: escalationReply,
+          content: ticketReply,
         },
       });
 
-      // Update conversation last message
-      await prisma.chatConversation.update({
-        where: { id: conversation.id },
-        data: { lastMessage: `[⚡ NEEDS HUMAN SUPPORT] ${trimmedMessage}` },
-      });
-
-      // Send email notification to admin (fire and forget)
+      // Notify admins immediately so they can jump in early if they want (still useful for live chat)
       sendEscalationEmail(
         conversation.id,
         verifiedUserName || conversation.userName,
@@ -475,7 +660,7 @@ export async function POST(req: NextRequest) {
         trimmedMessage,
       );
 
-      return NextResponse.json({ reply: escalationReply });
+      return NextResponse.json({ reply: ticketReply });
     }
 
     // Save AI response

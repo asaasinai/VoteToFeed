@@ -888,6 +888,11 @@ model ChatConversation {
   status      ChatStatus @default(OPEN)
   aiPaused    Boolean  @default(false) // true = admin took over, AI won't respond
   lastMessage String?  @db.Text
+  // Support ticket fields
+  isTicket        Boolean   @default(false) // true once a support ticket has been created from this conversation
+  ticketStage     String?   // null | "AWAITING_PROBLEM" | "AWAITING_EMAIL" | "OPEN_TICKET" | "RESOLVED"
+  ticketProblem   String?   @db.Text // user's first-described problem when the ticket was opened
+  ticketCreatedAt DateTime?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
@@ -896,6 +901,7 @@ model ChatConversation {
 
   @@index([status, updatedAt])
   @@index([userId])
+  @@index([isTicket, ticketStage])
 }
 
 model ChatMessage {

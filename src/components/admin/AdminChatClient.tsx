@@ -9,6 +9,10 @@ type Conversation = {
   userEmail: string | null;
   status: "OPEN" | "CLOSED";
   aiPaused: boolean;
+  isTicket?: boolean;
+  ticketStage?: string | null;
+  ticketProblem?: string | null;
+  ticketCreatedAt?: string | null;
   lastMessage: string | null;
   updatedAt: string;
   createdAt: string;
@@ -28,6 +32,10 @@ type ConversationDetail = {
   sessionId: string;
   status: "OPEN" | "CLOSED";
   aiPaused: boolean;
+  isTicket?: boolean;
+  ticketStage?: string | null;
+  ticketProblem?: string | null;
+  ticketCreatedAt?: string | null;
   user: { name: string | null; email: string | null } | null;
   userName: string | null;
   userEmail: string | null;
@@ -40,12 +48,17 @@ export function AdminChatClient() {
   const [selected, setSelected] = useState<ConversationDetail | null>(null);
   const [compareWith, setCompareWith] = useState<ConversationDetail | null>(null);
   const [compareMode, setCompareMode] = useState(false);
-  const [filter, setFilter] = useState<"all" | "OPEN" | "CLOSED">("all");
+  const [filter, setFilter] = useState<"all" | "OPEN" | "CLOSED" | "TICKETS">("all");
   const [loadingList, setLoadingList] = useState(true);
   const [loadingDetail, setLoadingDetail] = useState(false);
   const [replyText, setReplyText] = useState("");
+  const [replySubject, setReplySubject] = useState("You have a new reply from VoteToFeed Support 🐾");
+  const [emailDraftBody, setEmailDraftBody] = useState("");
+  const [emailDraftOpen, setEmailDraftOpen] = useState(false);
   const [sendingReply, setSendingReply] = useState(false);
+  const [sendingEmail, setSendingEmail] = useState(false);
   const [replyError, setReplyError] = useState<string | null>(null);
+  const [generatingDraft, setGeneratingDraft] = useState(false);
   const [mobileShowDetail, setMobileShowDetail] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const messagesContainerRef = useRef<HTMLDivElement>(null);
@@ -71,7 +84,12 @@ export function AdminChatClient() {
   async function loadConversations() {
     setLoadingList(true);
     try {
-      const params = filter !== "all" ? `?status=${filter}` : "";
+      let params = "";
+      if (filter === "TICKETS") {
+        params = "?ticket=true";
+      } else if (filter !== "all") {
+        params = `?status=${filter}`;
+      }
       const res = await fetch(`/api/admin/chat${params}`);
       const data = await res.json();
       setConversations(data.conversations || []);
@@ -141,6 +159,37 @@ export function AdminChatClient() {
     }
   }
 
+  async function sendEmailDraft(convId: string) {
+    if (sendingEmail || !emailDraftBody.trim()) return;
+    setSendingEmail(true);
+    setReplyError(null);
+    try {
+      const res = await fetch("/api/admin/chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          conversationId: convId,
+          emailSubject: replySubject,
+          emailBody: emailDraftBody,
+          message: `📧 Email sent to user with subject: ${replySubject}`,
+        }),
+      });
+      if (!res.ok) {
+        const errData = await res.json().catch(() => null);
+        setReplyError(errData?.error || "Failed to send email. Please try again.");
+        return;
+      }
+      setEmailDraftOpen(false);
+      setEmailDraftBody("");
+      await openConversation(convId);
+      loadConversations();
+    } catch {
+      setReplyError("Network error. Please check your connection and try again.");
+    } finally {
+      setSendingEmail(false);
+    }
+  }
+
   async function toggleAiPause(convId: string, pause: boolean) {
     try {
       await fetch("/api/admin/chat", {
@@ -157,6 +206,33 @@ export function AdminChatClient() {
     }
   }
 
+  async function generateReplyDraft(convId: string) {
+    if (generatingDraft) return;
+    setGeneratingDraft(true);
+    try {
+      const res = await fetch(`/api/admin/chat/generate-email`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ conversationId: convId }),
+      });
+      if (!res.ok) {
+        return;
+      }
+      const data = await res.json();
+      if (data.subject) {
+        setReplySubject(data.subject);
+      }
+      if (data.body) {
+        setEmailDraftBody(data.body);
+        setEmailDraftOpen(true);
+      }
+    } catch {
+      // silent fail
+    } finally {
+      setGeneratingDraft(false);
+    }
+  }
+
   function formatDate(d: string) {
     return new Date(d).toLocaleString("en-US", {
       month: "short",
@@ -169,7 +245,9 @@ export function AdminChatClient() {
   function renderConversationPanel(conv: ConversationDetail, isCompare = false) {
     const needsHuman = conv.messages.some(
       (m) => m.role === "ASSISTANT" && m.content.includes("5-10 minutes")
-    ) || conversations.find((c) => c.id === conv.id)?.lastMessage?.includes("⚡ NEEDS HUMAN SUPPORT");
+    ) || conversations.find((c) => c.id === conv.id)?.lastMessage?.includes("⚡ NEEDS HUMAN SUPPORT")
+      || conversations.find((c) => c.id === conv.id)?.lastMessage?.includes("⚡ Wants to open ticket");
+    const ticketShort = conv.id.slice(-8).toUpperCase();
 
     return (
       <div className="flex-1 bg-white rounded-2xl border border-surface-200 flex flex-col overflow-hidden">
@@ -193,6 +271,16 @@ export function AdminChatClient() {
               )}
             </div>
             <div className="flex items-center gap-1.5">
+              {conv.isTicket && (
+                <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-purple-100 text-purple-700" title={`Ticket #${ticketShort}`}>
+                  🎫 Ticket #{ticketShort}
+                </span>
+              )}
+              {!conv.isTicket && conv.ticketStage && (
+                <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-100 text-amber-700">
+                  📝 {conv.ticketStage === "AWAITING_PROBLEM" ? "Awaiting issue" : conv.ticketStage === "AWAITING_EMAIL" ? "Awaiting email" : conv.ticketStage}
+                </span>
+              )}
               {needsHuman && (
                 <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-red-100 text-red-700 animate-pulse">
                   ⚡ Needs Help
@@ -253,6 +341,13 @@ export function AdminChatClient() {
               >
                 ✕ Close Compare
               </button>
+            </div>
+          )}
+
+          {conv.ticketProblem && (
+            <div className="mb-3 px-4 py-3 bg-purple-50 border border-purple-100 rounded-2xl text-sm text-surface-800">
+              <div className="font-semibold text-surface-800 mb-1">Ticket issue:</div>
+              <div className="text-sm">{conv.ticketProblem}</div>
             </div>
           )}
         </div>
@@ -317,6 +412,7 @@ export function AdminChatClient() {
                 rows={2}
                 className="flex-1 resize-none rounded-xl border border-surface-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400 focus:border-transparent"
               />
+              <div className="flex gap-2 flex-wrap">
               <button
                 onClick={() => sendAdminReply(conv.id)}
                 disabled={sendingReply || !replyText.trim()}
@@ -324,7 +420,28 @@ export function AdminChatClient() {
               >
                 {sendingReply ? "..." : "Send"}
               </button>
+              <button
+                onClick={() => generateReplyDraft(conv.id)}
+                disabled={generatingDraft}
+                className="px-4 py-2 rounded-xl bg-surface-100 text-surface-800 text-sm font-semibold hover:bg-surface-200 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+              >
+                {generatingDraft ? "Generating..." : "Generate Email"}
+              </button>
+              <button
+                onClick={() => sendEmailDraft(conv.id)}
+                disabled={sendingEmail || !emailDraftBody.trim()}
+                className="px-4 py-2 rounded-xl bg-purple-600 text-white text-sm font-semibold hover:bg-purple-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+              >
+                {sendingEmail ? "Sending..." : "Send Email"}
+              </button>
             </div>
+            {emailDraftOpen && (
+              <div className="mt-2 px-3 py-2 rounded-lg border border-purple-200 bg-purple-50 text-[11px] font-semibold text-purple-700 flex items-center justify-between">
+                <span>✉️ Email draft is open in editor →</span>
+                <button onClick={() => setEmailDraftOpen(false)} className="text-purple-600 hover:text-purple-800 underline">close draft</button>
+              </div>
+            )}
+          </div>
             <p className="text-[10px] text-surface-400 mt-1">Reply sent to user&apos;s chat + notified via email</p>
             {replyError && (
               <p className="text-[11px] text-red-600 mt-1 font-medium">{replyError}</p>
@@ -365,15 +482,34 @@ export function AdminChatClient() {
             color: "bg-red-50 text-red-700",
           },
           {
-            label: "AI Paused",
-            value: conversations.filter((c) => c.aiPaused).length,
-            color: "bg-orange-50 text-orange-700",
+            label: "Tickets",
+            value: conversations.filter((c) => c.isTicket).length,
+            color: "bg-purple-50 text-purple-700",
           },
         ].map((s) => (
-          <div key={s.label} className={`rounded-xl px-3 py-2.5 md:px-4 md:py-3 ${s.color}`}>
+          <button
+            key={s.label}
+            onClick={() => {
+              if (s.label === "Tickets") setFilter("TICKETS");
+              else if (s.label === "Open") setFilter("OPEN");
+              else if (s.label === "Total") setFilter("all");
+              else if (s.label === "Needs Help") setFilter("OPEN");
+            }}
+            className={`cursor-pointer rounded-xl px-3 py-2.5 md:px-4 md:py-3 ${s.color} text-left transition-all ${
+              s.label === "Tickets" && filter === "TICKETS"
+                ? "ring-2 ring-purple-500 shadow-md"
+                : (s.label === "Open" && filter === "OPEN") ||
+                  (s.label === "Total" && filter === "all")
+                ? "ring-2 ring-brand-500"
+                : "hover:ring-2 hover:ring-surface-300 hover:shadow-sm"
+            }`}
+          >
             <div className="text-xl md:text-2xl font-black">{s.value}</div>
-            <div className="text-[11px] font-semibold opacity-80">{s.label}</div>
-          </div>
+            <div className="text-[11px] font-semibold opacity-80 flex items-center gap-1">
+              {s.label}
+              {s.label === "Tickets" && <span className="text-[9px] opacity-60">→</span>}
+            </div>
+          </button>
         ))}
       </div>
 
@@ -381,7 +517,7 @@ export function AdminChatClient() {
         {/* Conversations List */}
         <div className={`${mobileShowDetail ? "hidden" : "flex"} md:flex w-full md:w-72 lg:w-80 shrink-0 flex-col overflow-hidden`}>
           <div className="flex gap-1 mb-4">
-            {(["all", "OPEN", "CLOSED"] as const).map((f) => (
+            {(["all", "OPEN", "CLOSED", "TICKETS"] as const).map((f) => (
               <button
                 key={f}
                 onClick={() => setFilter(f)}
@@ -391,7 +527,7 @@ export function AdminChatClient() {
                     : "bg-surface-100 text-surface-600 hover:bg-surface-200"
                 }`}
               >
-                {f === "all" ? "All" : f === "OPEN" ? "Open" : "Closed"}
+                {f === "all" ? "All" : f === "OPEN" ? "Open" : f === "CLOSED" ? "Closed" : "Tickets"}
               </button>
             ))}
             <button
@@ -475,7 +611,9 @@ export function AdminChatClient() {
                         </div>
                       </div>
                       <p className="text-xs text-surface-500 truncate">
-                        {c.lastMessage?.replace("[⚡ NEEDS HUMAN SUPPORT] ", "") || "No messages"}
+                        {c.ticketProblem
+                          ? `🎫 ${c.ticketProblem}`
+                          : c.lastMessage?.replace("[⚡ NEEDS HUMAN SUPPORT] ", "") || "No messages"}
                       </p>
                       <div className="flex items-center justify-between mt-1.5">
                         <span className="text-[10px] text-surface-400">{formatDate(c.updatedAt)}</span>
@@ -504,6 +642,115 @@ export function AdminChatClient() {
         </div>
       ) : null}
       </div>
+
+      {/* ─── EMAIL DRAFT MODAL ─── */}
+      {emailDraftOpen && selected && (
+        <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4 overflow-y-auto" onClick={() => setEmailDraftOpen(false)}>
+          <div
+            className="bg-white rounded-2xl shadow-2xl w-full max-w-6xl max-h-[90vh] flex flex-col overflow-hidden"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Modal header */}
+            <div className="px-6 py-4 border-b border-surface-200 bg-purple-50 flex items-center justify-between shrink-0">
+              <div>
+                <div className="flex items-center gap-2">
+                  <span className="text-lg">✉️</span>
+                  <h2 className="text-lg font-bold text-surface-900">Email draft</h2>
+                </div>
+                <p className="text-[11px] text-surface-500 mt-0.5">
+                  Sending from <strong>support@votetofeed.com</strong> to <strong>{selected.userEmail || selected.user?.email || "(no email on file)"}</strong> via Resend
+                </p>
+              </div>
+              <button
+                onClick={() => setEmailDraftOpen(false)}
+                className="px-3 py-1.5 rounded-lg bg-white hover:bg-surface-100 text-surface-700 text-sm font-semibold border border-surface-200"
+              >
+                ✕ Close
+              </button>
+            </div>
+
+            {/* Modal body — split edit / preview */}
+            <div className="flex-1 overflow-hidden grid lg:grid-cols-2 divide-y lg:divide-y-0 lg:divide-x divide-surface-200">
+              {/* EDIT */}
+              <div className="p-5 overflow-y-auto">
+                <label className="block text-xs font-semibold text-surface-600 mb-1">Subject</label>
+                <input
+                  value={replySubject}
+                  onChange={(e) => setReplySubject(e.target.value)}
+                  className="w-full rounded-lg border border-surface-300 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-400"
+                />
+                <label className="block text-xs font-semibold text-surface-600 mb-1 mt-4">Body</label>
+                <textarea
+                  value={emailDraftBody}
+                  onChange={(e) => setEmailDraftBody(e.target.value)}
+                  rows={16}
+                  className="w-full resize-none rounded-lg border border-surface-300 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-400 font-mono"
+                />
+                <div className="mt-3 flex items-center gap-2">
+                  <button
+                    onClick={() => generateReplyDraft(selected.id)}
+                    disabled={generatingDraft}
+                    className="px-3 py-2 rounded-lg bg-surface-100 hover:bg-surface-200 text-surface-700 text-sm font-semibold disabled:opacity-50"
+                  >
+                    {generatingDraft ? "Generating…" : "🔁 Regenerate with AI"}
+                  </button>
+                </div>
+              </div>
+
+              {/* PREVIEW */}
+              <div className="p-5 bg-surface-50 overflow-y-auto">
+                <div className="text-xs font-semibold text-surface-600 mb-2">Preview (what the customer sees)</div>
+                <div className="rounded-xl border border-surface-200 bg-white shadow-sm overflow-hidden">
+                  <div className="px-5 py-4 bg-gradient-to-r from-red-600 to-red-500 text-white text-center">
+                    <div className="text-xl font-black tracking-tight">🐾 VoteToFeed</div>
+                    <div className="text-[11px] opacity-80 uppercase tracking-wider mt-1">Every vote feeds a shelter pet</div>
+                  </div>
+                  <div className="px-5 py-3 bg-surface-50 border-b border-surface-200 text-[12px] text-surface-500 space-y-0.5">
+                    <div><span className="font-semibold text-surface-600">From:</span> VoteToFeed Support &lt;support@votetofeed.com&gt;</div>
+                    <div><span className="font-semibold text-surface-600">To:</span> {selected.userEmail || selected.user?.email || "(no email)"}</div>
+                    <div><span className="font-semibold text-surface-600">Subject:</span> <span className="text-surface-800 font-semibold">{replySubject || "(no subject)"}</span></div>
+                  </div>
+                  <div className="px-5 py-5 text-[14px] text-surface-800 leading-relaxed">
+                    <div className="text-[11px] font-bold text-amber-600 uppercase tracking-wider mb-2">💬 New Support Reply</div>
+                    <div className="text-lg font-black text-surface-900 mb-3">Hello!</div>
+                    <div className="rounded-lg border border-sky-200 bg-sky-50 px-4 py-3 whitespace-pre-wrap text-[14px] leading-relaxed">
+                      {emailDraftBody || <span className="text-surface-400 italic">Body is empty…</span>}
+                    </div>
+                    <p className="mt-4 text-[13px] text-surface-600">Just reply to this email and we&apos;ll see your message right in your support thread.</p>
+                  </div>
+                  <div className="px-5 py-3 border-t border-surface-200 bg-surface-50 text-center text-[11px] text-surface-400">
+                    VoteToFeed · Privacy · Terms
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Modal footer */}
+            <div className="px-6 py-3 border-t border-surface-200 bg-white flex items-center justify-between shrink-0">
+              <p className="text-[11px] text-surface-500">
+                {selected.userEmail || selected.user?.email
+                  ? "Customer can reply to this email and it will appear back in this thread."
+                  : "⚠️ This conversation has no email on file — sending will fail."}
+              </p>
+              <div className="flex gap-2">
+                <button
+                  onClick={() => setEmailDraftOpen(false)}
+                  className="px-4 py-2 rounded-lg bg-surface-100 hover:bg-surface-200 text-surface-700 text-sm font-semibold"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={() => sendEmailDraft(selected.id)}
+                  disabled={sendingEmail || !emailDraftBody.trim() || !(selected.userEmail || selected.user?.email)}
+                  className="px-5 py-2 rounded-lg bg-purple-600 text-white text-sm font-bold hover:bg-purple-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {sendingEmail ? "Sending…" : "📨 Send via Resend"}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
