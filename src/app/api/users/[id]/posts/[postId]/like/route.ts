@@ -68,14 +68,14 @@ export async function POST(
       });
     }).catch((e) => console.error("[email] post like notification failed:", e));
 
-    // Send In-App Notification
+    // Send In-App Notification (fire-and-forget, skip self-like)
     prisma.user.findUnique({
       where: { id: userId },
       select: { name: true },
     }).then((liker) => {
       if (liker) {
-        createNotification({
-          userId: params.id, // target user
+        return createNotification({
+          userId: params.id,
           type: "LIKE",
           title: "New Like",
           message: `${liker.name || "Someone"} liked your post.`,
@@ -83,7 +83,7 @@ export async function POST(
           sourceUserId: userId,
         });
       }
-    });
+    }).catch((e) => console.error("[notification] like failed:", e));
 
     return NextResponse.json({ liked: true, likeCount: count });
   }

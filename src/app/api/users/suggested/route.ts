@@ -13,9 +13,21 @@ export async function GET() {
   }
 
   try {
+    let followingIds = new Set<string>();
+    if (excludeId) {
+      const follows = await prisma.follow.findMany({
+        where: { followerId: excludeId },
+        select: { followingId: true },
+      });
+      follows.forEach((f) => followingIds.add(f.followingId));
+    }
+
     const users = await prisma.user.findMany({
-      where: excludeId ? { id: { not: excludeId } } : undefined,
-      take: 10,
+      where: {
+        ...(excludeId ? { id: { not: excludeId } } : {}),
+        ...(followingIds.size > 0 ? { id: { notIn: [...followingIds] } } : {}),
+      },
+      take: 8,
       orderBy: { followers: { _count: "desc" } },
       select: {
         id: true,
@@ -23,31 +35,19 @@ export async function GET() {
         image: true,
         city: true,
         state: true,
-        _count: { select: { followers: true } }
-      }
+        _count: { select: { followers: true } },
+      },
     });
 
-    let followingIds = new Set<string>();
-    if (excludeId) {
-      const follows = await prisma.follow.findMany({
-        where: { followerId: excludeId },
-        select: { followingId: true }
-      });
-      follows.forEach(f => followingIds.add(f.followingId));
-    }
-
-    const result = users
-      .filter(u => !followingIds.has(u.id))
-      .slice(0, 8)
-      .map(u => ({
+    return NextResponse.json(
+      users.map((u) => ({
         id: u.id,
         name: u.name,
         image: u.image,
-        followerCount: u._count.followers
-      }));
-
-    return NextResponse.json(result);
-  } catch (error) {
+        followerCount: u._count.followers,
+      }))
+    );
+  } catch {
     return NextResponse.json({ error: "Failed to fetch suggested users" }, { status: 500 });
   }
 }

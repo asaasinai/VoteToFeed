@@ -6,9 +6,8 @@ import prisma from "@/lib/prisma";
 export const dynamic = "force-dynamic";
 
 /**
- * GET /api/feed — Fetch feed posts for the logged-in user.
- * Prioritizes posts from followed users, then shows trending/recent from everyone.
- * Supports cursor-based pagination via ?cursor=<postId>&limit=<n>
+ * GET /api/feed — Returns recent posts across all users, cursor-paginated.
+ * `isFollowing` flag indicates posts from users the viewer follows.
  */
 export async function GET(req: NextRequest) {
   const session = await getServerSession(authOptions);
@@ -29,8 +28,7 @@ export async function GET(req: NextRequest) {
   }
 
   // Build query options
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const query: any = {
+  const query: Parameters<typeof prisma.userPost.findMany>[0] = {
     take: limit,
     orderBy: { createdAt: "desc" },
     include: {
@@ -67,9 +65,7 @@ export async function GET(req: NextRequest) {
     query.skip = 1;
   }
 
-  // Fetch posts — mix of followed users' posts and popular/recent posts
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const posts: any[] = await prisma.userPost.findMany(query);
+  const posts = await prisma.userPost.findMany(query);
 
   // Check follow state for each post author
   const followedSet = new Set(followingIds);
@@ -94,8 +90,7 @@ export async function GET(req: NextRequest) {
     isFollowing: followedSet.has(p.user.id),
     isOwnPost: viewerId === p.user.id,
     comments: p.comments
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      .map((c: any) => ({
+      .map((c) => ({
         id: c.id,
         content: c.content,
         createdAt: c.createdAt,

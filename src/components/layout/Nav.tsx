@@ -17,6 +17,17 @@ type NavContest = {
   hasEnded: boolean;
 };
 
+type AppNotification = {
+  id: string;
+  type: string;
+  title: string;
+  message: string;
+  isRead: boolean;
+  linkUrl: string | null;
+  createdAt: string;
+  sourceUser: { name: string | null; image: string | null } | null;
+};
+
 function useDropdownAutoClose(
   ref: RefObject<HTMLElement | null>,
   isOpen: boolean,
@@ -60,7 +71,7 @@ export function Nav({
   const [leaderboardOpen, setLeaderboardOpen] = useState(false);
   const [notificationsOpen, setNotificationsOpen] = useState(false);
   const [contests, setContests] = useState<NavContest[]>([]);
-  const [notifications, setNotifications] = useState<any[]>([]);
+  const [notifications, setNotifications] = useState<AppNotification[]>([]);
   const [unreadCount, setUnreadCount] = useState(0);
   const contestRef = useRef<HTMLDivElement>(null);
   const leaderboardRef = useRef<HTMLDivElement>(null);
