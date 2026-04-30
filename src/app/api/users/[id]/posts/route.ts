@@ -69,10 +69,19 @@ export async function POST(
   if (!content) return NextResponse.json({ error: "Content required" }, { status: 400 });
   if (content.length > 1000) return NextResponse.json({ error: "Too long" }, { status: 400 });
 
+  // Support mediaUrls[] (multi-image/video) stored as JSON, or single imageUrl for compat
+  let imageUrl: string | null = null;
+  if (Array.isArray(body.mediaUrls) && body.mediaUrls.length > 0) {
+    const urls = body.mediaUrls.filter((u: unknown) => typeof u === "string" && u.trim()).slice(0, 3);
+    imageUrl = urls.length === 1 ? urls[0] : JSON.stringify(urls);
+  } else if (body.imageUrl?.trim()) {
+    imageUrl = body.imageUrl.trim();
+  }
+
   const post = await prisma.userPost.create({
     data: {
       content,
-      imageUrl: body.imageUrl?.trim() || null,
+      imageUrl,
       userId: currentUserId,
     },
     select: { id: true, content: true, imageUrl: true, createdAt: true },
