@@ -136,7 +136,11 @@ function ShareModal({ post, onClose }: { post: FeedPost; onClose: () => void }) 
 function parseMedia(imageUrl: string | null): string[] {
   if (!imageUrl) return [];
   if (imageUrl.startsWith("[")) {
-    try { return JSON.parse(imageUrl) as string[]; } catch { return [imageUrl]; }
+    try {
+      const parsed: unknown = JSON.parse(imageUrl);
+      if (Array.isArray(parsed)) return parsed.filter((u): u is string => typeof u === "string");
+    } catch { /* fall through */ }
+    return [imageUrl];
   }
   return [imageUrl];
 }
@@ -767,7 +771,7 @@ export default function FeedPage() {
           setFeedPets(shuffled);
         }
       })
-      .catch(() => {});
+      .catch((err) => console.error("[feed] pets fetch failed:", err));
   }, []);
 
   // Scroll to post from URL hash (e.g. from notification link)

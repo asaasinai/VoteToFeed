@@ -35,7 +35,7 @@ const HEIC_TYPES = new Set(["image/heic", "image/heif"]);
 const MAX_IMAGE_SIZE = 20 * 1024 * 1024;  // 20 MB
 const MAX_VIDEO_SIZE = 200 * 1024 * 1024; // 200 MB
 const MAX_FILE_SIZE = MAX_IMAGE_SIZE; // kept for compat
-const MAX_FILES = 10;
+const MAX_FILES = 3; // aligned with post-creation cap (MAX_MEDIA=3 on client)
 
 function validateFile(file: File) {
   const ext = path.extname(file.name).toLowerCase();
