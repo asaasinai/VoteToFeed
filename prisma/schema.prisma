@@ -114,6 +114,8 @@ model User {
   nominationsSent     Nomination[]      @relation("NominationsSent")
   contestEmailLogs    ContestEmailLog[]
   nominationSendJobs  NominationSendJob[] @relation("NominationSendJobs")
+  inAppNotifications  Notification[]    @relation("NotificationTarget")
+  sentNotifications   Notification[]    @relation("NotificationSource")
 }
 
 enum UserRole {
@@ -193,6 +195,7 @@ enum PetType {
   DOG
   CAT
   OTHER
+  ALL
 }
 
 // ─── VOTING ──────────────────────────────────────────────
@@ -266,6 +269,7 @@ enum PackageTier {
   CHAMPION
   HERO
   LEGEND
+  ICON
 }
 
 enum PaymentStatus {
@@ -300,6 +304,15 @@ model Contest {
   isRecurring       Boolean  @default(false)
   recurringInterval String?  // 'weekly', 'biweekly', 'monthly'
   recurringCounter  Int      @default(0) // incremented each recurrence
+  isStoryteller     Boolean  @default(false) // show story/bio toggle on entries
+  // Round / phase fields (FLAGSHIP contests)
+  currentPhase      String   @default("OPEN") // OPEN | TOP100 | TOP25 | TOP5 | ENDED
+  round2StartDate   DateTime?
+  round3StartDate   DateTime?
+  finaleStartDate   DateTime?
+  top100CutSize     Int      @default(100)
+  top25CutSize      Int      @default(25)
+  top5CutSize       Int      @default(5)
   createdAt   DateTime    @default(now())
   updatedAt   DateTime    @default(now()) @updatedAt
 
@@ -323,18 +336,23 @@ enum ContestType {
   BREED
   CHARITY
   CALENDAR
+  FLAGSHIP
 }
 
 model ContestEntry {
-  id        String   @id @default(cuid())
-  contestId String
-  petId     String
-  createdAt DateTime @default(now())
+  id               String   @id @default(cuid())
+  contestId        String
+  petId            String
+  story            String?  @db.Text
+  isEliminated     Boolean  @default(false)
+  eliminatedAtRound Int?
+  createdAt        DateTime @default(now())
 
   contest Contest @relation(fields: [contestId], references: [id], onDelete: Cascade)
   pet     Pet     @relation(fields: [petId], references: [id], onDelete: Cascade)
 
   @@unique([contestId, petId])
+  @@index([contestId, isEliminated])
 }
 
 model ContestEmailLog {
@@ -872,6 +890,11 @@ model ChatConversation {
   status      ChatStatus @default(OPEN)
   aiPaused    Boolean  @default(false) // true = admin took over, AI won't respond
   lastMessage String?  @db.Text
+  // Support ticket fields
+  isTicket        Boolean   @default(false) // true once a support ticket has been created from this conversation
+  ticketStage     String?   // null | "AWAITING_PROBLEM" | "AWAITING_EMAIL" | "OPEN_TICKET" | "RESOLVED"
+  ticketProblem   String?   @db.Text // user's first-described problem when the ticket was opened
+  ticketCreatedAt DateTime?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
@@ -880,6 +903,7 @@ model ChatConversation {
 
   @@index([status, updatedAt])
   @@index([userId])
+  @@index([isTicket, ticketStage])
 }
 
 model ChatMessage {
@@ -966,4 +990,32 @@ enum BadgeCategory {
   PETS        // based on pets registered
   STREAK      // based on voting streaks
   COMMUNITY   // special community badges
+}
+
+// ─── NOTIFICATIONS ───────────────────────────────────────
+
+model Notification {
+  id           String           @id @default(cuid())
+  userId       String           // The user who receives the notification
+  type         NotificationType
+  title        String
+  message      String
+  isRead       Boolean          @default(false)
+  linkUrl      String?          // URL to redirect upon click
+  sourceUserId String?          // Optional: user who triggered the action
+  createdAt    DateTime         @default(now())
+
+  user       User  @relation("NotificationTarget", fields: [userId], references: [id], onDelete: Cascade)
+  sourceUser User? @relation("NotificationSource", fields: [sourceUserId], references: [id], onDelete: SetNull)
+
+  @@index([userId, isRead])
+  @@index([createdAt])
+}
+
+enum NotificationType {
+  CONTEST     // New contest, contest ending, etc.
+  LIKE        // Someone liked a post
+  COMMENT     // Someone commented
+  FOLLOW      // Someone followed
+  SYSTEM      // Admin warnings, badges earned, etc.
 }

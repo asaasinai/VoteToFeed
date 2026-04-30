@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import Link from "next/link";
 import { FollowButton } from "@/components/shared/FollowButton";
 import { BadgeGrid } from "@/components/shared/BadgeGrid";
@@ -24,6 +24,28 @@ type Pet = {
   photos: string[];
   createdAt: string;
   totalVotes: number;
+  contests: { id: string; name: string; isActive: boolean }[];
+};
+
+// A pet "group" merges clones (same name + type + first photo for the same owner)
+// so a re-added pet shows as ONE card with multiple contest chips.
+type PetGroup = {
+  // Latest pet id (used for /pets/[id] link — points to the most recent entry)
+  id: string;
+  name: string;
+  type: string;
+  breed: string | null;
+  photos: string[];
+  totalVotes: number;       // summed across all clones
+  petCount: number;         // number of underlying Pet records
+  contests: { id: string; name: string; isActive: boolean }[]; // deduped
+  // One row per underlying Pet record + the contests it's entered in
+  // (used for the picker shown when a pet has multiple entries)
+  entries: Array<{
+    petId: string;
+    totalVotes: number;
+    contests: { id: string; name: string; isActive: boolean }[];
+  }>;
 };
 
 type Profile = {
@@ -67,6 +89,64 @@ type UserPost = {
   comments: PostComment[];
 };
 
+/**
+ * Group pets that are clones of each other (same name + type + first photo).
+ * A pet that's re-added to a new contest produces a clone Pet record;
+ * we merge those into a single card showing combined votes and all contest chips.
+ * Pets must be sorted newest-first when passed in (server returns desc).
+ */
+function parseMedia(imageUrl: string | null): string[] {
+  if (!imageUrl) return [];
+  if (imageUrl.startsWith("[")) {
+    try {
+      const parsed: unknown = JSON.parse(imageUrl);
+      if (Array.isArray(parsed)) return parsed.filter((u): u is string => typeof u === "string");
+    } catch { /* fall through */ }
+    return [imageUrl];
+  }
+  return [imageUrl];
+}
+
+function isVideo(url: string): boolean {
+  return /\.(mp4|webm|mov|ogg|avi)(\?.*)?$/i.test(url);
+}
+
+function groupPets(pets: Pet[]): PetGroup[] {
+  const map = new Map<string, PetGroup>();
+  for (const p of pets) {
+    const sig = `${p.name.trim().toLowerCase()}|${p.type}|${p.photos[0] ?? ""}`;
+    const entry = { petId: p.id, totalVotes: p.totalVotes, contests: p.contests };
+    const existing = map.get(sig);
+    if (existing) {
+      existing.totalVotes += p.totalVotes;
+      existing.petCount += 1;
+      existing.entries.push(entry);
+      for (const c of p.contests) {
+        if (!existing.contests.some((x) => x.id === c.id)) existing.contests.push(c);
+      }
+    } else {
+      map.set(sig, {
+        id: p.id, // newest because input is desc
+        name: p.name,
+        type: p.type,
+        breed: p.breed,
+        photos: p.photos,
+        totalVotes: p.totalVotes,
+        petCount: 1,
+        contests: [...p.contests],
+        entries: [entry],
+      });
+    }
+  }
+  // Sort active-contest cards first, then by votes
+  return Array.from(map.values()).sort((a, b) => {
+    const aActive = a.contests.some((c) => c.isActive) ? 1 : 0;
+    const bActive = b.contests.some((c) => c.isActive) ? 1 : 0;
+    if (aActive !== bActive) return bActive - aActive;
+    return b.totalVotes - a.totalVotes;
+  });
+}
+
 export function PublicProfileClient({
   profile,
   isLoggedIn,
@@ -76,24 +156,54 @@ export function PublicProfileClient({
   isLoggedIn: boolean;
   currentUserId?: string;
 }) {
-  const [tab, setTab] = useState<Tab>("pets");
+  const [tab, setTab] = useState<Tab>("posts");
   const [followerCount, setFollowerCount] = useState(profile.followerCount);
   const [showFollowers, setShowFollowers] = useState<"followers" | "following" | null>(null);
+
+  // Group clones (e.g., "Buddy" entered in 2 contests) into one card
+  const petGroups = groupPets(profile.pets);
+  // Picker modal — when a grouped pet has multiple underlying records, click
+  // opens this picker so the user chooses which contest entry to view.
+  const [pickerGroup, setPickerGroup] = useState<PetGroup | null>(null);
 
   // Posts state
   const [posts, setPosts] = useState<UserPost[]>([]);
   const [postsLoaded, setPostsLoaded] = useState(false);
   const [postText, setPostText] = useState("");
-  const [postImageFile, setPostImageFile] = useState<File | null>(null);
-  const [postImagePreview, setPostImagePreview] = useState<string | null>(null);
+  const [mediaFiles, setMediaFiles] = useState<File[]>([]);
+  const [mediaPreviews, setMediaPreviews] = useState<string[]>([]);
+  const [uploadError, setUploadError] = useState<string | null>(null);
   const [posting, setPosting] = useState(false);
   const [showCompose, setShowCompose] = useState(false);
+  const MAX_POST_MEDIA = 3;
   // Likes & comments state
   const [likingPost, setLikingPost] = useState<string | null>(null);
   const [likingComment, setLikingComment] = useState<string | null>(null);
   const [expandedComments, setExpandedComments] = useState<Set<string>>(new Set());
   const [commentTexts, setCommentTexts] = useState<Record<string, string>>({});
   const [submittingComment, setSubmittingComment] = useState<string | null>(null);
+  const [likesModalPostId, setLikesModalPostId] = useState<string | null>(null);
+
+  // Scroll to post from URL hash (notification deep-link)
+  useEffect(() => {
+    // Default tab is "posts" — load them on mount
+    loadPosts();
+    const hash = window.location.hash;
+    if (!hash.startsWith("#post-")) return;
+    const postId = hash.replace("#post-", "");
+    setTab("posts");
+    loadPosts().then(() => {
+      setTimeout(() => {
+        const el = document.getElementById(`post-${postId}`);
+        if (el) {
+          el.scrollIntoView({ behavior: "smooth", block: "center" });
+          el.classList.add("ring-2", "ring-brand-400", "ring-offset-2");
+          setTimeout(() => el.classList.remove("ring-2", "ring-brand-400", "ring-offset-2"), 3000);
+        }
+      }, 400);
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   async function loadPosts() {
     if (postsLoaded) return;
@@ -108,43 +218,63 @@ export function PublicProfileClient({
     if (t === "posts") loadPosts();
   }
 
-  function pickImage(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    setPostImageFile(file);
-    setPostImagePreview(URL.createObjectURL(file));
+  function pickMedia(e: React.ChangeEvent<HTMLInputElement>) {
+    const files = Array.from(e.target.files || []);
+    if (!files.length) return;
+    setUploadError(null);
+    const remaining = MAX_POST_MEDIA - mediaFiles.length;
+    const toAdd = files.slice(0, remaining);
+    if (files.length > remaining) {
+      setUploadError(`Maximum ${MAX_POST_MEDIA} files per post.`);
+    }
+    setMediaFiles((prev) => [...prev, ...toAdd]);
+    setMediaPreviews((prev) => [...prev, ...toAdd.map((f) => URL.createObjectURL(f))]);
+    e.target.value = "";
   }
 
-  function removeImage() {
-    setPostImageFile(null);
-    if (postImagePreview) URL.revokeObjectURL(postImagePreview);
-    setPostImagePreview(null);
+  function removeMedia(idx: number) {
+    URL.revokeObjectURL(mediaPreviews[idx]);
+    setMediaFiles((prev) => prev.filter((_, i) => i !== idx));
+    setMediaPreviews((prev) => prev.filter((_, i) => i !== idx));
+  }
+
+  function clearAllMedia() {
+    mediaPreviews.forEach((p) => URL.revokeObjectURL(p));
+    setMediaFiles([]);
+    setMediaPreviews([]);
+    setUploadError(null);
   }
 
   async function submitPost() {
     if (!postText.trim()) return;
     setPosting(true);
+    setUploadError(null);
     try {
-      let imageUrl: string | null = null;
-      if (postImageFile) {
+      const mediaUrls: string[] = [];
+      if (mediaFiles.length > 0) {
         const fd = new FormData();
-        fd.append("photos", postImageFile);
+        mediaFiles.forEach((f) => fd.append("photos", f));
         const up = await fetch("/api/upload", { method: "POST", body: fd });
         if (up.ok) {
           const { urls } = await up.json();
-          imageUrl = urls?.[0] ?? null;
+          mediaUrls.push(...(urls || []));
+        } else {
+          const err = await up.json().catch(() => ({}));
+          setUploadError(err.error || "Upload failed.");
+          setPosting(false);
+          return;
         }
       }
       const res = await fetch(`/api/users/${profile.id}/posts`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ content: postText.trim(), imageUrl }),
+        body: JSON.stringify({ content: postText.trim(), mediaUrls }),
       });
       if (res.ok) {
         const newPost = await res.json();
         setPosts((prev) => [{ ...newPost, likeCount: 0, isLiked: false, comments: [], commentCount: 0 }, ...prev]);
         setPostText("");
-        removeImage();
+        clearAllMedia();
         setShowCompose(false);
       }
     } finally {
@@ -416,7 +546,7 @@ export function PublicProfileClient({
               : "text-surface-500 hover:text-surface-700 hover:bg-white/50"
           }`}
         >
-          🐾 Pets ({profile.pets.length})
+          🐾 Pets ({petGroups.length})
         </button>
         <button
           onClick={() => handleTabChange("posts")}
@@ -443,20 +573,20 @@ export function PublicProfileClient({
       {/* ─── Pets Grid ─── */}
       {tab === "pets" && (
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
-          {profile.pets.length === 0 ? (
+          {petGroups.length === 0 ? (
             <div className="col-span-full text-center py-16 bg-white rounded-2xl border border-surface-200/60">
               <div className="text-5xl mb-3 animate-bounce">🐾</div>
               <p className="font-bold text-surface-700 text-lg">No pets yet</p>
               <p className="text-sm text-surface-400 mt-1">This user hasn&apos;t added any pets.</p>
             </div>
           ) : (
-            profile.pets.map((pet, i) => (
-              <Link
-                key={pet.id}
-                href={`/pets/${pet.id}`}
-                className="bg-white rounded-2xl border border-surface-200/60 shadow-sm overflow-hidden hover:shadow-xl hover:shadow-surface-200/50 hover:-translate-y-1 transition-all duration-300 group"
-                style={{ animationDelay: `${i * 100}ms` }}
-              >
+            petGroups.map((pet, i) => {
+              const activeContests = pet.contests.filter((c) => c.isActive);
+              const endedContests = pet.contests.filter((c) => !c.isActive);
+              const isMulti = pet.petCount > 1;
+              const cardClass = "block text-left w-full bg-white rounded-2xl border border-surface-200/60 shadow-sm overflow-hidden hover:shadow-xl hover:shadow-surface-200/50 hover:-translate-y-1 transition-all duration-300 group";
+              const cardInner = (
+                <>
                 <div className="aspect-[4/3] overflow-hidden bg-surface-100 relative">
                   {pet.photos[0] ? (
                     <img
@@ -478,15 +608,76 @@ export function PublicProfileClient({
                   <div className="absolute bottom-3 left-3 px-2.5 py-1 rounded-lg bg-black/60 backdrop-blur-sm text-white text-[10px] font-bold uppercase tracking-wider">
                     {pet.type === "DOG" ? "🐕 Dog" : pet.type === "CAT" ? "🐈 Cat" : "🐾 Pet"}
                   </div>
-                </div>
-                <div className="p-4">
-                  <h3 className="font-bold text-lg text-surface-900 group-hover:text-brand-600 transition-colors">{pet.name}</h3>
-                  {pet.breed && (
-                    <p className="text-sm text-surface-400 mt-0.5">{pet.breed}</p>
+                  {/* "Participating in N contests" pill */}
+                  {activeContests.length > 0 && (
+                    <div className="absolute top-3 left-3 px-2.5 py-1 rounded-lg bg-brand-500 text-white text-[10px] font-bold uppercase tracking-wider shadow-lg flex items-center gap-1">
+                      🏆 {activeContests.length === 1 ? "In contest" : `In ${activeContests.length} contests`}
+                    </div>
                   )}
                 </div>
-              </Link>
-            ))
+                <div className="p-4">
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="min-w-0">
+                      <h3 className="font-bold text-lg text-surface-900 group-hover:text-brand-600 transition-colors truncate">{pet.name}</h3>
+                      {pet.breed && (
+                        <p className="text-sm text-surface-400 mt-0.5 truncate">{pet.breed}</p>
+                      )}
+                    </div>
+                    {isMulti && (
+                      <span className="shrink-0 mt-0.5 inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-amber-50 text-amber-700 text-[10px] font-bold uppercase tracking-wider border border-amber-100">
+                        {pet.petCount}× entries
+                      </span>
+                    )}
+                  </div>
+                  {/* Contest chips */}
+                  {(activeContests.length > 0 || endedContests.length > 0) && (
+                    <div className="mt-2.5 flex flex-wrap gap-1.5">
+                      {activeContests.slice(0, 2).map((c) => (
+                        <span key={c.id} className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-brand-50 text-brand-700 text-[11px] font-semibold border border-brand-100 max-w-full">
+                          <span>🏆</span>
+                          <span className="truncate">{c.name}</span>
+                        </span>
+                      ))}
+                      {endedContests.slice(0, Math.max(0, 2 - activeContests.length)).map((c) => (
+                        <span key={c.id} className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-surface-100 text-surface-500 text-[11px] font-semibold border border-surface-200 max-w-full">
+                          <span>📋</span>
+                          <span className="truncate">{c.name}</span>
+                        </span>
+                      ))}
+                      {pet.contests.length > 2 && (
+                        <span className="inline-flex items-center px-2 py-0.5 rounded-md bg-surface-50 text-surface-500 text-[11px] font-semibold">
+                          +{pet.contests.length - 2} more
+                        </span>
+                      )}
+                    </div>
+                  )}
+                  {isMulti && (
+                    <p className="mt-2 text-[11px] text-surface-400 italic">Click to choose which contest entry to view →</p>
+                  )}
+                </div>
+                </>
+              );
+              return isMulti ? (
+                <button
+                  key={pet.id}
+                  type="button"
+                  onClick={() => setPickerGroup(pet)}
+                  className={cardClass}
+                  style={{ animationDelay: `${i * 100}ms` }}
+                >
+                  {cardInner}
+                </button>
+              ) : (
+                <Link
+                  key={pet.id}
+                  href={`/pets/${pet.id}`}
+                  className={cardClass}
+                  style={{ animationDelay: `${i * 100}ms` }}
+                >
+                  {cardInner}
+                </Link>
+              );
+            })
           )}
         </div>
       )}
@@ -519,26 +710,52 @@ export function PublicProfileClient({
                     autoFocus
                     className="w-full resize-none text-sm text-surface-900 placeholder:text-surface-400 focus:outline-none leading-relaxed"
                   />
-                  <div className="mt-3 flex items-center gap-3">
+                  <div className="mt-3 flex items-center gap-3 flex-wrap">
                     <label className="inline-flex items-center gap-2 cursor-pointer px-3 py-2 rounded-xl border border-surface-200 text-xs text-surface-500 hover:border-brand-400 hover:text-brand-500 transition-colors">
                       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
-                      {postImageFile ? postImageFile.name.slice(0, 20) + (postImageFile.name.length > 20 ? "…" : "") : "Add photo"}
-                      <input type="file" accept="image/*" className="hidden" onChange={pickImage} />
+                      {mediaFiles.length > 0 ? `${mediaFiles.length}/${MAX_POST_MEDIA} added` : "Add photo / video"}
+                      <input
+                        type="file"
+                        accept="image/*,video/*"
+                        multiple
+                        className="hidden"
+                        onChange={pickMedia}
+                        disabled={mediaFiles.length >= MAX_POST_MEDIA}
+                      />
                     </label>
-                    {postImageFile && (
-                      <button onClick={removeImage} className="text-xs text-red-400 hover:text-red-600 transition-colors">Remove</button>
+                    {mediaFiles.length > 0 && (
+                      <button onClick={clearAllMedia} className="text-xs text-red-400 hover:text-red-600 transition-colors">Clear all</button>
                     )}
+                    <span className="text-xs text-surface-400">{mediaFiles.length}/{MAX_POST_MEDIA}</span>
                   </div>
-                  {postImagePreview && (
-                    <div className="mt-3 rounded-xl overflow-hidden border border-surface-200 relative">
-                      <img src={postImagePreview} alt="Preview" className="w-full h-auto block" />
+                  {uploadError && (
+                    <p className="mt-2 text-xs text-red-500">{uploadError}</p>
+                  )}
+                  {mediaPreviews.length > 0 && (
+                    <div className="mt-3 grid grid-cols-3 gap-2">
+                      {mediaPreviews.map((src, i) => (
+                        <div key={i} className="relative rounded-xl overflow-hidden border border-surface-200 aspect-square bg-black">
+                          {isVideo(mediaFiles[i]?.name || "") ? (
+                            <video src={src} className="w-full h-full object-cover" muted playsInline />
+                          ) : (
+                            <img src={src} alt={`Preview ${i + 1}`} className="w-full h-full object-cover" />
+                          )}
+                          <button
+                            onClick={() => removeMedia(i)}
+                            className="absolute top-1 right-1 w-6 h-6 rounded-full bg-black/70 hover:bg-black text-white flex items-center justify-center text-xs"
+                            aria-label="Remove"
+                          >
+                            ×
+                          </button>
+                        </div>
+                      ))}
                     </div>
                   )}
                   <div className="flex items-center justify-between mt-4 pt-3 border-t border-surface-100">
                     <span className="text-xs text-surface-400">{postText.length}/1000</span>
                     <div className="flex gap-2">
                       <button
-                        onClick={() => { setShowCompose(false); setPostText(""); removeImage(); }}
+                        onClick={() => { setShowCompose(false); setPostText(""); clearAllMedia(); }}
                         className="px-4 py-2 text-sm font-semibold text-surface-600 hover:bg-surface-100 rounded-xl transition-colors"
                       >
                         Cancel
@@ -579,7 +796,8 @@ export function PublicProfileClient({
             posts.map((post, i) => (
               <div
                 key={post.id}
-                className="bg-white rounded-2xl border border-surface-200/60 shadow-sm overflow-hidden animate-profile-slide-up"
+                id={`post-${post.id}`}
+                className="bg-white rounded-2xl border border-surface-200/60 shadow-sm overflow-hidden animate-profile-slide-up transition-all"
                 style={{ animationDelay: `${i * 60}ms` }}
               >
                 {/* Post header */}
@@ -615,12 +833,36 @@ export function PublicProfileClient({
                 <p className="px-5 pb-3 text-sm text-surface-800 leading-relaxed whitespace-pre-wrap">
                   {post.content}
                 </p>
-                {/* Image */}
-                {post.imageUrl && (
-                  <div className="mx-5 mb-3 rounded-xl overflow-hidden border border-surface-100">
-                    <img src={post.imageUrl} alt="Post image" className="w-full h-auto block" />
-                  </div>
-                )}
+                {/* Media (photos / video — supports multi) */}
+                {post.imageUrl && (() => {
+                  const media = parseMedia(post.imageUrl);
+                  if (media.length === 0) return null;
+                  if (media.length === 1) {
+                    const url = media[0];
+                    return (
+                      <div className="mx-5 mb-3 rounded-xl overflow-hidden border border-surface-100 bg-black">
+                        {isVideo(url) ? (
+                          <video src={url} className="w-full max-h-[500px] object-contain block" controls playsInline preload="metadata" />
+                        ) : (
+                          <img src={url} alt="Post media" className="w-full h-auto block" />
+                        )}
+                      </div>
+                    );
+                  }
+                  return (
+                    <div className={`mx-5 mb-3 grid gap-1 ${media.length === 2 ? "grid-cols-2" : "grid-cols-3"}`}>
+                      {media.map((url, mi) => (
+                        <div key={mi} className="relative aspect-square rounded-xl overflow-hidden border border-surface-100 bg-black">
+                          {isVideo(url) ? (
+                            <video src={url} className="w-full h-full object-cover" controls playsInline preload="metadata" />
+                          ) : (
+                            <img src={url} alt={`Post media ${mi + 1}`} className="w-full h-full object-cover" />
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  );
+                })()}
                 {/* Actions: like + comment */}
                 <div className="px-5 pb-4 flex items-center gap-4 border-t border-surface-100 pt-3">
                   <button
@@ -635,8 +877,15 @@ export function PublicProfileClient({
                     <svg width="16" height="16" viewBox="0 0 24 24" fill={post.isLiked ? "currentColor" : "none"} stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                       <path d="M20.84 4.61a5.5 5.5 0 00-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 00-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 000-7.78z"/>
                     </svg>
-                    {post.likeCount > 0 && <span>{post.likeCount}</span>}
                   </button>
+                  {post.likeCount > 0 && (
+                    <button
+                      onClick={() => setLikesModalPostId(post.id)}
+                      className="text-sm font-semibold text-surface-500 hover:text-red-500 transition-colors -ml-1"
+                    >
+                      {post.likeCount}
+                    </button>
+                  )}
                   <button
                     onClick={() => setExpandedComments((s) => { const n = new Set(s); n.has(post.id) ? n.delete(post.id) : n.add(post.id); return n; })}
                     className="inline-flex items-center gap-1.5 text-sm font-semibold text-surface-400 hover:text-brand-500 transition-colors"
@@ -734,6 +983,161 @@ export function PublicProfileClient({
           onClose={() => setShowFollowers(null)}
         />
       )}
+
+      {/* ─── Likes Modal ─── */}
+      {likesModalPostId && (
+        <LikesModal
+          postId={likesModalPostId}
+          postUserId={profile.id}
+          onClose={() => setLikesModalPostId(null)}
+        />
+      )}
+
+      {/* ─── Pet Entry Picker (multi-contest pets) ─── */}
+      {pickerGroup && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4"
+          onClick={() => setPickerGroup(null)}
+        >
+          <div
+            className="w-full max-w-md bg-white rounded-2xl shadow-2xl overflow-hidden"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="p-5 border-b border-surface-100 flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <h3 className="font-bold text-lg text-surface-900 truncate">
+                  {pickerGroup.name} — choose a contest entry
+                </h3>
+                <p className="text-xs text-surface-500 mt-0.5">
+                  {(() => {
+                    const total = pickerGroup.entries.reduce((s, e) => s + e.contests.length, 0) || pickerGroup.entries.length;
+                    return `${pickerGroup.name} has ${total} contest ${total === 1 ? "entry" : "entries"}. Pick which one to view.`;
+                  })()}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setPickerGroup(null)}
+                className="shrink-0 w-8 h-8 rounded-full hover:bg-surface-100 flex items-center justify-center text-surface-500"
+                aria-label="Close"
+              >
+                ✕
+              </button>
+            </div>
+            <div className="max-h-[60vh] overflow-y-auto divide-y divide-surface-100">
+              {pickerGroup.entries.flatMap((entry) =>
+                entry.contests.length > 0
+                  ? entry.contests.map((c) => ({ contest: c, petId: entry.petId, totalVotes: entry.totalVotes }))
+                  : [{ contest: null as null | { id: string; name: string; isActive: boolean }, petId: entry.petId, totalVotes: entry.totalVotes }]
+              ).map((row, idx) => (
+                <Link
+                  key={`${row.petId}-${row.contest?.id ?? "no-contest"}-${idx}`}
+                  href={`/pets/${row.petId}`}
+                  onClick={() => setPickerGroup(null)}
+                  className="flex items-center gap-3 p-4 hover:bg-surface-50 transition-colors"
+                >
+                  <div className="w-14 h-14 shrink-0 rounded-xl overflow-hidden bg-surface-100">
+                    {pickerGroup.photos[0] ? (
+                      <img src={pickerGroup.photos[0]} alt={pickerGroup.name} className="w-full h-full object-cover" />
+                    ) : (
+                      <div className="w-full h-full flex items-center justify-center text-2xl">
+                        {pickerGroup.type === "DOG" ? "🐕" : pickerGroup.type === "CAT" ? "🐈" : "🐾"}
+                      </div>
+                    )}
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      {row.contest ? (
+                        row.contest.isActive ? (
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-brand-50 text-brand-700 text-[11px] font-bold border border-brand-100 max-w-full">
+                            <span>🏆</span>
+                            <span className="truncate">{row.contest.name}</span>
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-surface-100 text-surface-600 text-[11px] font-bold border border-surface-200 max-w-full">
+                            <span>📋</span>
+                            <span className="truncate">{row.contest.name}</span>
+                            <span className="opacity-60">(ended)</span>
+                          </span>
+                        )
+                      ) : (
+                        <span className="text-[11px] text-surface-400 italic">No contest</span>
+                      )}
+                    </div>
+                    <p className="text-xs text-surface-500 mt-1">
+                      {row.totalVotes} vote{row.totalVotes === 1 ? "" : "s"} in this entry
+                    </p>
+                  </div>
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className="text-surface-400 shrink-0"><path d="M9 18l6-6-6-6"/></svg>
+                </Link>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ─── Who Liked Modal ─── */
+function LikesModal({ postId, postUserId, onClose }: { postId: string; postUserId: string; onClose: () => void }) {
+  const [users, setUsers] = useState<{ id: string; name: string | null; image: string | null }[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    fetch(`/api/users/${postUserId}/posts/${postId}/like`)
+      .then((r) => r.json())
+      .then((data) => setUsers(Array.isArray(data) ? data : []))
+      .catch(() => {})
+      .finally(() => setLoading(false));
+  }, [postId, postUserId]);
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4" onClick={onClose}>
+      <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" />
+      <div
+        className="relative bg-white rounded-3xl shadow-2xl w-full max-w-xs overflow-hidden"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-center justify-between px-5 py-4 border-b border-surface-100">
+          <h3 className="text-base font-bold text-surface-900 flex items-center gap-2">
+            <span className="w-5 h-5 rounded-full bg-red-500 flex items-center justify-center">
+              <svg width="10" height="10" viewBox="0 0 24 24" fill="white"><path d="M20.84 4.61a5.5 5.5 0 00-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 00-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 000-7.78z"/></svg>
+            </span>
+            Liked by
+          </h3>
+          <button onClick={onClose} className="w-8 h-8 rounded-full hover:bg-surface-100 flex items-center justify-center transition-colors">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+          </button>
+        </div>
+        <div className="max-h-72 overflow-y-auto">
+          {loading ? (
+            <div className="flex justify-center py-8">
+              <div className="w-7 h-7 border-2 border-brand-500 border-t-transparent rounded-full animate-spin" />
+            </div>
+          ) : users.length === 0 ? (
+            <p className="text-center text-sm text-surface-500 py-8">No likes yet.</p>
+          ) : (
+            users.map((u) => (
+              <Link
+                key={u.id}
+                href={`/users/${u.id}`}
+                onClick={onClose}
+                className="flex items-center gap-3 px-5 py-3 hover:bg-surface-50 transition-colors"
+              >
+                <div className="w-9 h-9 rounded-full overflow-hidden bg-brand-50 flex-shrink-0 flex items-center justify-center">
+                  {u.image ? (
+                    <img src={u.image} alt="" className="w-full h-full object-cover" />
+                  ) : (
+                    <span className="text-sm font-bold text-brand-600">{(u.name || "?")[0].toUpperCase()}</span>
+                  )}
+                </div>
+                <span className="text-sm font-semibold text-surface-800">{u.name || "User"}</span>
+              </Link>
+            ))
+          )}
+        </div>
+      </div>
     </div>
   );
 }

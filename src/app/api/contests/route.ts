@@ -11,6 +11,7 @@ export async function GET(req: NextRequest) {
     const { searchParams } = new URL(req.url);
     const petType = searchParams.get("petType");
     const includeEnded = searchParams.get("includeEnded") === "true";
+    const includeNotStarted = searchParams.get("includeNotStarted") === "true";
     const featured = searchParams.get("featured");
 
     const now = new Date();
@@ -18,10 +19,19 @@ export async function GET(req: NextRequest) {
     const where: Record<string, unknown> = {};
     if (!includeEnded) {
       where.isActive = true;
-      where.endDate = { gte: now }; // only contests that haven't ended
-      where.startDate = { lte: now }; // only contests that have started
+      where.endDate = { gte: now };
+      if (!includeNotStarted) {
+        where.startDate = { lte: now };
+      }
     }
-    if (petType) where.petType = petType;
+    if (petType) {
+      // Contests marked ALL accept any pet type — include them when filtering by a specific type
+      if (petType === "DOG" || petType === "CAT" || petType === "OTHER") {
+        where.petType = { in: [petType, "ALL"] };
+      } else {
+        where.petType = petType;
+      }
+    }
     if (featured === "true") where.isFeatured = true;
 
     const contests = await prisma.contest.findMany({
@@ -66,8 +76,17 @@ export async function GET(req: NextRequest) {
         isRecurring: c.isRecurring,
         recurringInterval: c.recurringInterval,
         recurringCounter: c.recurringCounter,
+        isStoryteller: c.isStoryteller,
         entryCount: c._count.entries,
         prizes: c.prizes,
+        // FLAGSHIP round fields
+        currentPhase: c.currentPhase,
+        round2StartDate: c.round2StartDate,
+        round3StartDate: c.round3StartDate,
+        finaleStartDate: c.finaleStartDate,
+        top100CutSize: c.top100CutSize,
+        top25CutSize: c.top25CutSize,
+        top5CutSize: c.top5CutSize,
         // Computed fields
         daysLeft: Math.max(0, Math.ceil((new Date(c.endDate).getTime() - now.getTime()) / (1000 * 60 * 60 * 24))),
         totalPrizeValue: c.prizes.reduce((sum, p) => sum + p.value, 0),
@@ -102,12 +121,19 @@ export async function POST(req: NextRequest) {
     const {
       name, type, petType, state, startDate, endDate, description, rules,
       coverImage, entryFee, maxEntries, prizeDescription, sponsorName,
-      sponsorLogo, sponsorUrl, isFeatured, isRecurring, recurringInterval, prizes,
+      sponsorLogo, sponsorUrl, isFeatured, isRecurring, recurringInterval, prizes, isStoryteller,
+      currentPhase, round2StartDate, round3StartDate, finaleStartDate,
+      top100CutSize, top25CutSize, top5CutSize,
     } = body;
 
     if (!name || !type || !petType || !startDate || !endDate) {
       return NextResponse.json({ error: "Name, type, petType, startDate, endDate are required" }, { status: 400 });
     }
+
+    const VALID_PHASES = ["OPEN", "TOP100", "TOP25", "TOP5", "ENDED"] as const;
+    const validatedPhase = VALID_PHASES.includes(currentPhase as typeof VALID_PHASES[number])
+      ? (currentPhase as string)
+      : "OPEN";
 
     const contest = await prisma.contest.create({
       data: {
@@ -129,7 +155,15 @@ export async function POST(req: NextRequest) {
         isFeatured: isFeatured || false,
         isRecurring: isRecurring || false,
         recurringInterval: isRecurring ? (recurringInterval || "biweekly") : null,
+        isStoryteller: isStoryteller || false,
         isActive: true,
+        currentPhase: validatedPhase,
+        round2StartDate: round2StartDate ? new Date(round2StartDate) : null,
+        round3StartDate: round3StartDate ? new Date(round3StartDate) : null,
+        finaleStartDate: finaleStartDate ? new Date(finaleStartDate) : null,
+        top100CutSize: top100CutSize || 100,
+        top25CutSize: top25CutSize || 25,
+        top5CutSize: top5CutSize || 5,
         prizes: prizes?.length
           ? {
               create: prizes.map((p: { placement: number; title: string; description?: string; value: number; items?: string[] }) => ({
@@ -148,9 +182,44 @@ export async function POST(req: NextRequest) {
       },
     });
 
+    // Notify ALL users about the new contest asynchronously (batched in pages of 500)
+    notifyAllUsersOfContest(contest.id, name).catch((e) =>
+      console.error("Failed to notify users about new contest", e)
+    );
+
     return NextResponse.json(contest, { status: 201 });
   } catch (error) {
     console.error("Error creating contest:", error);
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });
+  }
+}
+
+async function notifyAllUsersOfContest(contestId: string, name: string) {
+  const PAGE = 500;
+  let cursor: string | undefined;
+
+  while (true) {
+    const users = await prisma.user.findMany({
+      select: { id: true },
+      take: PAGE,
+      ...(cursor ? { skip: 1, cursor: { id: cursor } } : {}),
+      orderBy: { id: "asc" },
+    });
+
+    if (!users.length) break;
+
+    await prisma.notification.createMany({
+      data: users.map((u) => ({
+        userId: u.id,
+        type: "CONTEST" as const,
+        title: "New Contest!",
+        message: `A new contest '${name}' has just started! Enter your pet now! 🏆`,
+        linkUrl: `/contests/${contestId}`,
+      })),
+      skipDuplicates: true,
+    });
+
+    cursor = users[users.length - 1].id;
+    if (users.length < PAGE) break;
   }
 }

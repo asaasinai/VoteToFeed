@@ -73,6 +73,17 @@ export async function POST(req: NextRequest) {
       meals: meals.toString(),
     };
 
+    // Check if first-time buyer — include PENDING to block the race condition
+    // where two parallel tabs both create PENDING purchases before either completes,
+    // and both incorrectly qualify for the 20% discount.
+    const previousPurchase = await prisma.purchase.findFirst({
+      where: { userId, status: { in: ["COMPLETED", "PENDING"] }, id: { not: purchase.id } },
+    });
+    const isFirstTimeBuyer = !previousPurchase;
+
+    // 3DS required for $249+ transactions
+    const requires3DS = pkg.price >= 24900;
+
     const checkoutSession = await stripe.checkout.sessions.create({
       payment_method_types: ["card"],
       client_reference_id: purchase.id,
@@ -88,19 +99,30 @@ export async function POST(req: NextRequest) {
                 site: VTF_SITE,
               },
             },
-            unit_amount: pkg.price,
+            unit_amount: isFirstTimeBuyer ? Math.round(pkg.price * 0.8) : pkg.price,
           },
           quantity: 1,
         },
       ],
       mode: "payment",
-      success_url: `${appUrl}/dashboard?purchase=success&tier=${tier}`,
+      success_url: `${appUrl}/dashboard?purchase=success&tier=${tier}${isFirstTimeBuyer ? "&firstBuyer=1" : ""}`,
       cancel_url: `${appUrl}/dashboard?purchase=cancelled&tier=${tier}`,
-      metadata,
+      metadata: {
+        ...metadata,
+        isFirstTimeBuyer: isFirstTimeBuyer ? "1" : "0",
+        originalAmount: pkg.price.toString(),
+      },
       payment_intent_data: {
         metadata,
         description: `VoteToFeed ${pkg.label} vote pack (${pkg.votes} votes)`,
       },
+      ...(requires3DS && {
+        payment_method_options: {
+          card: {
+            request_three_d_secure: "any",
+          },
+        },
+      }),
     });
 
     await prisma.purchase.update({

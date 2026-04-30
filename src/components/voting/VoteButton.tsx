@@ -19,6 +19,7 @@ type Props = {
   weeklyRank?: number | null;
   petType?: string;
   contestEndDate?: string | null;
+  contestName?: string | null;
   votesNeededForTop3?: number | null;
   mealRate?: number;
 };
@@ -34,6 +35,7 @@ export function VoteButton({
   weeklyRank,
   petType = "DOG",
   contestEndDate,
+  contestName,
   votesNeededForTop3,
   mealRate = 1,
 }: Props) {
@@ -137,13 +139,17 @@ export function VoteButton({
         setAnimating(true);
         setTimeout(() => setAnimating(false), 600);
 
-        // Show impact modal: every 3 votes under 10, every 10 after that, or when out of votes
+        // Show impact modal: every 3 votes under 10, every 10 after that, or when out of votes.
+        // Skip the upsell when the user already holds a healthy stockpile of paid votes —
+        // they don't need a "buy more" pitch right now.
         const newVoteCount = data.pet.weeklyVotes;
         const outOfVotes = data.user.freeVotesRemaining === 0 && data.user.paidVoteBalance === 0;
+        const hasPlentyOfPaidVotes = data.user.paidVoteBalance >= 30;
         const shouldShowModal =
           outOfVotes ||
-          (newVoteCount < 10 && newVoteCount % 3 === 0) ||
-          (newVoteCount >= 10 && newVoteCount % 10 === 0);
+          (!hasPlentyOfPaidVotes &&
+            ((newVoteCount < 10 && newVoteCount % 3 === 0) ||
+              (newVoteCount >= 10 && newVoteCount % 10 === 0)));
 
         if (shouldShowModal) {
           setImpactVoteCount(newVoteCount);
@@ -191,7 +197,7 @@ export function VoteButton({
 
   return (
     <div className="space-y-3">
-      <VoteStats voteCount={voteCount} animalType={animalType} weeklyRank={weeklyRank} petType={petType} animating={animating} contestEndDate={contestEndDate} votesNeededForTop3={votesNeededForTop3} />
+      <VoteStats voteCount={voteCount} animalType={animalType} weeklyRank={weeklyRank} petType={petType} animating={animating} contestEndDate={contestEndDate} contestName={contestName} votesNeededForTop3={votesNeededForTop3} />
 
       <button
         onClick={handleVote}
@@ -264,7 +270,7 @@ export function VoteButton({
           <div className="grid grid-cols-3 gap-2">
             {VOTE_PACKAGES.slice(0, 3).map((pkg) => {
               const meals = calculateMeals(pkg.price, mealRate);
-              const isBest = pkg.tier === "SUPPORTER";
+              const isBest = pkg.tier === "CHAMPION";
               return (
                 <button
                   key={pkg.tier}
@@ -331,6 +337,7 @@ function VoteStats({
   petType,
   animating,
   contestEndDate,
+  contestName,
   votesNeededForTop3,
 }: {
   voteCount: number;
@@ -339,6 +346,7 @@ function VoteStats({
   petType: string;
   animating: boolean;
   contestEndDate?: string | null;
+  contestName?: string | null;
   votesNeededForTop3?: number | null;
 }) {
   const rankSuffix = (n: number) => {
@@ -390,7 +398,7 @@ function VoteStats({
 
       {weeklyRank != null && weeklyRank > 0 && (
         <p className="text-lg font-semibold text-surface-500 mt-1">
-          {rankSuffix(weeklyRank)} in National {petType === "DOG" ? "Dog" : petType === "CAT" ? "Cat" : "Pet"} Contest
+          {rankSuffix(weeklyRank)} in {contestName ? contestName : `Weekly ${petType === "DOG" ? "Dog" : petType === "CAT" ? "Cat" : "Pet"} Leaderboard`}
         </p>
       )}
 

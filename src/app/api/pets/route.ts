@@ -111,7 +111,7 @@ export async function POST(req: NextRequest) {
 
     const userId = (session.user as Record<string, unknown>).id as string;
     const body = await req.json();
-    const { name, type, breed, bio, ownerName, ownerFirstName, ownerLastName, address, city, state, zipCode, photos, tags, contestIds } = body;
+    const { name, type, breed, bio, ownerName, ownerFirstName, ownerLastName, address, city, state, zipCode, photos, tags, contestIds, story } = body;
 
     // Support both combined ownerName and separate first/last
     const finalOwnerName = ownerName || [ownerFirstName, ownerLastName].filter(Boolean).join(" ");
@@ -172,19 +172,19 @@ export async function POST(req: NextRequest) {
             where: {
               id: { in: contestIds },
               isActive: true,
-              petType: type,
+              petType: { in: [type, "ALL"] },
               endDate: { gte: new Date() },
             },
             select: { id: true },
           }).then((contests) => contests.map((contest) => contest.id))
         : await tx.contest.findMany({
-            where: { isActive: true, weekId, petType: type, type: "NATIONAL" },
+            where: { isActive: true, weekId, petType: { in: [type, "ALL"] }, type: "NATIONAL" },
             select: { id: true },
           }).then((contests) => contests.map((contest) => contest.id));
 
       if (selectedContestIds.length > 0) {
         await tx.contestEntry.createMany({
-          data: selectedContestIds.map((contestId) => ({ contestId, petId: createdPet.id })),
+          data: selectedContestIds.map((contestId) => ({ contestId, petId: createdPet.id, story: story || null })),
           skipDuplicates: true,
         });
       }
