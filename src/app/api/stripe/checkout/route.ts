@@ -6,7 +6,7 @@ import { authOptions } from "@/lib/auth";
 import { getStripeAsync } from "@/lib/stripe";
 import prisma from "@/lib/prisma";
 import { VOTE_PACKAGES, calculateMeals } from "@/lib/utils";
-import { getMealRate } from "@/lib/admin-settings";
+import { getMealRate, getFirstTimeBuyerDiscount } from "@/lib/admin-settings";
 
 const VTF_BRAND = "votetofeed";
 const VTF_SITE = "votetofeed.com";
@@ -44,6 +44,7 @@ export async function POST(req: NextRequest) {
     }
 
     const mealRate = await getMealRate();
+    const discount = await getFirstTimeBuyerDiscount();
     const meals = calculateMeals(pkg.price, mealRate);
     const appUrl = process.env.NEXT_PUBLIC_APP_URL || "https://votetofeed.com";
 
@@ -53,7 +54,7 @@ export async function POST(req: NextRequest) {
         userId,
         packageTier: tier,
         votes: pkg.votes,
-        amount: pkg.price,
+        amount: pkg.price,   // will be updated to final price after discount check
         status: "PENDING",
         mealsProvided: meals,
         mealRateAtPurchase: mealRate,
@@ -84,6 +85,24 @@ export async function POST(req: NextRequest) {
     // 3DS required for $249+ transactions
     const requires3DS = pkg.price >= 24900;
 
+    // Apply first-time buyer discount if enabled
+    const discountMultiplier = (discount.enabled && isFirstTimeBuyer)
+      ? (100 - discount.pct) / 100
+      : 1;
+    const finalPrice = Math.round(pkg.price * discountMultiplier);
+    const appliedDiscount = discount.enabled && isFirstTimeBuyer;
+
+    // Update purchase record with final price and discount info
+    await prisma.purchase.update({
+      where: { id: purchase.id },
+      data: {
+        amount: finalPrice,
+        isFirstTimeBuyer: appliedDiscount,
+        originalAmount: appliedDiscount ? pkg.price : 0,
+        discountPct: appliedDiscount ? discount.pct : 0,
+      },
+    });
+
     const checkoutSession = await stripe.checkout.sessions.create({
       payment_method_types: ["card"],
       client_reference_id: purchase.id,
@@ -99,17 +118,18 @@ export async function POST(req: NextRequest) {
                 site: VTF_SITE,
               },
             },
-            unit_amount: isFirstTimeBuyer ? Math.round(pkg.price * 0.8) : pkg.price,
+            unit_amount: finalPrice,
           },
           quantity: 1,
         },
       ],
       mode: "payment",
-      success_url: `${appUrl}/dashboard?purchase=success&tier=${tier}${isFirstTimeBuyer ? "&firstBuyer=1" : ""}`,
+      success_url: `${appUrl}/dashboard?purchase=success&tier=${tier}${(discount.enabled && isFirstTimeBuyer) ? "&firstBuyer=1" : ""}`,
       cancel_url: `${appUrl}/dashboard?purchase=cancelled&tier=${tier}`,
       metadata: {
         ...metadata,
-        isFirstTimeBuyer: isFirstTimeBuyer ? "1" : "0",
+        isFirstTimeBuyer: (discount.enabled && isFirstTimeBuyer) ? "1" : "0",
+        discountPct: (discount.enabled && isFirstTimeBuyer) ? discount.pct.toString() : "0",
         originalAmount: pkg.price.toString(),
       },
       payment_intent_data: {
