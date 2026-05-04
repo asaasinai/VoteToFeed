@@ -3,6 +3,8 @@
 import React, { useState, useEffect, useCallback, useRef } from "react";
 import Link from "next/link";
 import { useSession } from "next-auth/react";
+import { formatUserName } from "@/lib/utils";
+import { MediaCarousel } from "@/components/shared/MediaCarousel";
 
 /* ─── Types ─── */
 type FeedUser = {
@@ -71,7 +73,7 @@ function timeAgo(dateStr: string) {
 function ShareModal({ post, onClose }: { post: FeedPost; onClose: () => void }) {
   const [copied, setCopied] = useState(false);
   const shareUrl = `${typeof window !== "undefined" ? window.location.origin : ""}/users/${post.user.id}`;
-  const shareText = `Check out ${post.user.name || "this user"}'s post on VoteToFeed!`;
+  const shareText = `Check out ${formatUserName(post.user.name)}'s post on VoteToFeed!`;
 
   function copyLink() {
     navigator.clipboard.writeText(shareUrl);
@@ -146,112 +148,6 @@ function parseMedia(imageUrl: string | null): string[] {
 }
 function isVideo(url: string): boolean {
   return /\.(mp4|webm|mov|ogg|avi)(\?.*)?$/i.test(url);
-}
-
-/* ─── Media Carousel (multi-image/video with prev/next + swipe) ─── */
-function MediaCarousel({ media, onLightbox, doubleTapHeart, postId, onDoubleTap }: {
-  media: string[];
-  onLightbox: (url: string) => void;
-  doubleTapHeart: string | null;
-  postId: string;
-  onDoubleTap: () => void;
-}) {
-  const [idx, setIdx] = useState(0);
-  const touchStartX = useRef<number | null>(null);
-  const touchStartY = useRef<number | null>(null);
-
-  function prev() { setIdx((i) => Math.max(0, i - 1)); }
-  function next() { setIdx((i) => Math.min(media.length - 1, i + 1)); }
-
-  function onTouchStart(e: React.TouchEvent) {
-    touchStartX.current = e.touches[0].clientX;
-    touchStartY.current = e.touches[0].clientY;
-  }
-  function onTouchEnd(e: React.TouchEvent) {
-    if (touchStartX.current === null || touchStartY.current === null) return;
-    const dx = e.changedTouches[0].clientX - touchStartX.current;
-    const dy = e.changedTouches[0].clientY - touchStartY.current;
-    // Only swipe horizontally if dominant axis
-    if (Math.abs(dx) > Math.abs(dy) && Math.abs(dx) > 40) {
-      if (dx < 0) next(); else prev();
-    }
-    touchStartX.current = null;
-    touchStartY.current = null;
-  }
-
-  const url = media[idx];
-  return (
-    <div
-      className="border-t border-b border-surface-100 relative select-none overflow-hidden"
-      onTouchStart={onTouchStart}
-      onTouchEnd={onTouchEnd}
-      onClick={onDoubleTap}
-    >
-      {/* Media item */}
-      <div className="relative bg-black">
-        {isVideo(url) ? (
-          <video
-            src={url}
-            className="w-full block max-h-[500px] object-contain"
-            controls
-            playsInline
-            preload="metadata"
-            onClick={(e) => e.stopPropagation()}
-          />
-        ) : (
-          <img
-            src={url}
-            alt={`Media ${idx + 1}`}
-            className="w-full h-auto block max-h-[500px] object-cover"
-            loading="lazy"
-            onClick={(e) => { e.stopPropagation(); onLightbox(url); }}
-          />
-        )}
-
-        {/* Double-tap heart */}
-        {doubleTapHeart === postId && (
-          <div className="absolute inset-0 flex items-center justify-center z-10 pointer-events-none">
-            <svg width="80" height="80" viewBox="0 0 24 24" fill="white" className="drop-shadow-2xl animate-[heart-pop_0.6s_ease-out_forwards]">
-              <path d="M20.84 4.61a5.5 5.5 0 00-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 00-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 000-7.78z"/>
-            </svg>
-          </div>
-        )}
-
-        {/* Counter badge */}
-        <span className="absolute top-2 right-2 px-2 py-0.5 rounded-full bg-black/60 text-white text-[11px] font-bold pointer-events-none">
-          {idx + 1}/{media.length}
-        </span>
-      </div>
-
-      {/* Prev arrow */}
-      {idx > 0 && (
-        <button
-          onClick={(e) => { e.stopPropagation(); prev(); }}
-          className="absolute left-2 top-1/2 -translate-y-1/2 w-8 h-8 rounded-full bg-black/50 hover:bg-black/80 text-white flex items-center justify-center transition-all backdrop-blur-sm z-10"
-          aria-label="Previous"
-        >
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
-        </button>
-      )}
-      {/* Next arrow */}
-      {idx < media.length - 1 && (
-        <button
-          onClick={(e) => { e.stopPropagation(); next(); }}
-          className="absolute right-2 top-1/2 -translate-y-1/2 w-8 h-8 rounded-full bg-black/50 hover:bg-black/80 text-white flex items-center justify-center transition-all backdrop-blur-sm z-10"
-          aria-label="Next"
-        >
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
-        </button>
-      )}
-
-      {/* Dot indicators */}
-      <div className="absolute bottom-2 left-1/2 -translate-x-1/2 flex gap-1.5 pointer-events-none">
-        {media.map((_, mi) => (
-          <span key={mi} className={`rounded-full transition-all ${mi === idx ? "w-4 h-1.5 bg-white" : "w-1.5 h-1.5 bg-white/50"}`} />
-        ))}
-      </div>
-    </div>
-  );
 }
 
 /* ─── Create Post Modal ─── */
@@ -525,7 +421,7 @@ function PetCard({ pet }: { pet: FeedPet }) {
           </div>
           <div>
             <p className="text-sm font-bold text-surface-900 group-hover:text-brand-600 transition-colors">
-              {pet.user.name || "Anonymous"}
+              {formatUserName(pet.user.name)}
             </p>
             <div className="flex items-center gap-1.5 text-xs text-surface-400">
               <span>{petEmoji} Shared their pet</span>
@@ -1162,7 +1058,7 @@ export default function FeedPage() {
                     </div>
                     <div>
                       <p className="text-sm font-bold text-surface-900 group-hover:text-brand-600 transition-colors">
-                        {post.user.name || "Anonymous"}
+                        {formatUserName(post.user.name)}
                       </p>
                       <div className="flex items-center gap-2">
                         <span className="text-[11px] text-surface-400">{timeAgo(post.createdAt)}</span>
@@ -1204,13 +1100,13 @@ export default function FeedPage() {
                     const url = media[0];
                     return (
                       <div
-                        className="border-t border-b border-surface-100 relative cursor-pointer group/img"
+                        className="border-t border-b border-surface-100 relative cursor-pointer group/img bg-black"
                         onClick={() => handleDoubleTap(post)}
                       >
                         {isVideo(url) ? (
                           <video
                             src={url}
-                            className="w-full block max-h-[500px] object-cover"
+                            className="w-full block max-h-[600px] object-contain"
                             controls
                             playsInline
                             preload="metadata"
@@ -1219,7 +1115,7 @@ export default function FeedPage() {
                           <img
                             src={url}
                             alt="Post"
-                            className="w-full h-auto block max-h-[500px] object-cover transition-transform duration-300"
+                            className="w-full block max-h-[600px] object-contain transition-opacity duration-300"
                             loading="lazy"
                           />
                         )}
@@ -1329,7 +1225,7 @@ export default function FeedPage() {
                         <div className="flex-1">
                           <div className="bg-white rounded-2xl px-3 py-2 border border-surface-100">
                             <div className="flex items-baseline gap-2">
-                              <Link href={`/users/${c.user.id}`} className="text-xs font-bold text-surface-800 hover:text-brand-600 transition-colors">{c.user.name || "User"}</Link>
+                              <Link href={`/users/${c.user.id}`} className="text-xs font-bold text-surface-800 hover:text-brand-600 transition-colors">{formatUserName(c.user.name)}</Link>
                               <span className="text-[10px] text-surface-400">{timeAgo(c.createdAt)}</span>
                             </div>
                             <p className="text-xs text-surface-700 mt-0.5 leading-relaxed whitespace-pre-wrap">{c.content}</p>
