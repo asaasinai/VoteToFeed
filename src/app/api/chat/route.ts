@@ -48,6 +48,7 @@ async function getLiveContext(userId?: string) {
     userPets,
     userData,
     recentWinners,
+    pastContests,
   ] = await Promise.all([
     prisma.petWeeklyStats.aggregate({
       where: { weekId },
@@ -85,21 +86,33 @@ async function getLiveContext(userId?: string) {
           select: { freeVotesRemaining: true, paidVoteBalance: true },
         })
       : Promise.resolve(null),
-    // Recent contest winners (last 4 weeks)
+    // Recent contest winners (last 90 days, all placements)
     prisma.prize.findMany({
       where: {
         winnerId: { not: null },
         awardedAt: { not: null },
-        placement: { in: [1, 2, 3] },
-        contest: { endDate: { gte: new Date(now.getTime() - 28 * 24 * 60 * 60 * 1000) } },
+        contest: { endDate: { gte: new Date(now.getTime() - 90 * 24 * 60 * 60 * 1000) } },
       },
       select: {
         placement: true,
         title: true,
-        contest: { select: { name: true, petType: true, endDate: true } },
+        value: true,
+        contest: { select: { id: true, name: true, petType: true, endDate: true, weekId: true, _count: { select: { entries: true } } } },
         winnerId: true,
       },
       orderBy: { contest: { endDate: "desc" } },
+      take: 40,
+    }),
+    // Past completed contests (for deeper analysis)
+    prisma.contest.findMany({
+      where: {
+        endDate: { lt: now, gte: new Date(now.getTime() - 90 * 24 * 60 * 60 * 1000) },
+      },
+      select: {
+        id: true, name: true, petType: true, type: true, endDate: true, weekId: true,
+        _count: { select: { entries: true } },
+      },
+      orderBy: { endDate: "desc" },
       take: 15,
     }),
   ]);
@@ -137,6 +150,17 @@ async function getLiveContext(userId?: string) {
     });
     const petMap = new Map(winnerPets.map((p) => [p.id, p]));
 
+    // Resolve vote counts for winners via PetWeeklyStats (when contest has weekId)
+    const weekIds = [...new Set(recentWinners.map((w) => w.contest.weekId).filter(Boolean))] as string[];
+    const winnerStats = weekIds.length > 0
+      ? await prisma.petWeeklyStats.findMany({
+          where: { petId: { in: winnerPetIds }, weekId: { in: weekIds } },
+          select: { petId: true, weekId: true, totalVotes: true, rank: true },
+        })
+      : [];
+    // key: petId+weekId
+    const statsMap = new Map(winnerStats.map((s) => [`${s.petId}::${s.weekId}`, s]));
+
     // Group by contest
     const contestMap = new Map<string, typeof recentWinners>();
     for (const w of recentWinners) {
@@ -145,14 +169,27 @@ async function getLiveContext(userId?: string) {
       contestMap.get(key)!.push(w);
     }
 
-    lines.push(`\nRecent contest winners:`);
+    lines.push(`\nRecent & past contest winners (last 90 days):`);
     for (const [contestName, winners] of contestMap) {
-      const endStr = new Date(winners[0].contest.endDate).toLocaleDateString("en-US", { month: "short", day: "numeric" });
-      lines.push(`"${contestName}" (ended ${endStr}):`);
+      const endStr = new Date(winners[0].contest.endDate).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+      const entryCount = winners[0].contest._count.entries;
+      lines.push(`"${contestName}" (${winners[0].contest.petType}, ended ${endStr}, ${entryCount} total entries):`);
       for (const w of winners.sort((a, b) => a.placement - b.placement)) {
         const pet = petMap.get(w.winnerId!);
-        lines.push(`  #${w.placement} — ${pet?.name ?? "Unknown"} (${pet?.type ?? "?"})`);
+        const stats = w.contest.weekId ? statsMap.get(`${w.winnerId}::${w.contest.weekId}`) : null;
+        const voteStr = stats ? `, ${stats.totalVotes} votes` : "";
+        const prizeVal = w.value > 0 ? ` — Prize: $${(w.value / 100).toFixed(0)}` : "";
+        lines.push(`  #${w.placement} — ${pet?.name ?? "Unknown"} (${pet?.type ?? "?"})${voteStr}${prizeVal}`);
       }
+    }
+  }
+
+  // Past contests summary (for analysis)
+  if (pastContests.length > 0) {
+    lines.push(`\nPast contest summary (last 90 days):`);
+    for (const c of pastContests) {
+      const endStr = new Date(c.endDate).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+      lines.push(`- "${c.name}" (${c.type}, ${c.petType}, ended ${endStr}) — ${c._count.entries} entries`);
     }
   }
 
@@ -253,8 +290,10 @@ const ESCALATION_PATTERNS = [
 function isEscalationRequest(message: string, aiResponse: string): boolean {
   const combined = message.toLowerCase();
   if (ESCALATION_PATTERNS.some((p) => p.test(combined))) return true;
-  // Also check if the AI itself suggested a ticket and user confirmed
-  if (/\b(yes|ok|sure|yeah|po|aha|please|please do|po te lutem|do)\b/i.test(message) && /ticket|support team|human/i.test(aiResponse)) return true;
+  // Detect when AI offered a ticket ("want me to open a support ticket") and user confirmed
+  const aiOfferedTicket = /open\s*a?\s*support\s*ticket|set\s*it\s*up|support\s*ticket|tiket/i.test(aiResponse);
+  const userConfirmed = /^\s*(yes|po|ok|sure|yeah|aha|yep|please|po te lutem|do|bej|bëj|hap|krijo|create|open)\b/i.test(message);
+  if (aiOfferedTicket && userConfirmed) return true;
   return false;
 }
 

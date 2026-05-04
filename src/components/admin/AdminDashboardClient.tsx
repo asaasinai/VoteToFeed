@@ -77,6 +77,8 @@ type Settings = {
   stripeSecretKey: string;
   stripePublishableKey: string;
   stripeWebhookSecret: string;
+  firstTimeBuyerDiscountEnabled: string;
+  firstTimeBuyerDiscountPct: string;
 };
 
 type Props = {
@@ -852,6 +854,111 @@ export function AdminDashboardClient({
                         : "Stripe not configured — payments disabled. Set keys above or in .env file."
                       }
                     </div>
+                  </div>
+                </div>
+
+                {/* ── First-Time Buyer Discount ── */}
+                <div className="card p-5">
+                  <div className="flex items-center gap-2 mb-4">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-green-500"><path d="M9 14 4 9l5-5"/><path d="m15 10 5 5-5 5"/><line x1="4" y1="9" x2="20" y2="9"/><line x1="4" y1="15" x2="20" y2="15"/></svg>
+                    <h3 className="text-sm font-semibold text-surface-900">First-Time Buyer Discount</h3>
+                  </div>
+                  <p className="text-xs text-surface-400 mb-4">
+                    Automatically apply a percentage discount for users buying their first vote package. Changes take effect immediately for all new checkouts.
+                  </p>
+
+                  <div className="space-y-4">
+                    {/* Toggle */}
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <p className="text-sm font-medium text-surface-700">Enable discount</p>
+                        <p className="text-xs text-surface-400">When off, all users pay full price</p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const next = settings.firstTimeBuyerDiscountEnabled === "true" ? "false" : "true";
+                          setSettings({ ...settings, firstTimeBuyerDiscountEnabled: next });
+                          saveSetting("first_time_buyer_discount_enabled", next);
+                        }}
+                        disabled={saving}
+                        className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none ${
+                          settings.firstTimeBuyerDiscountEnabled === "true" ? "bg-accent-500" : "bg-surface-300"
+                        }`}
+                      >
+                        <span className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform ${
+                          settings.firstTimeBuyerDiscountEnabled === "true" ? "translate-x-6" : "translate-x-1"
+                        }`} />
+                      </button>
+                    </div>
+
+                    {/* Percentage input */}
+                    <div>
+                      <label className="block text-xs font-medium text-surface-600 mb-1">
+                        Discount percentage <span className="text-surface-400 font-normal">(1–99)</span>
+                      </label>
+                      <div className="flex items-center gap-2">
+                        <input
+                          type="number"
+                          min="1"
+                          max="99"
+                          value={settings.firstTimeBuyerDiscountPct}
+                          onChange={(e) => setSettings({ ...settings, firstTimeBuyerDiscountPct: e.target.value })}
+                          onBlur={() => {
+                            const pct = Math.max(1, Math.min(99, parseInt(settings.firstTimeBuyerDiscountPct) || 20));
+                            setSettings({ ...settings, firstTimeBuyerDiscountPct: pct.toString() });
+                            saveSetting("first_time_buyer_discount_pct", pct.toString());
+                          }}
+                          className="input-field w-24"
+                          disabled={saving || settings.firstTimeBuyerDiscountEnabled !== "true"}
+                        />
+                        <span className="text-sm text-surface-500 font-medium">%</span>
+                      </div>
+                    </div>
+
+                    {/* Live preview */}
+                    {settings.firstTimeBuyerDiscountEnabled === "true" && (
+                      <div className="p-3 rounded-lg bg-green-50 border border-green-200/60 text-[11px] text-green-800 space-y-1.5">
+                        <p className="font-semibold">Live discount preview ({settings.firstTimeBuyerDiscountPct}% off for first-time buyers):</p>
+                        <table className="w-full text-left mt-1">
+                          <thead>
+                            <tr className="text-[10px] uppercase text-green-600/70">
+                              <th className="py-1">Package</th>
+                              <th className="py-1">Full price</th>
+                              <th className="py-1">First-time price</th>
+                              <th className="py-1">Savings</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {[
+                              { label: "Starter", price: 0.99 },
+                              { label: "Friend", price: 4.99 },
+                              { label: "Champion", price: 24.99 },
+                              { label: "Hero", price: 99 },
+                              { label: "Legend", price: 249 },
+                              { label: "Icon", price: 499 },
+                            ].map((pkg) => {
+                              const pct = parseInt(settings.firstTimeBuyerDiscountPct) || 20;
+                              const discountedPrice = pkg.price * (1 - pct / 100);
+                              return (
+                                <tr key={pkg.label} className="border-t border-green-200/40">
+                                  <td className="py-1 font-medium">{pkg.label}</td>
+                                  <td className="py-1 line-through text-green-600/60">${pkg.price.toFixed(2)}</td>
+                                  <td className="py-1 font-semibold text-green-700">${discountedPrice.toFixed(2)}</td>
+                                  <td className="py-1 text-green-600">-${(pkg.price - discountedPrice).toFixed(2)}</td>
+                                </tr>
+                              );
+                            })}
+                          </tbody>
+                        </table>
+                      </div>
+                    )}
+
+                    {settings.firstTimeBuyerDiscountEnabled !== "true" && (
+                      <div className="p-3 rounded-lg bg-surface-50 border border-surface-200 text-xs text-surface-500">
+                        Discount is currently <strong>disabled</strong>. All users pay the standard price.
+                      </div>
+                    )}
                   </div>
                 </div>
               </div>
@@ -1701,6 +1808,7 @@ function AdminUsersTab({ totalUsers }: { totalUsers: number }) {
 type RevenuePurchase = {
   id: string; tier: string; votes: number; amount: number; meals: number;
   userName: string | null; userEmail: string | null; createdAt: string;
+  isFirstTimeBuyer?: boolean; originalAmount?: number; discountPct?: number;
 };
 type RevenueSummary = { totalRevenue: number; totalVotesSold: number; totalMeals: number; totalPurchases: number; avgOrder: number };
 type TierBreakdown = { tier: string; revenue: number; votes: number; count: number };
@@ -1852,10 +1960,24 @@ function AdminRevenueTab({ animalType }: { animalType: string }) {
                       <p className="text-[11px] text-surface-400">{p.userEmail}</p>
                     </td>
                     <td className="px-5 py-3">
-                      <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-brand-50 text-brand-600">{p.tier}</span>
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-brand-50 text-brand-600">{p.tier}</span>
+                        {p.isFirstTimeBuyer && (
+                          <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-green-100 text-green-700">🎉 {p.discountPct}% OFF</span>
+                        )}
+                      </div>
                     </td>
                     <td className="px-5 py-3 text-right font-medium text-surface-800">{p.votes}</td>
-                    <td className="px-5 py-3 text-right font-semibold text-surface-900">${(p.amount / 100).toFixed(2)}</td>
+                    <td className="px-5 py-3 text-right">
+                      {p.isFirstTimeBuyer && p.originalAmount ? (
+                        <div>
+                          <span className="text-[11px] text-surface-400 line-through block">${(p.originalAmount / 100).toFixed(2)}</span>
+                          <span className="font-semibold text-green-600">${(p.amount / 100).toFixed(2)}</span>
+                        </div>
+                      ) : (
+                        <span className="font-semibold text-surface-900">${(p.amount / 100).toFixed(2)}</span>
+                      )}
+                    </td>
                     <td className="px-5 py-3 text-right text-accent-600">~{Math.round(p.meals)} {animalType}</td>
                     <td className="px-5 py-3 text-right text-surface-400 text-xs">{new Date(p.createdAt).toLocaleDateString()}</td>
                   </tr>
