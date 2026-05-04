@@ -135,7 +135,11 @@ export async function POST(req: NextRequest) {
       }),
     ]);
 
-    if (recentVotesFromIP + recentAnonymousVotesFromIP > 200) {
+    // Paid votes are not rate-limited (user already paid).
+    // Anonymous/free votes: 500/hour per IP to block bot spam.
+    const isPaidRequest = session?.user && quantity > 1;
+    const abuseLimit = isPaidRequest ? 10_000 : 500;
+    if (recentVotesFromIP + recentAnonymousVotesFromIP > abuseLimit) {
       return NextResponse.json(
         { error: "Rate limit exceeded. Try again later." },
         { status: 429 }

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback, useEffect, useMemo } from "react";
+import { useState, useCallback, useEffect, useMemo, useRef } from "react";
 import { useSession } from "next-auth/react";
 import Link from "next/link";
 import { getCreativeSource, trackVoteCastEvent, trackVoteToFeedEvent } from "@/lib/meta-pixel";
@@ -42,6 +42,7 @@ export function VoteButton({
   const { status } = useSession();
   const [loading, setLoading] = useState(false);
   const [voteCount, setVoteCount] = useState(initialWeeklyVotes);
+  const [rankState, setRankState] = useState<number | null>(weeklyRank ?? null);
   const [freeVotes, setFreeVotes] = useState(initialFree);
   const [paidVotes, setPaidVotes] = useState(initialPaid);
   const [showPurchase, setShowPurchase] = useState(!initialFree && !initialPaid);
@@ -51,6 +52,66 @@ export function VoteButton({
   const [impactVoteCount, setImpactVoteCount] = useState(0);
   const [navigatingPkg, setNavigatingPkg] = useState<string | null>(null);
   const noVotesLeft = freeVotes === 0 && paidVotes === 0;
+
+  const [rankUpMsg, setRankUpMsg] = useState<string | null>(null);
+  const [showConfetti, setShowConfetti] = useState(false);
+  const [milestoneMsg, setMilestoneMsg] = useState<string | null>(null);
+  const [recentVoters, setRecentVoters] = useState<{ name: string; secsAgo: number }[]>([]);
+  const [gapToFirst, setGapToFirst] = useState<{ gap: number; leader: string } | null>(null);
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const prevRankRef = useRef<number | null>(weeklyRank ?? null);
+  const prevVotesRef = useRef(initialWeeklyVotes);
+  const MILESTONES = [50, 100, 250, 500, 1000, 2500, 5000];
+
+  // Live SSE — update votes, rank, gap & recent voters in real time
+  useEffect(() => {
+    const es = new EventSource(`/api/pets/${petId}/live`);
+    es.onmessage = (e) => {
+      try {
+        const data = JSON.parse(e.data) as {
+          votes: number;
+          rank: number | null;
+          gap: number;
+          leader: string | null;
+          recentVoters?: { name: string; secsAgo: number }[];
+        };
+        setVoteCount((prev) => (data.votes !== prev ? data.votes : prev));
+        setRankState((prev) => (data.rank !== prev ? data.rank : prev));
+
+        // Rank-up celebration
+        const prevR = prevRankRef.current;
+        if (data.rank !== null && prevR !== null && data.rank < prevR) {
+          setRankUpMsg(`🎉 You're now #${data.rank}!`);
+          setShowConfetti(true);
+          setTimeout(() => { setRankUpMsg(null); setShowConfetti(false); }, 4000);
+        }
+        prevRankRef.current = data.rank;
+
+        // Milestone detection
+        const prevV = prevVotesRef.current;
+        for (const m of MILESTONES) {
+          if (prevV < m && data.votes >= m) {
+            setMilestoneMsg(`🎊 ${m.toLocaleString()} votes! That's ${m.toLocaleString()} meals for shelter ${animalType}!`);
+            setTimeout(() => setMilestoneMsg(null), 6000);
+            break;
+          }
+        }
+        prevVotesRef.current = data.votes;
+
+        // Gap to #1
+        if (data.gap !== undefined && data.leader) {
+          setGapToFirst({ gap: data.gap, leader: data.leader });
+        } else {
+          setGapToFirst(null);
+        }
+
+        // Recent voters
+        if (data.recentVoters?.length) setRecentVoters(data.recentVoters);
+      } catch { /* ignore */ }
+    };
+    return () => es.close();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [petId]);
 
   useEffect(() => {
     if (status === "loading") return;
@@ -186,18 +247,46 @@ export function VoteButton({
           setFreeVotes(data.remainingAnonymousVotes);
           setPaidVotes(0);
         }
-        alert(data.error || "Vote failed");
+        const msg = data.error || "Vote failed";
+        setErrorMsg(msg);
+        setTimeout(() => setErrorMsg(null), 4000);
       }
     } catch {
-      alert("Something went wrong");
+      setErrorMsg("Something went wrong. Please try again.");
+      setTimeout(() => setErrorMsg(null), 4000);
     } finally {
       setLoading(false);
     }
   }, [freeVotes, hasVotes, paidVotes, petId, petType, status, voteCount]);
 
   return (
-    <div className="space-y-3">
-      <VoteStats voteCount={voteCount} animalType={animalType} weeklyRank={weeklyRank} petType={petType} animating={animating} contestEndDate={contestEndDate} contestName={contestName} votesNeededForTop3={votesNeededForTop3} />
+    <div className="space-y-3 relative">
+      {/* Confetti burst */}
+      {showConfetti && <ConfettiBurst />}
+
+      {/* Error toast */}
+      {errorMsg && (
+        <div className="flex items-center gap-2 py-2 px-3 rounded-xl bg-red-50 border border-red-200 text-red-700 text-sm font-medium animate-slide-up">
+          <span>⚠️</span>
+          {errorMsg}
+        </div>
+      )}
+
+      {/* Rank-up banner */}
+      {rankUpMsg && (
+        <div className="text-center py-2 px-3 rounded-xl bg-gradient-to-r from-yellow-400 to-amber-400 text-white font-bold text-sm shadow animate-slide-up">
+          {rankUpMsg}
+        </div>
+      )}
+
+      {/* Milestone pop-up */}
+      {milestoneMsg && (
+        <div className="text-center py-2 px-3 rounded-xl bg-gradient-to-r from-brand-500 to-brand-600 text-white font-bold text-sm shadow animate-slide-up">
+          {milestoneMsg}
+        </div>
+      )}
+
+      <VoteStats voteCount={voteCount} animalType={animalType} weeklyRank={rankState} petType={petType} animating={animating} contestEndDate={contestEndDate} contestName={contestName} votesNeededForTop3={votesNeededForTop3} gapToFirst={gapToFirst} />
 
       <button
         onClick={handleVote}
@@ -339,6 +428,7 @@ function VoteStats({
   contestEndDate,
   contestName,
   votesNeededForTop3,
+  gapToFirst,
 }: {
   voteCount: number;
   animalType: string;
@@ -348,6 +438,7 @@ function VoteStats({
   contestEndDate?: string | null;
   contestName?: string | null;
   votesNeededForTop3?: number | null;
+  gapToFirst?: { gap: number; leader: string } | null;
 }) {
   const rankSuffix = (n: number) => {
     const s = ["th", "st", "nd", "rd"];
@@ -439,6 +530,27 @@ function VoteStats({
         </p>
       </div>
 
+      {/* Gap to #1 bar */}
+      {gapToFirst && gapToFirst.gap > 0 && weeklyRank !== 1 && (
+        <div className="mt-3 pt-3 border-t border-surface-100 space-y-1.5">
+          <div className="flex items-center justify-between">
+            <p className="text-[11px] font-bold text-surface-600">⚡ Chase the Leader</p>
+            <p className="text-[11px] font-bold text-brand-600">
+              {gapToFirst.gap.toLocaleString()} vote{gapToFirst.gap !== 1 ? "s" : ""} behind {gapToFirst.leader}
+            </p>
+          </div>
+          <div className="relative h-2.5 rounded-full bg-surface-100 overflow-hidden">
+            <div
+              className="absolute inset-y-0 left-0 rounded-full bg-gradient-to-r from-brand-400 to-brand-500 transition-all duration-700"
+              style={{ width: `${Math.max(5, Math.min(95, (voteCount / (voteCount + gapToFirst.gap)) * 100))}%` }}
+            />
+            <div className="absolute inset-y-0 right-0 w-4 flex items-center justify-center">
+              <span className="text-[8px]">🥇</span>
+            </div>
+          </div>
+        </div>
+      )}
+
     </div>
   );
 }
@@ -448,5 +560,34 @@ function HeartIcon() {
     <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
       <path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z" />
     </svg>
+  );
+}
+
+function ConfettiBurst() {
+  const colors = ["#f59e0b", "#10b981", "#3b82f6", "#ec4899", "#f97316", "#8b5cf6"];
+  const pieces = Array.from({ length: 18 }, (_, i) => ({
+    id: i,
+    color: colors[i % colors.length],
+    left: `${5 + Math.floor((i / 18) * 90)}%`,
+    delay: `${(i * 0.08).toFixed(2)}s`,
+    size: i % 3 === 0 ? 10 : 7,
+  }));
+  return (
+    <div className="absolute inset-0 overflow-hidden pointer-events-none z-10">
+      {pieces.map((p) => (
+        <div
+          key={p.id}
+          className="absolute animate-confetti-fall rounded-sm"
+          style={{
+            left: p.left,
+            top: "-8px",
+            width: p.size,
+            height: p.size,
+            backgroundColor: p.color,
+            animationDelay: p.delay,
+          }}
+        />
+      ))}
+    </div>
   );
 }
