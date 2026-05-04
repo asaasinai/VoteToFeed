@@ -111,6 +111,8 @@ export default async function AdminPage() {
         stripeSecretKey: settingsMap.stripe_secret_key ?? "",
         stripePublishableKey: settingsMap.stripe_publishable_key ?? "",
         stripeWebhookSecret: settingsMap.stripe_webhook_secret ?? "",
+        firstTimeBuyerDiscountEnabled: settingsMap.first_time_buyer_discount_enabled ?? "true",
+        firstTimeBuyerDiscountPct: settingsMap.first_time_buyer_discount_pct ?? "20",
       }}
       settingLogs={settingLogs.map((l) => ({
         key: l.setting.key,

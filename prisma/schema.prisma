@@ -254,6 +254,9 @@ model Purchase {
   status          PaymentStatus @default(PENDING)
   mealsProvided   Float         @default(0)
   mealRateAtPurchase Float      @default(10.0)
+  isFirstTimeBuyer Boolean      @default(false)
+  originalAmount  Int           @default(0)  // full price before discount (cents), 0 = no discount
+  discountPct     Int           @default(0)  // e.g. 20 means 20% off
   createdAt       DateTime      @default(now())
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)

@@ -11,7 +11,7 @@ import { authOptions } from "@/lib/auth";
 import { DashboardClient } from "@/components/dashboard/DashboardClient";
 import prisma from "@/lib/prisma";
 import { getCurrentWeekId } from "@/lib/utils";
-import { getMealRate, getAnimalType } from "@/lib/admin-settings";
+import { getMealRate, getAnimalType, getFirstTimeBuyerDiscount } from "@/lib/admin-settings";
 import { getStripeAsync } from "@/lib/stripe";
 
 export default async function DashboardPage({ searchParams }: DashboardPageProps) {
@@ -65,7 +65,7 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
     }
   }
 
-  const [user, mealRate, animalType] = await Promise.all([
+  const [user, mealRate, animalType, discountConfig] = await Promise.all([
     prisma.user.findUnique({
       where: { id: userId },
       select: {
@@ -99,9 +99,12 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
     }),
     getMealRate(),
     getAnimalType(),
+    getFirstTimeBuyerDiscount(),
   ]);
 
   if (!user) redirect("/auth/signin");
+
+  const isFirstTimeBuyer = user.purchases.length === 0;
 
   const [lifetimeAgg, totalVotesCast] = await Promise.all([
     prisma.purchase.aggregate({
@@ -148,6 +151,9 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
         quantity: v.quantity,
         createdAt: v.createdAt.toISOString(),
       }))}
+      isFirstTimeBuyer={isFirstTimeBuyer}
+      discountEnabled={discountConfig.enabled}
+      discountPct={discountConfig.pct}
       purchaseStatus={searchParams?.purchase === "success" || searchParams?.purchase === "cancelled"
         ? searchParams.purchase
         : null}
