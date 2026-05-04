@@ -100,8 +100,8 @@ export function PetCard({
   }, []);
 
   return (
-    <Link href={`/pets/${id}`} className="card card-hover group block overflow-hidden">
-      <div className="aspect-[4/5] relative bg-surface-100 overflow-hidden">
+    <Link href={`/pets/${id}`} className="group block overflow-hidden rounded-2xl relative shadow-sm hover:shadow-xl transition-all duration-300 hover:-translate-y-0.5">
+      <div className="aspect-[4/5] relative bg-surface-100 overflow-hidden rounded-2xl">
         {/* Loading skeleton */}
         {imageSrc && !imgLoaded && !showPlaceholder && (
           <div className="absolute inset-0 bg-surface-200 animate-pulse" />
@@ -129,77 +129,69 @@ export function PetCard({
             }}
             onError={() => {
               if (hasPhoto && !imgError) {
-                // Original photo failed — try fallback
                 setImgError(true);
               } else {
-                // Fallback also failed — show placeholder
                 setFallbackError(true);
               }
             }}
           />
         ) : null}
 
-        {/* Placeholder for missing or broken photo (only when fallback also fails) */}
+        {/* Placeholder */}
         {showPlaceholder && (
-          <div
-            className={cn(
-              "w-full h-full flex flex-col items-center justify-center transition-opacity group-hover:opacity-80",
-              placeholderColor
-            )}
-          >
-            <span className="text-4xl font-bold text-white opacity-80 mb-2">
-              {initials}
-            </span>
-            <span className="text-xs font-medium text-white opacity-70">
-              Photo Pending
-            </span>
+          <div className={cn("w-full h-full flex flex-col items-center justify-center", placeholderColor)}>
+            <span className="text-4xl font-bold text-white opacity-80 mb-2">{initials}</span>
+            <span className="text-xs font-medium text-white opacity-70">Photo Pending</span>
           </div>
         )}
 
-        {/* Gradient overlay at bottom */}
-        <div className="absolute inset-x-0 bottom-0 h-24 bg-gradient-to-t from-black/50 to-transparent" />
+        {/* Strong gradient overlay */}
+        <div className="absolute inset-x-0 bottom-0 h-32 bg-gradient-to-t from-black/80 via-black/30 to-transparent" />
 
-        {/* Badges */}
-        <div className="absolute top-3 left-3 flex gap-1.5">
-          {isNew && <span className="badge-new text-[11px]">New</span>}
-          {showPlaceholder && (
-            <span className="badge-new text-[11px] bg-amber-500">No Photo</span>
-          )}
-        </div>
-
-        {weeklyRank != null && weeklyRank <= 3 && (
-          <div
-            className={cn(
-              "absolute top-3 right-3 w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold shadow-md",
-              weeklyRank === 1 && "bg-red-500 text-white",
-              weeklyRank === 2 && "bg-surface-200 text-surface-700",
-              weeklyRank === 3 && "bg-red-200 text-red-800"
-            )}
-          >
-            {weeklyRank}
+        {/* Top-left: New badge */}
+        {isNew && (
+          <div className="absolute top-2.5 left-2.5">
+            <span className="badge-new text-[10px] px-2 py-0.5">New</span>
           </div>
         )}
 
-        {/* Vote count overlay */}
-        <div className="absolute bottom-3 left-3 right-3 flex items-end justify-between">
-          <div>
-            <h3 className="font-bold text-white text-base leading-tight drop-shadow-sm">{name}</h3>
-            <p className="text-white/70 text-xs mt-0.5">{ownerName}{state ? ` · ${state}` : ""}</p>
+        {/* Top-right: Rank badge for ALL positions */}
+        {weeklyRank != null && (
+          <div className={cn(
+            "absolute top-2.5 right-2.5 min-w-[28px] h-7 px-1.5 rounded-full flex items-center justify-center text-xs font-extrabold shadow-md border-2 border-white/80",
+            weeklyRank === 1 && "bg-gradient-to-br from-yellow-400 to-amber-500 text-yellow-900 shadow-amber-300/60 shadow-lg",
+            weeklyRank === 2 && "bg-gradient-to-br from-slate-300 to-slate-400 text-slate-800",
+            weeklyRank === 3 && "bg-gradient-to-br from-orange-300 to-amber-400 text-orange-900",
+            weeklyRank > 3 && "bg-black/50 backdrop-blur-sm text-white border-white/30",
+          )}>
+            {weeklyRank === 1 ? "🥇" : weeklyRank === 2 ? "🥈" : weeklyRank === 3 ? "🥉" : `#${weeklyRank}`}
           </div>
-          <div className="flex items-center gap-1.5 bg-white/90 backdrop-blur-sm rounded-full px-2.5 py-1 shadow-sm">
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" className="text-brand-500">
-              <path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z" fill="currentColor"/>
-            </svg>
-            <span className="text-sm font-bold text-surface-900">{formatVotes(weeklyVotes)}</span>
+        )}
+
+        {/* Bottom info overlay */}
+        <div className="absolute bottom-0 inset-x-0 px-3 pb-3 pt-6">
+          <div className="flex items-end justify-between gap-2">
+            <div className="min-w-0">
+              <h3 className="font-extrabold text-white text-sm leading-tight drop-shadow truncate">{name}</h3>
+              <p className="text-white/60 text-[11px] mt-0.5 truncate">{ownerName}{state ? ` · ${state}` : ""}</p>
+            </div>
+            <div className={cn(
+              "shrink-0 flex items-center gap-1 rounded-full px-2.5 py-1 shadow-sm text-sm font-bold",
+              weeklyVotes > 0 ? "bg-white/95 text-surface-900" : "bg-white/40 text-white"
+            )}>
+              <svg width="11" height="11" viewBox="0 0 24 24" fill="none" className={weeklyVotes > 0 ? "text-brand-500" : "text-white/80"}>
+                <path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z" fill="currentColor"/>
+              </svg>
+              <span>{formatVotes(weeklyVotes)}</span>
+            </div>
           </div>
         </div>
+
+        {/* Gold glow ring for #1 */}
+        {weeklyRank === 1 && (
+          <div className="absolute inset-0 rounded-2xl ring-2 ring-yellow-400/60 pointer-events-none" />
+        )}
       </div>
-
-      {weeklyRank != null && weeklyRank > 3 && (
-        <div className="px-4 py-2.5 border-t border-surface-100">
-          <span className="text-xs font-medium text-surface-700">{rankSuffix(weeklyRank)} this week</span>
-        </div>
-      )}
     </Link>
   );
 }
