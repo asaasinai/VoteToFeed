@@ -11,7 +11,7 @@ import { authOptions } from "@/lib/auth";
 import { DashboardClient } from "@/components/dashboard/DashboardClient";
 import prisma from "@/lib/prisma";
 import { getCurrentWeekId } from "@/lib/utils";
-import { getMealRate, getAnimalType } from "@/lib/admin-settings";
+import { getMealRate, getAnimalType, getFirstTimeBuyerDiscount } from "@/lib/admin-settings";
 import { getStripeAsync } from "@/lib/stripe";
 
 /**
@@ -158,6 +158,7 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
         quantity: v.quantity,
         createdAt: v.createdAt.toISOString(),
       }))}
+      isFirstTimeBuyer={isFirstTimeBuyer}
       purchaseStatus={searchParams?.purchase === "success" || searchParams?.purchase === "cancelled"
         ? searchParams.purchase
         : null}

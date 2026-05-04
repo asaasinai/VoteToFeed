@@ -6,6 +6,9 @@ import prisma from "@/lib/prisma";
 import { PetCard } from "@/components/pets/PetCard";
 import { StorytellerEntry } from "@/components/contests/StorytellerEntry";
 import { EntriesPaginator } from "@/components/contests/EntriesPaginator";
+import { ContestCountdown } from "@/components/contests/ContestCountdown";
+import { ContestLiveBattle } from "@/components/contests/ContestLiveBattle";
+import { ContestEntriesLive } from "@/components/contests/ContestEntriesLive";
 import { getAnimalType } from "@/lib/admin-settings";
 import { formatDisplayName } from "@/lib/utils";
 
@@ -120,6 +123,7 @@ export default async function ContestDetailPage({
   const totalEntries = sortedEntries.length;
 
   // Compute votes-needed-to-reach-next-rank for each owned pet (helps pitch buying votes)
+  // Also compute who is chasing #1 (reverse gap)
   const myEntriesWithGap = myEntries.map(({ entry, rank, votes }) => {
     let gap = 0;
     let nextPetName: string | null = null;
@@ -129,7 +133,39 @@ export default async function ContestDetailPage({
       gap = Math.max(1, aheadVotes - votes + 1);
       nextPetName = ahead.pet.name;
     }
-    return { entry, rank, votes, gap, nextPetName };
+
+    // Reverse: who is chasing this pet from below?
+    let chaserGap = 0;
+    let chaserName: string | null = null;
+    if (rank <= sortedEntries.length - 1) {
+      const below = sortedEntries[rank]; // 0-indexed: pet immediately below
+      const belowVotes = votesByPet.get(below.petId) ?? 0;
+      chaserGap = Math.max(1, votes - belowVotes);
+      chaserName = below.pet.name;
+    }
+
+    // Smart package recommendation based on gap to beat
+    const PACKAGES = [
+      { tier: "STARTER", votes: 5, price: 99, label: "Starter" },
+      { tier: "FRIEND", votes: 30, price: 499, label: "Friend" },
+      { tier: "CHAMPION", votes: 150, price: 2499, label: "Champion" },
+      { tier: "HERO", votes: 750, price: 9900, label: "Hero" },
+      { tier: "LEGEND", votes: 2500, price: 24900, label: "Legend" },
+      { tier: "ICON", votes: 6000, price: 49900, label: "Icon" },
+    ];
+    const targetGap = rank === 1 ? Math.max(50, chaserGap * 3) : gap;
+    const recommended = PACKAGES.find((p) => p.votes >= targetGap) ?? PACKAGES[PACKAGES.length - 1];
+
+    // What rank would the user be at with recommended package?
+    const projectedVotes = votes + recommended.votes;
+    let projectedRank = rank;
+    for (let i = rank - 2; i >= 0; i--) {
+      const theirVotes = votesByPet.get(sortedEntries[i].petId) ?? 0;
+      if (projectedVotes > theirVotes) projectedRank = i + 1;
+      else break;
+    }
+
+    return { entry, rank, votes, gap, nextPetName, chaserGap, chaserName, recommended, projectedRank };
   });
 
   function typeLabel(type: string) {
@@ -190,7 +226,16 @@ export default async function ContestDetailPage({
           </div>
           <div className="card p-4 text-center">
             <p className="text-xs font-medium text-surface-400 uppercase">{hasEnded ? "Duration" : "Time Left"}</p>
-            <p className="text-2xl font-bold text-surface-900 mt-1">{hasEnded ? "Ended" : `${daysLeft}d`}</p>
+            <div className="mt-1">
+              {hasEnded ? (
+                <p className="text-2xl font-bold text-surface-900">Ended</p>
+              ) : (
+                <ContestCountdown endDate={contest.endDate.toISOString()} />
+              )}
+            </div>
+            {!hasEnded && daysLeft <= 2 && (
+              <p className="text-[10px] text-red-500 font-semibold mt-0.5 animate-pulse">⚡ Ending soon!</p>
+            )}
           </div>
           <div className="card p-4 text-center">
             <p className="text-xs font-medium text-surface-400 uppercase">Prize Pack Value</p>
@@ -231,7 +276,7 @@ export default async function ContestDetailPage({
 
                 {/* Cards */}
                 <div className="bg-white p-3 sm:p-4 space-y-3">
-                  {myEntriesWithGap.map(({ entry, rank, votes, gap, nextPetName }) => {
+                  {myEntriesWithGap.map(({ entry, rank, votes, gap, nextPetName, chaserGap, chaserName, recommended, projectedRank }) => {
                     const photo = entry.pet.photos?.[0];
                     const placement =
                       rank === 1 ? "🥇 #1" : rank === 2 ? "🥈 #2" : rank === 3 ? "🥉 #3" : `#${rank}`;
@@ -327,6 +372,68 @@ export default async function ContestDetailPage({
                           {pitch}
                         </div>
 
+                        {/* Vote gap progress bar */}
+                        {rank > 1 && gap > 0 && (() => {
+                          const aheadVotes = votes + gap;
+                          const pct = Math.min(99, Math.round((votes / aheadVotes) * 100));
+                          return (
+                            <div className="mx-3 sm:mx-4 mt-2 mb-1">
+                              <div className="flex justify-between text-[10px] text-surface-500 mb-1">
+                                <span>Your votes: <strong className="text-surface-800">{votes.toLocaleString()}</strong></span>
+                                <span>Need <strong className="text-brand-600">+{gap.toLocaleString()}</strong> to beat {nextPetName ?? `#${rank - 1}`}</span>
+                              </div>
+                              <div className="h-2 rounded-full bg-surface-100 overflow-hidden">
+                                <div
+                                  className="h-full rounded-full bg-gradient-to-r from-brand-400 to-brand-600 transition-all"
+                                  style={{ width: `${pct}%` }}
+                                />
+                              </div>
+                            </div>
+                          );
+                        })()}
+
+                        {/* Danger alert: who is chasing you */}
+                        {rank === 1 && chaserName && chaserGap <= 20 && (
+                          <div className="mx-3 sm:mx-4 mt-2 flex items-center gap-2 px-3 py-2 rounded-xl bg-red-50 border border-red-200 text-xs text-red-700 font-semibold animate-pulse">
+                            <span className="text-base">⚠️</span>
+                            <span><strong>{chaserName}</strong> is only <strong>{chaserGap} {chaserGap === 1 ? "vote" : "votes"}</strong> behind — defend your lead NOW!</span>
+                          </div>
+                        )}
+                        {rank === 1 && chaserName && chaserGap > 20 && chaserGap <= 80 && (
+                          <div className="mx-3 sm:mx-4 mt-2 flex items-center gap-2 px-3 py-2 rounded-xl bg-amber-50 border border-amber-200 text-xs text-amber-700 font-semibold">
+                            <span className="text-base">👀</span>
+                            <span><strong>{chaserName}</strong> is <strong>{chaserGap} votes</strong> behind — keep your lead while you can!</span>
+                          </div>
+                        )}
+
+                        {/* Smart package recommendation */}
+                        {!hasEnded && (
+                          <div className="mx-3 sm:mx-4 mt-3 rounded-xl border border-brand-200 bg-brand-50 p-3">
+                            <p className="text-[11px] font-bold uppercase tracking-widest text-brand-500 mb-2">
+                              {rank === 1 ? "🛡️ Recommended to stay #1" : `🎯 Recommended to reach #${projectedRank < rank ? projectedRank : rank - 1}`}
+                            </p>
+                            <div className="flex items-center justify-between gap-3">
+                              <div>
+                                <p className="text-sm font-extrabold text-surface-900">{recommended.label} Pack</p>
+                                <p className="text-xs text-surface-500"><span className="font-bold text-brand-600">{recommended.votes} votes</span> · ${(recommended.price / 100).toFixed(2)}</p>
+                                {projectedRank < rank && (
+                                  <p className="text-[11px] text-emerald-600 font-semibold mt-0.5">📈 Puts you at rank #{projectedRank}</p>
+                                )}
+                                {rank === 1 && (
+                                  <p className="text-[11px] text-emerald-600 font-semibold mt-0.5">📈 Extends your lead by {recommended.votes} votes</p>
+                                )}
+                              </div>
+                              <Link
+                                href={`/dashboard#votes`}
+                                className="shrink-0 inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-brand-500 hover:bg-brand-600 text-white text-xs font-bold transition-colors shadow-sm"
+                              >
+                                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>
+                                Get it
+                              </Link>
+                            </div>
+                          </div>
+                        )}
+
                         {/* Action row: Buy Votes (primary) + Share */}
                         {!hasEnded && (
                           <div className="p-3 sm:p-4 pt-3 flex items-center gap-2 flex-wrap">
@@ -381,9 +488,23 @@ export default async function ContestDetailPage({
               </div>
             )}
 
+            {/* Top 3 Battle section — live polling client component */}
+            {sortedEntries.length >= 2 && !hasEnded && (
+              <ContestLiveBattle
+                contestId={contest.id}
+                initialEntries={sortedEntries.slice(0, 5).map((e) => ({
+                  id: e.pet.id,
+                  name: e.pet.name,
+                  photos: e.pet.photos,
+                  type: e.pet.type,
+                  votes: votesByPet.get(e.petId) ?? 0,
+                }))}
+                pollInterval={8000}
+              />
+            )}
+
             <div className="flex items-center justify-between mb-4">
-              <h2 className="section-title">Contestants ({sortedEntries.length})</h2>
-              {!hasEnded && (
+              <h2 className="section-title">Contestants ({sortedEntries.length})</h2>              {!hasEnded && (
                 <Link href="/pets/new" className="btn-primary text-sm px-4 py-2">
                   Enter your pet
                 </Link>
@@ -391,29 +512,31 @@ export default async function ContestDetailPage({
             </div>
 
             {sortedEntries.length > 0 ? (
-              <EntriesPaginator initialCount={60} step={60}>
-                {sortedEntries.map((entry, i) => (
-                  <div key={entry.pet.id} className="flex flex-col gap-2">
-                    <PetCard
-                      id={entry.pet.id}
-                      name={entry.pet.name}
-                      ownerName={formatDisplayName(entry.pet.ownerFirstName, entry.pet.ownerLastName, entry.pet.ownerName)}
-                      state={entry.pet.state}
-                      photos={entry.pet.photos}
-                      type={entry.pet.type}
-                      weeklyVotes={votesByPet.get(entry.petId) ?? 0}
-                      weeklyRank={i + 1}
-                      isNew={Date.now() - new Date(entry.pet.createdAt).getTime() < 7 * 24 * 60 * 60 * 1000}
-                      animalType={animalType}
-                    />
-                    <StorytellerEntry
-                      story={entry.story ?? null}
-                      bio={entry.pet.bio ?? null}
-                      isStoryteller={contest.isStoryteller}
-                    />
-                  </div>
-                ))}
-              </EntriesPaginator>
+              <ContestEntriesLive
+                contestId={contest.id}
+                initialEntries={sortedEntries.map((e) => ({
+                  petId: e.petId,
+                  story: e.story ?? null,
+                  pet: {
+                    id: e.pet.id,
+                    name: e.pet.name,
+                    photos: e.pet.photos,
+                    type: e.pet.type,
+                    ownerFirstName: e.pet.ownerFirstName ?? null,
+                    ownerLastName: e.pet.ownerLastName ?? null,
+                    ownerName: e.pet.ownerName ?? null,
+                    state: e.pet.state ?? null,
+                    createdAt: e.pet.createdAt.toISOString(),
+                    bio: e.pet.bio ?? null,
+                  },
+                }))}
+                initialVotes={Object.fromEntries(
+                  sortedEntries.map((e) => [e.pet.id, votesByPet.get(e.petId) ?? 0])
+                )}
+                isStoryteller={contest.isStoryteller}
+                animalType={animalType}
+                pollInterval={10000}
+              />
             ) : (
               <div className="card p-12 text-center">
                 <p className="text-surface-500">No entries yet. Be the first!</p>
@@ -509,6 +632,24 @@ export default async function ContestDetailPage({
               <Link href="/pets/new" className="btn-primary w-full py-3 text-center block">
                 Enter your pet — free
               </Link>
+            )}
+
+            {/* Sticky buy-votes urgency card */}
+            {!hasEnded && myEntries.length > 0 && (
+              <div className="sticky top-4">
+                <div className="rounded-2xl bg-gradient-to-br from-brand-600 to-pink-500 p-5 text-white shadow-xl shadow-brand-200/50">
+                  <p className="text-[11px] font-bold uppercase tracking-widest text-white/70 mb-1">Want to win?</p>
+                  <p className="text-lg font-extrabold leading-tight">More votes = higher rank</p>
+                  <p className="text-xs text-white/80 mt-1 mb-4">Every vote counts. Boost your pet before time runs out!</p>
+                  <Link
+                    href={`/pets/${myEntries[0].entry.pet.id}#buy-votes`}
+                    className="block w-full text-center py-2.5 rounded-xl bg-white text-brand-600 font-bold text-sm hover:bg-brand-50 transition-colors shadow-md"
+                  >
+                    ⚡ Buy Votes Now
+                  </Link>
+                  <p className="text-[10px] text-white/60 text-center mt-2.5">🔒 Secure via Stripe · Instant delivery</p>
+                </div>
+              </div>
             )}
           </div>
         </div>

@@ -13,6 +13,9 @@ const DEFAULTS: Record<string, string> = {
   free_votes_reset_day: "0",  // 0=Sunday (for weekly), 1-28 (for monthly)
   free_votes_reset_hour: "19", // UTC hour (19 = 11 AM PST / noon EST)
   free_votes_reset_minute: "59", // UTC minute
+  // Discounts
+  first_time_buyer_discount_enabled: "true",
+  first_time_buyer_discount_pct: "20",
   // Stripe keys (stored in DB, env vars as fallback)
   stripe_secret_key: "",
   stripe_publishable_key: "",
@@ -134,4 +137,16 @@ export async function getAllSettings(): Promise<Record<string, string>> {
 export function maskKey(key: string): string {
   if (!key || key.length < 8) return key ? "••••" : "";
   return "••••••••" + key.slice(-4);
+}
+
+// First-time buyer discount
+export async function getFirstTimeBuyerDiscount(): Promise<{ enabled: boolean; pct: number }> {
+  const [enabled, pct] = await Promise.all([
+    getSetting("first_time_buyer_discount_enabled"),
+    getSetting("first_time_buyer_discount_pct"),
+  ]);
+  return {
+    enabled: enabled !== "false",
+    pct: Math.max(0, Math.min(100, parseInt(pct) || 20)),
+  };
 }

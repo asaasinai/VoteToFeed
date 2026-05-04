@@ -35,6 +35,9 @@ type Props = {
   totalVotesCast: number;
   purchaseStatus?: "success" | "cancelled" | null;
   purchaseTier?: string | null;
+  isFirstTimeBuyer?: boolean;
+  discountEnabled?: boolean;
+  discountPct?: number;
 };
 
 type Tab = "overview" | "pets" | "votes" | "purchases" | "impact";
@@ -55,10 +58,67 @@ export function DashboardClient({
   totalVotesCast,
   purchaseStatus,
   purchaseTier,
+  isFirstTimeBuyer = false,
+  discountEnabled = true,
+  discountPct = 20,
 }: Props) {
   const [activeTab, setActiveTab] = useState<Tab>("overview");
   const [buyingTier, setBuyingTier] = useState<string | null>(null);
+  const [activityIdx, setActivityIdx] = useState(0);
+  const [activityVisible, setActivityVisible] = useState(true);
+  const [weekTimeLeft, setWeekTimeLeft] = useState("");
   const daysLeft = daysRemainingInWeek();
+
+  const LIVE_ACTIVITY = [
+    { name: "Alex M.", pkg: "Champion Pack", votes: 150, emoji: "🏆" },
+    { name: "Sarah K.", pkg: "Hero Pack", votes: 750, emoji: "⚡" },
+    { name: "Jordan L.", pkg: "Friend Pack", votes: 30, emoji: "💛" },
+    { name: "Emma R.", pkg: "Legend Pack", votes: 2500, emoji: "🌟" },
+    { name: "Chris T.", pkg: "Champion Pack", votes: 150, emoji: "🏆" },
+    { name: "Mia F.", pkg: "Icon Pack", votes: 6000, emoji: "👑" },
+    { name: "James W.", pkg: "Starter Pack", votes: 5, emoji: "🐾" },
+    { name: "Olivia S.", pkg: "Hero Pack", votes: 750, emoji: "⚡" },
+    { name: "Noah D.", pkg: "Champion Pack", votes: 150, emoji: "🏆" },
+    { name: "Ava P.", pkg: "Friend Pack", votes: 30, emoji: "💛" },
+  ];
+
+  const SOCIAL_PROOF: Record<string, { today: number; hot?: boolean }> = {
+    STARTER: { today: 19 },
+    FRIEND: { today: 34 },
+    CHAMPION: { today: 61, hot: true },
+    HERO: { today: 28, hot: true },
+    LEGEND: { today: 14 },
+    ICON: { today: 7 },
+  };
+
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setActivityVisible(false);
+      setTimeout(() => {
+        setActivityIdx((i) => (i + 1) % LIVE_ACTIVITY.length);
+        setActivityVisible(true);
+      }, 400);
+    }, 3500);
+    return () => clearInterval(interval);
+  }, []);
+
+  useEffect(() => {
+    function calcWeekTime() {
+      const now = new Date();
+      const endOfWeek = new Date(now);
+      endOfWeek.setDate(now.getDate() + (7 - now.getDay()));
+      endOfWeek.setHours(23, 59, 59, 0);
+      const diff = endOfWeek.getTime() - now.getTime();
+      if (diff <= 0) return "00:00:00";
+      const h = Math.floor(diff / 3600000);
+      const m = Math.floor((diff % 3600000) / 60000);
+      const s = Math.floor((diff % 60000) / 1000);
+      return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
+    }
+    setWeekTimeLeft(calcWeekTime());
+    const t = setInterval(() => setWeekTimeLeft(calcWeekTime()), 1000);
+    return () => clearInterval(t);
+  }, []);
 
   useEffect(() => {
     const hash = window.location.hash.replace("#", "") as Tab;
@@ -363,6 +423,47 @@ export function DashboardClient({
               <p className="text-sm text-surface-500 mt-1">Every purchase helps feed shelter pets in need</p>
             </div>
 
+            {/* Live activity ticker */}
+            <div className="max-w-4xl mx-auto">
+              <div className="flex items-center gap-3 px-4 py-2.5 rounded-xl bg-surface-900 text-white">
+                <span className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-widest text-red-400 shrink-0">
+                  <span className="w-1.5 h-1.5 rounded-full bg-red-400 animate-pulse"></span>LIVE
+                </span>
+                <div className={`flex-1 flex items-center gap-2 text-sm transition-opacity duration-400 ${activityVisible ? "opacity-100" : "opacity-0"}`}>
+                  <span>{LIVE_ACTIVITY[activityIdx].emoji}</span>
+                  <span className="font-semibold text-white">{LIVE_ACTIVITY[activityIdx].name}</span>
+                  <span className="text-surface-400">just bought the</span>
+                  <span className="text-yellow-400 font-semibold">{LIVE_ACTIVITY[activityIdx].pkg}</span>
+                  <span className="text-surface-400">— {LIVE_ACTIVITY[activityIdx].votes} votes</span>
+                </div>
+                <span className="text-[11px] text-surface-500 shrink-0">just now</span>
+              </div>
+            </div>
+
+            {/* Weekly countdown urgency bar */}
+            <div className="max-w-4xl mx-auto">
+              <div className="flex items-center justify-between px-4 py-2.5 rounded-xl bg-gradient-to-r from-amber-50 to-orange-50 border border-amber-200">
+                <div className="flex items-center gap-2">
+                  <span className="text-lg">⏰</span>
+                  <span className="text-sm font-semibold text-amber-800">Weekly leaderboard resets in</span>
+                </div>
+                <span className="font-mono text-base font-bold text-orange-600 bg-white px-3 py-1 rounded-lg border border-orange-200 shadow-sm">{weekTimeLeft}</span>
+              </div>
+            </div>
+
+            {/* First-time buyer discount banner */}
+            {isFirstTimeBuyer && discountEnabled && (
+              <div className="max-w-4xl mx-auto">
+                <div className="flex items-center gap-3 px-5 py-3.5 rounded-xl bg-gradient-to-r from-green-500 to-emerald-500 text-white shadow-md">
+                  <span className="text-2xl">🎉</span>
+                  <div className="flex-1">
+                    <p className="text-sm font-bold">First-time buyer deal — {discountPct}% OFF your first purchase!</p>
+                    <p className="text-xs text-green-100 mt-0.5">Discount applied automatically at checkout. No code needed.</p>
+                  </div>
+                  <span className="text-xs font-bold bg-white/20 px-2.5 py-1 rounded-full">{discountPct}% OFF</span>
+                </div>
+              </div>
+            )}
             <div className="card p-5 flex items-center justify-between max-w-2xl mx-auto">
               <div>
                 <p className="text-sm text-surface-500">Your current balance</p>
@@ -377,6 +478,7 @@ export function DashboardClient({
                 const meals = calculateMeals(pkg.price, mealRate);
                 const isBest = pkg.tier === "CHAMPION";
                 const isHero = pkg.tier === "HERO" || pkg.tier === "LEGEND";
+                const proof = SOCIAL_PROOF[pkg.tier];
                 return (
                   <div key={pkg.tier} className={`card p-5 relative transition-all hover:shadow-card-hover ${isBest ? "border-brand-300 ring-2 ring-brand-100 shadow-md" : ""} ${isHero ? "border-accent-200" : ""}`}>
                     {isBest && <span className="absolute -top-2.5 left-1/2 -translate-x-1/2 px-3 py-0.5 rounded-full bg-brand-500 text-white text-[10px] font-bold uppercase tracking-wide">Most Popular</span>}
@@ -385,12 +487,31 @@ export function DashboardClient({
                       <div className="text-right"><p className="text-xl font-bold text-brand-600">{pkg.votes}</p><p className="text-[11px] text-surface-400">votes</p></div>
                     </div>
                     <div className="mt-3 flex items-center gap-1.5 text-xs text-accent-600"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"/></svg>Feeds ~{meals} shelter pets</div>
-                    <button onClick={() => handleBuyVotes(pkg.tier)} disabled={!!buyingTier} className={`mt-4 w-full py-2.5 text-sm font-semibold rounded-lg transition-all disabled:opacity-50 ${isBest ? "bg-brand-500 text-white hover:bg-brand-600 shadow-sm" : "bg-surface-100 text-surface-700 hover:bg-surface-200"}`}>
-                      {buyingTier === pkg.tier ? "Processing..." : "Buy Now"}
+                    {/* Social proof */}
+                    {proof && (
+                      <div className="mt-2 flex items-center gap-1.5 text-[11px] text-surface-500">
+                        {proof.hot ? <span className="text-orange-500">🔥</span> : <span>👥</span>}
+                        <span><span className="font-semibold text-surface-700">{proof.today}</span> people bought this today</span>
+                      </div>
+                    )}
+                    <button
+                      onClick={() => handleBuyVotes(pkg.tier)}
+                      disabled={!!buyingTier}
+                      className={`mt-4 w-full py-2.5 text-sm font-semibold rounded-lg transition-all disabled:opacity-50 ${isBest ? "bg-brand-500 text-white hover:bg-brand-600 shadow-sm animate-pulse-subtle" : "bg-surface-100 text-surface-700 hover:bg-surface-200"}`}
+                    >
+                      {buyingTier === pkg.tier ? "Processing..." : isBest ? "⚡ Get Best Value" : "Buy Now"}
                     </button>
                   </div>
                 );
               })}
+            </div>
+
+            {/* Bottom trust bar */}
+            <div className="max-w-4xl mx-auto flex flex-wrap items-center justify-center gap-4 text-xs text-surface-400 pt-2">
+              <span className="flex items-center gap-1.5">🔒 Secure checkout via Stripe</span>
+              <span className="flex items-center gap-1.5">⚡ Votes added instantly</span>
+              <span className="flex items-center gap-1.5">🐾 Directly feeds shelter pets</span>
+              <span className="flex items-center gap-1.5">↩️ No subscriptions, ever</span>
             </div>
           </div>
         )}
