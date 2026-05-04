@@ -76,34 +76,7 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
   // purchases are rare and will be reconciled on the next visit.
   void completePendingPurchasesInBackground(userId);
 
-<<<<<<< Updated upstream
-          await prisma.$transaction(async (tx) => {
-            const result = await tx.purchase.updateMany({
-              where: { id: p.id, status: "PENDING" },
-              data: {
-                status: "COMPLETED",
-                stripePaymentId: typeof stripeSession.payment_intent === "string"
-                  ? stripeSession.payment_intent
-                  : undefined,
-              },
-            });
-            if (result.count === 0) return;
-            await tx.user.update({
-              where: { id: userId },
-              data: { paidVoteBalance: { increment: p.votes } },
-            });
-          });
-        } catch (err) {
-          console.error(`Dashboard: failed to complete pending purchase ${p.id}:`, err);
-        }
-      }
-    }
-  }
-
-  const [user, mealRate, animalType] = await Promise.all([
-=======
-  const [user, mealRate, animalType, discountConfig, lifetimeAgg, totalVotesCast] = await Promise.all([
->>>>>>> Stashed changes
+  const [user, mealRate, animalType, lifetimeAgg, totalVotesCast] = await Promise.all([
     prisma.user.findUnique({
       where: { id: userId },
       select: {
@@ -137,15 +110,6 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
     }),
     getMealRate(),
     getAnimalType(),
-<<<<<<< Updated upstream
-  ]);
-
-  if (!user) redirect("/auth/signin");
-
-  const [lifetimeAgg, totalVotesCast] = await Promise.all([
-=======
-    getFirstTimeBuyerDiscount(),
->>>>>>> Stashed changes
     prisma.purchase.aggregate({
       where: { userId, status: "COMPLETED" },
       _sum: { mealsProvided: true, amount: true },

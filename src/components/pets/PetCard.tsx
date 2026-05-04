@@ -25,6 +25,12 @@ const FALLBACK_IMAGES = {
   DEFAULT: "https://images.unsplash.com/photo-1543466835-00a7907e9de1?w=600&h=600&fit=crop",
 };
 
+function rankSuffix(n: number): string {
+  const s = ["th", "st", "nd", "rd"];
+  const v = n % 100;
+  return n + (s[(v - 20) % 10] || s[v] || s[0]);
+}
+
 function getFallbackImage(type: string): string {
   if (type === "DOG") return FALLBACK_IMAGES.DOG;
   if (type === "CAT") return FALLBACK_IMAGES.CAT;
