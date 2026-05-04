@@ -52,9 +52,9 @@ export async function POST(
     data: { followerId, followingId },
   });
 
-  // Award 5 bonus free votes ONLY on first-ever follow (prevent follow/unfollow exploit)
+  // Award 3 bonus free votes ONLY on first-ever follow (prevent follow/unfollow exploit)
   // Use a transaction to prevent race conditions
-  const FOLLOW_BONUS_VOTES = 5;
+  const FOLLOW_BONUS_VOTES = 3;
   let bonusAwarded = 0;
 
   try {

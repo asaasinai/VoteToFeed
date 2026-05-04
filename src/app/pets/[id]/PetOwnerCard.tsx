@@ -145,7 +145,7 @@ export function PetOwnerCard({
         <div className="mt-3 flex items-center gap-2 bg-amber-50 border border-amber-200/60 rounded-xl px-3 py-2">
           <span className="text-base">🎁</span>
           <p className="text-[11px] font-semibold text-amber-800">
-            Follow to get <span className="text-amber-900 font-extrabold">5 free votes</span> instantly!
+            Follow to get <span className="text-amber-900 font-extrabold">3 free votes</span> instantly!
           </p>
         </div>
       )}
@@ -155,7 +155,7 @@ export function PetOwnerCard({
         <div className="mt-3 flex items-center gap-2 bg-green-50 border border-green-200/60 rounded-xl px-3 py-2 animate-profile-slide-up">
           <span className="text-base">🎉</span>
           <p className="text-[11px] font-bold text-green-800">
-            +5 free votes added to your balance!
+            +3 free votes added to your balance!
           </p>
         </div>
       )}
