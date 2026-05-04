@@ -36,6 +36,8 @@ type Props = {
   purchaseStatus?: "success" | "cancelled" | null;
   purchaseTier?: string | null;
   isFirstTimeBuyer?: boolean;
+  discountEnabled?: boolean;
+  discountPct?: number;
 };
 
 type Tab = "overview" | "pets" | "votes" | "purchases" | "impact";
@@ -57,9 +59,9 @@ export function DashboardClient({
   purchaseStatus,
   purchaseTier,
   isFirstTimeBuyer = false,
+  discountEnabled = true,
+  discountPct = 20,
 }: Props) {
-  const discountEnabled = true;
-  const discountPct = 20;
   const [activeTab, setActiveTab] = useState<Tab>("overview");
   const [buyingTier, setBuyingTier] = useState<string | null>(null);
   const [activityIdx, setActivityIdx] = useState(0);
@@ -480,19 +482,8 @@ export function DashboardClient({
                 return (
                   <div key={pkg.tier} className={`card p-5 relative transition-all hover:shadow-card-hover ${isBest ? "border-brand-300 ring-2 ring-brand-100 shadow-md" : ""} ${isHero ? "border-accent-200" : ""}`}>
                     {isBest && <span className="absolute -top-2.5 left-1/2 -translate-x-1/2 px-3 py-0.5 rounded-full bg-brand-500 text-white text-[10px] font-bold uppercase tracking-wide">Most Popular</span>}
-                    {(isFirstTimeBuyer && discountEnabled && !isBest) && <span className="absolute -top-2.5 left-1/2 -translate-x-1/2 px-3 py-0.5 rounded-full bg-green-500 text-white text-[10px] font-bold uppercase tracking-wide">{discountPct}% OFF</span>}
                     <div className="flex items-start justify-between">
-                      <div>
-                        <p className="text-sm font-bold text-surface-900">{pkg.label}</p>
-                        {(isFirstTimeBuyer && discountEnabled) ? (
-                          <div className="mt-1">
-                            <span className="text-xs text-surface-400 line-through">${(pkg.price / 100).toFixed(2)}</span>
-                            <p className="text-2xl font-bold text-green-600">${(pkg.price / 100 * (1 - discountPct / 100)).toFixed(2)}</p>
-                          </div>
-                        ) : (
-                          <p className="text-2xl font-bold text-surface-900 mt-1">${(pkg.price / 100).toFixed(2)}</p>
-                        )}
-                      </div>
+                      <div><p className="text-sm font-bold text-surface-900">{pkg.label}</p><p className="text-2xl font-bold text-surface-900 mt-1">${(pkg.price / 100).toFixed(2)}</p></div>
                       <div className="text-right"><p className="text-xl font-bold text-brand-600">{pkg.votes}</p><p className="text-[11px] text-surface-400">votes</p></div>
                     </div>
                     <div className="mt-3 flex items-center gap-1.5 text-xs text-accent-600"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"/></svg>Feeds ~{meals} shelter pets</div>

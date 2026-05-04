@@ -158,7 +158,6 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
         ? searchParams.purchase
         : null}
       purchaseTier={searchParams?.tier ?? null}
-      isFirstTimeBuyer={user.purchases.length === 0}
     />
   );
 }
