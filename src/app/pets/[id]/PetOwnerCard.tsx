@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import Link from "next/link";
+import { formatUserName } from "@/lib/utils";
 
 export function PetOwnerCard({
   owner,
@@ -26,8 +27,8 @@ export function PetOwnerCard({
   const [claimed, setClaimed] = useState(bonusClaimed);
   const [hover, setHover] = useState(false);
 
-  const name = owner.name || "Pet Owner";
-  const initial = name[0]?.toUpperCase() || "?";
+  const name = formatUserName(owner.name);
+  const initial = (owner.name?.trim() || "?")[0].toUpperCase();
 
   async function handleFollow() {
     setLoading(true);

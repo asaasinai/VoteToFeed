@@ -5,6 +5,8 @@ import Link from "next/link";
 import { FollowButton } from "@/components/shared/FollowButton";
 import { BadgeGrid } from "@/components/shared/BadgeGrid";
 import { FollowersList } from "@/components/shared/FollowersList";
+import { formatUserName } from "@/lib/utils";
+import { MediaCarousel } from "@/components/shared/MediaCarousel";
 
 type Badge = {
   id: string;
@@ -424,7 +426,7 @@ export function PublicProfileClient({
 
               <div className="pb-1 sm:pb-3">
                 <h1 className="text-2xl sm:text-3xl font-extrabold text-surface-900 tracking-tight">
-                  {profile.name}
+                  {formatUserName(profile.name)}
                 </h1>
                 {location && (
                   <p className="text-sm text-surface-500 flex items-center gap-1.5 mt-1">
@@ -813,7 +815,7 @@ export function PublicProfileClient({
                       )}
                     </div>
                     <div>
-                      <p className="text-sm font-bold text-surface-900">{profile.name}</p>
+                      <p className="text-sm font-bold text-surface-900">{formatUserName(profile.name)}</p>
                       <p className="text-[11px] text-surface-400">
                         {new Date(post.createdAt).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
                       </p>
@@ -842,25 +844,15 @@ export function PublicProfileClient({
                     return (
                       <div className="mx-5 mb-3 rounded-xl overflow-hidden border border-surface-100 bg-black">
                         {isVideo(url) ? (
-                          <video src={url} className="w-full max-h-[500px] object-contain block" controls playsInline preload="metadata" />
+                          <video src={url} className="w-full max-h-[600px] object-contain block" controls playsInline preload="metadata" />
                         ) : (
-                          <img src={url} alt="Post media" className="w-full h-auto block" />
+                          <img src={url} alt="Post media" className="w-full max-h-[600px] object-contain block" />
                         )}
                       </div>
                     );
                   }
                   return (
-                    <div className={`mx-5 mb-3 grid gap-1 ${media.length === 2 ? "grid-cols-2" : "grid-cols-3"}`}>
-                      {media.map((url, mi) => (
-                        <div key={mi} className="relative aspect-square rounded-xl overflow-hidden border border-surface-100 bg-black">
-                          {isVideo(url) ? (
-                            <video src={url} className="w-full h-full object-cover" controls playsInline preload="metadata" />
-                          ) : (
-                            <img src={url} alt={`Post media ${mi + 1}`} className="w-full h-full object-cover" />
-                          )}
-                        </div>
-                      ))}
-                    </div>
+                    <MediaCarousel media={media} />
                   );
                 })()}
                 {/* Actions: like + comment */}
@@ -909,7 +901,7 @@ export function PublicProfileClient({
                         </div>
                         <div className="flex-1 bg-surface-50 rounded-2xl px-3 py-2">
                           <div className="flex items-baseline gap-2">
-                            <span className="text-xs font-bold text-surface-800">{c.user.name || "User"}</span>
+                            <span className="text-xs font-bold text-surface-800">{formatUserName(c.user.name)}</span>
                             <span className="text-[10px] text-surface-400">
                               {new Date(c.createdAt).toLocaleDateString("en-US", { month: "short", day: "numeric" })}
                             </span>

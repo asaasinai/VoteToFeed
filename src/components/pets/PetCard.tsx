@@ -1,8 +1,9 @@
 "use client";
 
-import { useState, useCallback } from "react";
+import { useState, useCallback, memo } from "react";
 import Link from "next/link";
-import { formatVotes, rankSuffix, cn } from "@/lib/utils";
+import Image from "next/image";
+import { formatVotes, cn } from "@/lib/utils";
 
 type PetCardProps = {
   id: string;
@@ -23,6 +24,12 @@ const FALLBACK_IMAGES = {
   CAT: "https://images.unsplash.com/photo-1514888286974-6c03e2ca1dba?w=600&h=600&fit=crop",
   DEFAULT: "https://images.unsplash.com/photo-1543466835-00a7907e9de1?w=600&h=600&fit=crop",
 };
+
+function rankSuffix(n: number): string {
+  const s = ["th", "st", "nd", "rd"];
+  const v = n % 100;
+  return n + (s[(v - 20) % 10] || s[v] || s[0]);
+}
 
 function getFallbackImage(type: string): string {
   if (type === "DOG") return FALLBACK_IMAGES.DOG;
@@ -66,7 +73,11 @@ function getInitials(name: string): string {
     .slice(0, 2);
 }
 
-export function PetCard({
+export function PetCard(props: PetCardProps) {
+  return <PetCardInner {...props} />;
+}
+
+const PetCardInner = memo(function PetCardInner({
   id,
   name,
   ownerName,
@@ -108,15 +119,17 @@ export function PetCard({
         )}
 
         {imageSrc ? (
-          <img
+          <Image
             ref={imgRef}
             src={imageSrc}
             alt={name}
-            className={`w-full h-full object-cover object-center group-hover:scale-105 transition-all duration-500 ease-out ${
+            fill
+            sizes="(max-width: 640px) 50vw, (max-width: 1024px) 33vw, 280px"
+            className={`object-cover object-center group-hover:scale-105 transition-all duration-500 ease-out ${
               imgLoaded ? "opacity-100" : "opacity-0"
             }`}
             onLoad={(e) => {
-              const img = e.currentTarget;
+              const img = e.currentTarget as HTMLImageElement;
               if (img.naturalWidth === 0 || img.naturalHeight === 0) {
                 if (hasPhoto && !imgError) {
                   setImgError(true);
@@ -194,4 +207,4 @@ export function PetCard({
       </div>
     </Link>
   );
-}
+});

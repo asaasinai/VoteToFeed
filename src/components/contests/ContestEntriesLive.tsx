@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { PetCard } from "@/components/pets/PetCard";
 import { StorytellerEntry } from "@/components/contests/StorytellerEntry";
 import { formatDisplayName } from "@/lib/utils";
@@ -73,9 +73,13 @@ export function ContestEntriesLive({
     return () => es.close();
   }, [contestId, initialEntries.length]);
 
-  // Sort entries by current vote count
-  const sorted = [...initialEntries].sort(
-    (a, b) => (voteMap[b.petId] ?? 0) - (voteMap[a.petId] ?? 0)
+  // Sort entries by current vote count (memoized — only recomputes when voteMap changes)
+  const sorted = useMemo(
+    () =>
+      [...initialEntries].sort(
+        (a, b) => (voteMap[b.petId] ?? 0) - (voteMap[a.petId] ?? 0)
+      ),
+    [initialEntries, voteMap]
   );
 
   const now = Date.now();

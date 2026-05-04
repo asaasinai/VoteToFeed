@@ -87,7 +87,7 @@ export async function GET(
       prevSnapshot = initial;
       controller.enqueue(enc.encode(`data: ${initial}\n\n`));
 
-      // Poll every 1 second, only send when data changes
+      // Poll every 3 seconds, only send when data changes
       const interval = setInterval(async () => {
         try {
           const snapshot = await getVotes();
@@ -101,7 +101,7 @@ export async function GET(
         } catch {
           // ignore DB errors mid-stream
         }
-      }, 1000);
+      }, 3000);
 
       // Clean up when client disconnects
       req.signal.addEventListener("abort", () => {

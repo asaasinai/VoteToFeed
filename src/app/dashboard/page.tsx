@@ -14,6 +14,56 @@ import { getCurrentWeekId } from "@/lib/utils";
 import { getMealRate, getAnimalType, getFirstTimeBuyerDiscount } from "@/lib/admin-settings";
 import { getStripeAsync } from "@/lib/stripe";
 
+/**
+ * Reconciles any PENDING purchases against Stripe in the background.
+ * Fire-and-forget — errors are logged but never block the dashboard render.
+ */
+async function completePendingPurchasesInBackground(userId: string) {
+  try {
+    const pendingPurchases = await prisma.purchase.findMany({
+      where: { userId, status: "PENDING" },
+    });
+    if (pendingPurchases.length === 0) return;
+
+    let stripe;
+    try {
+      stripe = await getStripeAsync();
+    } catch {
+      return;
+    }
+    if (!stripe) return;
+
+    for (const p of pendingPurchases) {
+      try {
+        if (!p.stripeSessionId) continue;
+        const stripeSession = await stripe.checkout.sessions.retrieve(p.stripeSessionId);
+        if (stripeSession.payment_status !== "paid") continue;
+
+        await prisma.$transaction(async (tx) => {
+          const result = await tx.purchase.updateMany({
+            where: { id: p.id, status: "PENDING" },
+            data: {
+              status: "COMPLETED",
+              stripePaymentId: typeof stripeSession.payment_intent === "string"
+                ? stripeSession.payment_intent
+                : undefined,
+            },
+          });
+          if (result.count === 0) return;
+          await tx.user.update({
+            where: { id: userId },
+            data: { paidVoteBalance: { increment: p.votes } },
+          });
+        });
+      } catch (err) {
+        console.error(`Dashboard: failed to complete pending purchase ${p.id}:`, err);
+      }
+    }
+  } catch (err) {
+    console.error("Dashboard: background pending purchase sync failed:", err);
+  }
+}
+
 export default async function DashboardPage({ searchParams }: DashboardPageProps) {
   const session = await getServerSession(authOptions);
   if (!session?.user) redirect("/auth/signin?callbackUrl=/dashboard");
@@ -21,51 +71,12 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
   const userId = (session.user as { id: string }).id;
   const weekId = getCurrentWeekId();
 
-  // Always complete any stuck PENDING purchases for this user.
-  // This covers cases where the Stripe webhook failed or was delayed.
-  // Only completes purchases that Stripe confirms were actually paid.
-  const pendingPurchases = await prisma.purchase.findMany({
-    where: { userId, status: "PENDING" },
-  });
-  if (pendingPurchases.length > 0) {
-    let stripe;
-    try {
-      stripe = await getStripeAsync();
-    } catch {
-      // Stripe not configured — skip auto-completion
-    }
-    if (stripe) {
-      for (const p of pendingPurchases) {
-        try {
-          // Verify with Stripe that this checkout session was actually paid
-          if (!p.stripeSessionId) continue;
-          const stripeSession = await stripe.checkout.sessions.retrieve(p.stripeSessionId);
-          if (stripeSession.payment_status !== "paid") continue;
+  // Background: complete any stuck PENDING purchases for this user.
+  // Fire-and-forget so the dashboard renders immediately. Pending
+  // purchases are rare and will be reconciled on the next visit.
+  void completePendingPurchasesInBackground(userId);
 
-          await prisma.$transaction(async (tx) => {
-            const result = await tx.purchase.updateMany({
-              where: { id: p.id, status: "PENDING" },
-              data: {
-                status: "COMPLETED",
-                stripePaymentId: typeof stripeSession.payment_intent === "string"
-                  ? stripeSession.payment_intent
-                  : undefined,
-              },
-            });
-            if (result.count === 0) return;
-            await tx.user.update({
-              where: { id: userId },
-              data: { paidVoteBalance: { increment: p.votes } },
-            });
-          });
-        } catch (err) {
-          console.error(`Dashboard: failed to complete pending purchase ${p.id}:`, err);
-        }
-      }
-    }
-  }
-
-  const [user, mealRate, animalType, discountConfig] = await Promise.all([
+  const [user, mealRate, animalType, lifetimeAgg, totalVotesCast] = await Promise.all([
     prisma.user.findUnique({
       where: { id: userId },
       select: {
@@ -99,20 +110,16 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
     }),
     getMealRate(),
     getAnimalType(),
-    getFirstTimeBuyerDiscount(),
-  ]);
-
-  if (!user) redirect("/auth/signin");
-
-  const isFirstTimeBuyer = user.purchases.length === 0;
-
-  const [lifetimeAgg, totalVotesCast] = await Promise.all([
     prisma.purchase.aggregate({
       where: { userId, status: "COMPLETED" },
       _sum: { mealsProvided: true, amount: true },
     }),
     prisma.vote.count({ where: { userId } }),
   ]);
+
+  if (!user) redirect("/auth/signin");
+
+  const isFirstTimeBuyer = user.purchases.length === 0;
 
   return (
     <DashboardClient
@@ -152,8 +159,6 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
         createdAt: v.createdAt.toISOString(),
       }))}
       isFirstTimeBuyer={isFirstTimeBuyer}
-      discountEnabled={discountConfig.enabled}
-      discountPct={discountConfig.pct}
       purchaseStatus={searchParams?.purchase === "success" || searchParams?.purchase === "cancelled"
         ? searchParams.purchase
         : null}
