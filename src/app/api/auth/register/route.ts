@@ -3,6 +3,7 @@
 export const dynamic = "force-dynamic";
 import bcrypt from "bcryptjs";
 import prisma from "@/lib/prisma";
+import { sendWelcomeEmail } from "@/lib/email";
 
 export async function POST(req: NextRequest) {
   try {
@@ -40,6 +41,8 @@ export async function POST(req: NextRequest) {
       },
       select: { id: true, name: true, email: true },
     });
+
+    sendWelcomeEmail(user.email!, user.name?.split(" ")[0] ?? "there").catch(() => {});
 
     return NextResponse.json(user, { status: 201 });
   } catch (error) {
