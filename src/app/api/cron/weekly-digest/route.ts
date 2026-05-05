@@ -7,14 +7,6 @@ import { getAnimalType } from "@/lib/admin-settings";
 
 export const dynamic = "force-dynamic";
 
-// Runs every Monday at 2 PM UTC (7 AM PST) — great open-rate window
-// Vercel cron: "0 14 * * 1"
-//
-// Sends a weekly summary to users who:
-//   1. Have at least one active pet
-//   2. Have weeklyDigest preference = true (or no prefs row = default true)
-//   3. Have not received a digest this week (guarded via lastDigestWeek)
-
 export async function GET(req: NextRequest) {
   const authError = verifyCronSecret(req);
   if (authError) return authError;
@@ -22,13 +14,10 @@ export async function GET(req: NextRequest) {
   const weekId = getCurrentWeekId();
   const animalType = await getAnimalType();
 
-  // Fetch up to 500 eligible users with their pets and this week's votes
   const users = await prisma.user.findMany({
     where: {
       email: { not: null },
-      // Must have at least one active pet
       pets: { some: { isActive: true } },
-      // Respect opt-out
       OR: [
         { notifications: null },
         { notifications: { weeklyDigest: true } },
@@ -77,12 +66,11 @@ export async function GET(req: NextRequest) {
       continue;
     }
 
-    // Build per-pet vote totals; skip users whose pets have zero votes this week
     const petSummaries = user.pets
       .map((pet) => ({
         name: pet.name,
         votes: pet.votes.reduce((sum, v) => sum + v.quantity, 0),
-        rank: null as number | null, // rank lookup skipped for perf; null shows "—"
+        rank: null as number | null,
       }))
       .filter((p) => p.votes > 0);
 
@@ -91,7 +79,6 @@ export async function GET(req: NextRequest) {
       continue;
     }
 
-    // Each paid vote = ~0.25 meals (rough estimate; adjust per business logic)
     const totalVotes = petSummaries.reduce((s, p) => s + p.votes, 0);
     const totalMeals = Math.round(totalVotes * 0.25);
 

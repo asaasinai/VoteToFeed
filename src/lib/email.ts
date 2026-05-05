@@ -12,10 +12,6 @@ function getResend() {
   return new Resend(process.env.RESEND_API_KEY);
 }
 
-/**
- * Generate a HMAC-SHA256 unsubscribe URL for a given email address.
- * No DB storage required — token is verified server-side on click.
- */
 export function buildUnsubscribeUrl(email: string): string {
   const secret = process.env.NEXTAUTH_SECRET || "";
   const token = createHmac("sha256", secret).update(email.toLowerCase()).digest("hex");
