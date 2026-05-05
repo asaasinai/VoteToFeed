@@ -107,7 +107,7 @@ export async function POST(req: NextRequest) {
     const pet = await prisma.pet.findUnique({
       where: { id: petId },
       include: {
-        user: { select: { id: true, email: true, name: true } },
+        user: { select: { id: true, email: true, name: true, notifications: { select: { voteAlerts: true } } } },
       },
     });
 
@@ -288,7 +288,7 @@ export async function POST(req: NextRequest) {
       const allTimeTotal = (allTimeAgg._sum.quantity ?? 0) + allTimeAnon;
 
       // Fire-and-forget vote alert (debounced — 1 email per 6h per pet)
-      if (pet.user.email && pet.userId !== userId) {
+      if (pet.user.email && pet.userId !== userId && pet.user.notifications?.voteAlerts !== false) {
         triggerVoteAlert(
           petId,
           pet.userId,

@@ -1,7 +1,9 @@
 import { Resend } from "resend";
+import { createHmac, timingSafeEqual } from "crypto";
 import { rankSuffix, VOTE_PACKAGES } from "@/lib/utils";
 
-const FROM_EMAIL = "VoteToFeed <noreply@votetofeed.com>";
+// Use a friendly from-address — "noreply@" is a well-known spam trigger
+const FROM_EMAIL = "VoteToFeed <hello@votetofeed.com>";
 
 function getResend() {
   if (!process.env.RESEND_API_KEY) {
@@ -10,9 +12,96 @@ function getResend() {
   return new Resend(process.env.RESEND_API_KEY);
 }
 
-export async function sendEmail(payload: Parameters<ReturnType<typeof getResend>["emails"]["send"]>[0]) {
+export function buildUnsubscribeUrl(email: string): string {
+  const secret = process.env.NEXTAUTH_SECRET || "";
+  const token = createHmac("sha256", secret).update(email.toLowerCase()).digest("hex");
+  const base = appUrl();
+  return `${base}/api/unsubscribe?email=${encodeURIComponent(email)}&token=${token}`;
+}
+
+/** Verify an unsubscribe token (used in /api/unsubscribe route). */
+export function verifyUnsubscribeToken(email: string, token: string): boolean {
+  const secret = process.env.NEXTAUTH_SECRET || "";
+  const expected = createHmac("sha256", secret).update(email.toLowerCase()).digest("hex");
+  try {
+    return timingSafeEqual(Buffer.from(expected, "hex"), Buffer.from(token, "hex"));
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Strip HTML tags and decode common entities for plain-text fallback.
+ * Required for inbox placement — HTML-only emails score higher on spam filters.
+ */
+function htmlToPlainText(html: string): string {
+  return html
+    .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, "")
+    .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, "")
+    .replace(/<!--[\s\S]*?-->/g, "")
+    .replace(/<br\s*\/?>/gi, "\n")
+    .replace(/<\/?(p|div|tr|table|td|li|h[1-6])[^>]*>/gi, "\n")
+    .replace(/<[^>]+>/g, "")
+    .replace(/&nbsp;/g, " ")
+    .replace(/&amp;/g, "&")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&quot;/g, '"')
+    .replace(/\u200d/g, "")
+    .replace(/[ \t]+/g, " ")
+    .replace(/(\n\s*){3,}/g, "\n\n")
+    .trim();
+}
+
+export async function sendEmail(
+  payload: Parameters<ReturnType<typeof getResend>["emails"]["send"]>[0],
+  { transactional = false }: { transactional?: boolean } = {},
+) {
   const resend = getResend();
-  const { data, error } = await resend.emails.send(payload);
+
+  // Auto-derive recipient email for the unsubscribe token
+  const toEmail = !transactional
+    ? (Array.isArray(payload.to) ? payload.to[0] : payload.to) as string | undefined
+    : undefined;
+
+  const unsubscribeUrl = toEmail ? buildUnsubscribeUrl(toEmail) : undefined;
+
+  // Inject reply-to and (for bulk mail) List-Unsubscribe headers required by Gmail & Yahoo
+  const finalPayload: Record<string, unknown> = {
+    ...payload,
+    reply_to: "hello@votetofeed.com",
+    ...(unsubscribeUrl && {
+      headers: {
+        ...((payload as { headers?: Record<string, string> }).headers ?? {}),
+        "List-Unsubscribe": `<${unsubscribeUrl}>`,
+        "List-Unsubscribe-Post": "List-Unsubscribe=One-Click",
+      },
+    }),
+  };
+
+  // Inject the unsubscribe URL into the HTML footer placeholder (<!--UNSUB_URL-->)
+  if (typeof finalPayload.html === "string") {
+    if (unsubscribeUrl) {
+      finalPayload.html = (finalPayload.html as string)
+        .replace(/<!--UNSUB_BLOCK_START-->/g, "")
+        .replace(/<!--UNSUB_URL-->/g, unsubscribeUrl)
+        .replace(/<!--UNSUB_BLOCK_END-->/g, "");
+    } else {
+      // Transactional emails: remove the block entirely
+      finalPayload.html = (finalPayload.html as string).replace(
+        /<!--UNSUB_BLOCK_START-->[\s\S]*?<!--UNSUB_BLOCK_END-->/g,
+        "",
+      );
+    }
+    // Auto-generate plain-text fallback if not provided — lowers spam score
+    if (!finalPayload.text) {
+      finalPayload.text = htmlToPlainText(finalPayload.html as string);
+    }
+  }
+
+  const { data, error } = await resend.emails.send(
+    finalPayload as unknown as Parameters<ReturnType<typeof getResend>["emails"]["send"]>[0],
+  );
   if (error) {
     // Log full error so it shows in Vercel logs
     console.error("[Resend] email send failed:", JSON.stringify(error));
@@ -75,7 +164,9 @@ ${preheader ? `<div style="display:none;max-height:0;overflow:hidden;mso-hide:al
               &nbsp;·&nbsp;
               <a href="${url}/terms" style="color:#a1a1aa;text-decoration:none;">Terms</a>
             </p>
-            <p style="margin:0;font-size:12px;color:#a1a1aa;">You're receiving this because you have an account on VoteToFeed.</p>
+            <p style="margin:0 0 6px;font-size:12px;color:#a1a1aa;">You're receiving this because you have an account on VoteToFeed.</p>
+            <!--UNSUB_BLOCK_START--><p style="margin:0;font-size:12px;"><a href="<!--UNSUB_URL-->" style="color:#a1a1aa;text-decoration:underline;">Unsubscribe from these emails</a></p><!--UNSUB_BLOCK_END-->
+            <p style="margin:8px 0 0;font-size:11px;color:#d4d4d8;">VoteToFeed · 2261 Market Street #4955 · San Francisco, CA 94114</p>
           </td>
         </tr>
 
@@ -124,13 +215,16 @@ ${preheader ? `<div style="display:none;max-height:0;overflow:hidden;mso-hide:al
         </tr>
         <tr>
           <td style="background:#ffffff;border-radius:0 0 16px 16px;padding:24px 40px;text-align:center;">
-            <p style="margin:0;font-size:13px;color:#71717a;">
+            <p style="margin:0 0 8px;font-size:13px;color:#71717a;">
               <a href="${url}" style="color:#ef4444;text-decoration:none;font-weight:600;">VoteToFeed</a>
               &nbsp;·&nbsp;
               <a href="${url}/privacy" style="color:#a1a1aa;text-decoration:none;">Privacy</a>
               &nbsp;·&nbsp;
               <a href="${url}/terms" style="color:#a1a1aa;text-decoration:none;">Terms</a>
             </p>
+            <p style="margin:0 0 6px;font-size:12px;color:#a1a1aa;">You're receiving this because you have an account on VoteToFeed.</p>
+            <!--UNSUB_BLOCK_START--><p style="margin:0;font-size:12px;"><a href="<!--UNSUB_URL-->" style="color:#a1a1aa;text-decoration:underline;">Unsubscribe from these emails</a></p><!--UNSUB_BLOCK_END-->
+            <p style="margin:8px 0 0;font-size:11px;color:#d4d4d8;">VoteToFeed · 2261 Market Street #4955 · San Francisco, CA 94114</p>
           </td>
         </tr>
         <tr><td style="height:24px;"></td></tr>
@@ -379,7 +473,7 @@ export async function sendDailyRankEmail(
     : isTop3
     ? `🏆 ${petName} is #${rank} — hold your spot!`
     : rank <= 5
-    ? `🔥 ${petName} is #${rank} — SO close to top 3!`
+    ? `🔥 ${petName} is #${rank} — so close to top 3!`
     : `📈 ${petName} is #${rank} — here's how to climb`;
 
   // Dynamic heading
@@ -558,7 +652,7 @@ export async function sendFinalHoursPush(
   await sendEmail({
     from: FROM_EMAIL,
     to: [to],
-    subject: `🚨 LAST CHANCE — ${contestName} ends tomorrow!`,
+    subject: `⏰ Last chance — ${contestName} ends tomorrow`,
     html: emailShell(`
       <p style="margin:0 0 6px;font-size:13px;font-weight:700;color:#dc2626;text-transform:uppercase;letter-spacing:1px;">🚨 Final Hours</p>
       <h1 style="margin:0 0 20px;font-size:28px;font-weight:900;color:#18181b;line-height:1.2;">This is it — last chance<br/>for ${petName}!</h1>
@@ -594,7 +688,7 @@ export async function sendContestReEntry(
   await sendEmail({
     from: FROM_EMAIL,
     to: [to],
-    subject: `🐾 ${petName} was SO close — let's run it back`,
+    subject: `🐾 ${petName} was so close — let's run it back`,
     html: emailShell(`
       <p style="margin:0 0 6px;font-size:13px;font-weight:700;color:#ef4444;text-transform:uppercase;letter-spacing:1px;">New Contest Available</p>
       <h1 style="margin:0 0 20px;font-size:28px;font-weight:900;color:#18181b;line-height:1.2;">${petName} was so close...<br/>Time for round 2! 🐾</h1>
@@ -622,7 +716,7 @@ export async function sendAlmostWonEmail(
   await sendEmail({
     from: FROM_EMAIL,
     to: [to],
-    subject: `😢 ${petName} was SO close — finished ${rSuffix}, only ${votesFromTop3} votes from Top 3`,
+    subject: `😢 ${petName} was so close — finished ${rSuffix}, only ${votesFromTop3} votes from top 3`,
     html: emailShell(`
       <p style="margin:0 0 6px;font-size:13px;font-weight:700;color:#dc2626;text-transform:uppercase;letter-spacing:1px;">So Close!</p>
       <h1 style="margin:0 0 20px;font-size:28px;font-weight:900;color:#18181b;line-height:1.2;">${petName} finished ${rSuffix} 😢<br/>Just ${votesFromTop3} vote${votesFromTop3 !== 1 ? "s" : ""} from winning!</h1>
@@ -649,7 +743,7 @@ export async function sendPasswordResetEmail(to: string, resetUrl: string) {
       ${ctaButton("Reset My Password", resetUrl)}
       <p style="margin-top:20px;font-size:12px;color:#a1a1aa;">Button not working? Copy this URL into your browser:<br/><span style="color:#71717a;word-break:break-all;">${resetUrl}</span></p>
     `, "Click the link to reset your VoteToFeed password — expires in 1 hour."),
-  });
+  }, { transactional: true });
 }
 
 export async function sendContestWinner(

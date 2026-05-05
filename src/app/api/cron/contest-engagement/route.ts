@@ -26,7 +26,7 @@ export const dynamic = "force-dynamic";
  *
  * Each email type is sent at most once per day per user per contest.
  */
-export async function POST(req: NextRequest) {
+export async function GET(req: NextRequest) {
   const authError = verifyCronSecret(req);
   if (authError) return authError;
 
