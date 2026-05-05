@@ -18,7 +18,7 @@ export const dynamic = "force-dynamic";
  *   TOP25 → TOP5 (cuts to top 5)     — triggered by finaleStartDate
  *   TOP5 → ENDED                      — triggered by endDate
  */
-export async function POST(req: NextRequest) {
+export async function GET(req: NextRequest) {
   const authError = verifyCronSecret(req);
   if (authError) return authError;
 
