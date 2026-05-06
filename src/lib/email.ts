@@ -1057,3 +1057,83 @@ export async function sendContestAddedEmail(
     `, `${petName} is now competing in ${contestName} on VoteToFeed!`),
   });
 }
+
+export async function sendWelcomeEmail(to: string, firstName: string) {
+  const url = appUrl();
+  const starterPkg = VOTE_PACKAGES[0];
+
+  await sendEmail({
+    from: FROM_EMAIL,
+    to: [to],
+    subject: `Welcome to VoteToFeed, ${firstName}! 🐾`,
+    html: emailShell(`
+      <p style="margin:0 0 6px;font-size:13px;font-weight:700;color:#16a34a;text-transform:uppercase;letter-spacing:1px;">You're In!</p>
+      <h1 style="margin:0 0 20px;font-size:28px;font-weight:900;color:#18181b;line-height:1.2;">Welcome, ${firstName}! 🎉<br/>Let's get your pet in the game.</h1>
+      <p style="margin:0 0 20px;color:#52525b;font-size:16px;">VoteToFeed is a pet voting contest where every vote you cast <strong>feeds a shelter pet</strong>. Here's how to get started in 3 steps:</p>
+      ${infoBox(`
+        <strong>Step 1 — Add your pet</strong> (takes 30 seconds)<br/>
+        Upload a photo and a short bio. That's it.<br/><br/>
+        <strong>Step 2 — Enter a free contest</strong><br/>
+        Enter your pet into an active contest for free. You're competing for prizes immediately.<br/><br/>
+        <strong>Step 3 — Get votes &amp; climb the ranks</strong><br/>
+        Share your contest link, cast free daily votes, or buy a vote pack to jump the leaderboard.
+      `, "#f0fdf4", "#86efac")}
+      ${statRow([
+        { label: "Starter Pack", value: `$${(starterPkg.price / 100).toFixed(2)}` },
+        { label: "Votes", value: String(starterPkg.votes) },
+        { label: "Meals donated", value: "5+" },
+      ])}
+      ${ctaButton("Add My Pet Now", `${url}/pets/new`)}
+      ${ctaButton("Browse Active Contests", `${url}/contests`, "#71717a")}
+      <p style="margin-top:20px;font-size:14px;color:#16a34a;">🐾 Even your free daily votes help feed shelter animals. Thank you for joining!</p>
+    `, `Welcome to VoteToFeed — add your pet, enter a contest, and start climbing the ranks!`),
+    headers: {},
+  });
+}
+
+export async function sendNewUserNudge(
+  to: string,
+  firstName: string,
+  petName: string | null,
+  contestId: string | null,
+) {
+  const url = appUrl();
+  const starterPkg = VOTE_PACKAGES[0];
+  const hasPet = Boolean(petName && contestId);
+
+  const subject = hasPet
+    ? `${firstName}, ${petName} needs your first boost! 🐾`
+    : `${firstName}, your pet is waiting — enter a contest today! 🐾`;
+
+  const headline = hasPet
+    ? `${petName} is in the game — give them their first real boost!`
+    : `Your account is ready — now let's win something!`;
+
+  const bodyText = hasPet
+    ? `Hey ${firstName}, <strong>${petName}</strong> is entered and competing right now. Other pets are getting vote boosts from their owners. Even a small pack of ${starterPkg.votes} votes for $${(starterPkg.price / 100).toFixed(2)} can move ${petName} up several spots on the leaderboard.`
+    : `Hey ${firstName}, you signed up but haven't added a pet yet — and there are active contests running right now with real prizes. It takes 30 seconds to add your pet and enter for free.`;
+
+  const primaryCta = hasPet
+    ? ctaButton(`Boost ${petName} — ${starterPkg.votes} votes for $${(starterPkg.price / 100).toFixed(2)}`, `${url}/dashboard#votes`)
+    : ctaButton("Add My Pet & Enter Free", `${url}/pets/new`);
+
+  const secondaryCta = hasPet
+    ? ctaButton("See the Leaderboard", `${url}/contests/${contestId}`, "#71717a")
+    : ctaButton("Browse Active Contests", `${url}/contests`, "#71717a");
+
+  await sendEmail({
+    from: FROM_EMAIL,
+    to: [to],
+    subject,
+    html: emailShell(`
+      <p style="margin:0 0 6px;font-size:13px;font-weight:700;color:#dc2626;text-transform:uppercase;letter-spacing:1px;">Quick Reminder</p>
+      <h1 style="margin:0 0 20px;font-size:28px;font-weight:900;color:#18181b;line-height:1.2;">${headline}</h1>
+      <p style="margin:0 0 20px;color:#52525b;font-size:16px;">${bodyText}</p>
+      ${infoBox(`<strong>Why buy votes?</strong><br/><br/>• Jump the leaderboard instantly<br/>• Every paid vote donates a meal to a shelter pet 🐾<br/>• Top 3 winners get real prizes<br/>• Cheapest pack: just $${(starterPkg.price / 100).toFixed(2)} for ${starterPkg.votes} votes`)}
+      ${primaryCta}
+      ${secondaryCta}
+      <p style="margin-top:20px;font-size:14px;color:#16a34a;">🐾 Every vote — free or paid — makes a difference. Thank you for being here!</p>
+    `, hasPet ? `${petName} needs votes — even a small boost helps them climb!` : `You're one step away — add your pet and enter a free contest!`),
+    headers: {},
+  });
+}

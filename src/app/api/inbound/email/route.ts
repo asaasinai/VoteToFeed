@@ -154,7 +154,7 @@ export async function POST(req: NextRequest) {
     const subject = data.subject?.trim() || "(no subject)";
 
     // Match by sender email: most recent ticket first, else most recent conversation
-    const conversation = await prisma.chatConversation.findFirst({
+    let conversation = await prisma.chatConversation.findFirst({
       where: { userEmail: { equals: fromEmail, mode: "insensitive" } },
       orderBy: [
         { isTicket: "desc" },
@@ -162,9 +162,44 @@ export async function POST(req: NextRequest) {
       ],
     });
 
+    // Look up registered user by email so we can link the ticket
+    const existingUser = await prisma.user.findFirst({
+      where: { email: { equals: fromEmail, mode: "insensitive" } },
+      select: { id: true, name: true },
+    });
+
     if (!conversation) {
-      console.warn("[inbound/email] No conversation found for", fromEmail);
-      return NextResponse.json({ ok: true, skipped: "no-conversation" });
+      // First email from this address — create a new support ticket automatically
+      console.info("[inbound/email] No conversation found for", fromEmail, "— creating new ticket");
+      conversation = await prisma.chatConversation.create({
+        data: {
+          sessionId: `email-inbound-${crypto.randomUUID()}`,
+          userId: existingUser?.id ?? null,
+          userName: existingUser?.name ?? fromEmail,
+          userEmail: fromEmail,
+          status: "OPEN",
+          aiPaused: true,
+          isTicket: true,
+          ticketStage: "OPEN_TICKET",
+          ticketProblem: `${subject}\n\n${cleanBody}`.slice(0, 2000),
+          ticketCreatedAt: new Date(),
+          lastMessage: `📧 ${cleanBody.slice(0, 120)}`,
+        },
+      });
+
+      await prisma.chatMessage.create({
+        data: {
+          conversationId: conversation.id,
+          role: "USER",
+          content: `📧 New email (subject: ${subject})\n\n${cleanBody}`,
+        },
+      });
+
+      return NextResponse.json({
+        ok: true,
+        conversationId: conversation.id,
+        matchedBy: "new-ticket-created",
+      });
     }
 
     const formatted = `📧 Email reply (subject: ${subject})\n\n${cleanBody}`;

@@ -1,5 +1,6 @@
 {
   "crons": [
+    { "path": "/api/cron/new-user-nudge", "schedule": "0 15 * * *" },
     { "path": "/api/cron/auto-engage", "schedule": "0 */3 * * *" },
     { "path": "/api/cron/process-scheduled-comments", "schedule": "*/5 * * * *" },
     { "path": "/api/cron/process-scheduled-votes", "schedule": "*/5 * * * *" },
