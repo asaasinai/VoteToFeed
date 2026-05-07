@@ -5,6 +5,9 @@ type DashboardPageProps = {
   searchParams?: {
     purchase?: string;
     tier?: string;
+    buy?: string;
+    pet?: string;
+    firstBuyer?: string;
   };
 };
 import { authOptions } from "@/lib/auth";
@@ -13,6 +16,16 @@ import prisma from "@/lib/prisma";
 import { getCurrentWeekId } from "@/lib/utils";
 import { getMealRate, getAnimalType, getFirstTimeBuyerDiscount } from "@/lib/admin-settings";
 import { getStripeAsync } from "@/lib/stripe";
+
+function getDashboardCallbackUrl(searchParams?: DashboardPageProps["searchParams"]) {
+  const params = new URLSearchParams();
+  for (const [key, value] of Object.entries(searchParams ?? {})) {
+    if (value) params.set(key, value);
+  }
+
+  const query = params.toString();
+  return `/dashboard${query ? `?${query}` : ""}`;
+}
 
 /**
  * Reconciles any PENDING purchases against Stripe in the background.
@@ -66,7 +79,9 @@ async function completePendingPurchasesInBackground(userId: string) {
 
 export default async function DashboardPage({ searchParams }: DashboardPageProps) {
   const session = await getServerSession(authOptions);
-  if (!session?.user) redirect("/auth/signin?callbackUrl=/dashboard");
+  if (!session?.user) {
+    redirect(`/auth/signin?callbackUrl=${encodeURIComponent(getDashboardCallbackUrl(searchParams))}`);
+  }
 
   const userId = (session.user as { id: string }).id;
   const weekId = getCurrentWeekId();
@@ -76,7 +91,8 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
   // purchases are rare and will be reconciled on the next visit.
   void completePendingPurchasesInBackground(userId);
 
-  const [user, mealRate, animalType, lifetimeAgg, totalVotesCast] = await Promise.all([
+  const sourcePetId = searchParams?.pet;
+  const [user, mealRate, animalType, lifetimeAgg, totalVotesCast, purchasePet] = await Promise.all([
     prisma.user.findUnique({
       where: { id: userId },
       select: {
@@ -115,6 +131,12 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
       _sum: { mealsProvided: true, amount: true },
     }),
     prisma.vote.count({ where: { userId } }),
+    sourcePetId
+      ? prisma.pet.findUnique({
+          where: { id: sourcePetId },
+          select: { id: true, name: true, isActive: true },
+        })
+      : Promise.resolve(null),
   ]);
 
   if (!user) redirect("/auth/signin");
@@ -163,6 +185,7 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
         ? searchParams.purchase
         : null}
       purchaseTier={searchParams?.tier ?? null}
+      purchasePet={purchasePet?.isActive ? { id: purchasePet.id, name: purchasePet.name } : null}
     />
   );
 }

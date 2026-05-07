@@ -21,7 +21,8 @@ export async function POST(req: NextRequest) {
     }
 
     const userId = (session.user as Record<string, unknown>).id as string;
-    const { tier } = await req.json();
+    const { tier, petId } = await req.json();
+    const sourcePetId = typeof petId === "string" && petId.trim() ? petId.trim() : null;
 
     const pkg = VOTE_PACKAGES.find((p) => p.tier === tier);
     if (!pkg) {
@@ -29,6 +30,20 @@ export async function POST(req: NextRequest) {
         { error: "Invalid package tier" },
         { status: 400 }
       );
+    }
+
+    if (sourcePetId) {
+      const sourcePet = await prisma.pet.findUnique({
+        where: { id: sourcePetId },
+        select: { id: true, isActive: true },
+      });
+
+      if (!sourcePet?.isActive) {
+        return NextResponse.json(
+          { error: "Selected pet is no longer available" },
+          { status: 400 }
+        );
+      }
     }
 
     // Validate Stripe configuration before creating a pending purchase.
@@ -72,6 +87,7 @@ export async function POST(req: NextRequest) {
       amount: pkg.price.toString(),
       mealRate: mealRate.toString(),
       meals: meals.toString(),
+      ...(sourcePetId ? { petId: sourcePetId } : {}),
     };
 
     // Check if first-time buyer — include PENDING to block the race condition
@@ -91,6 +107,14 @@ export async function POST(req: NextRequest) {
       : 1;
     const finalPrice = Math.round(pkg.price * discountMultiplier);
     const appliedDiscount = discount.enabled && isFirstTimeBuyer;
+
+    const successParams = new URLSearchParams({ purchase: "success", tier });
+    const cancelParams = new URLSearchParams({ purchase: "cancelled", tier });
+    if (appliedDiscount) successParams.set("firstBuyer", "1");
+    if (sourcePetId) {
+      successParams.set("pet", sourcePetId);
+      cancelParams.set("pet", sourcePetId);
+    }
 
     // Update purchase record with final price and discount info
     await prisma.purchase.update({
@@ -124,8 +148,8 @@ export async function POST(req: NextRequest) {
         },
       ],
       mode: "payment",
-      success_url: `${appUrl}/dashboard?purchase=success&tier=${tier}${(discount.enabled && isFirstTimeBuyer) ? "&firstBuyer=1" : ""}`,
-      cancel_url: `${appUrl}/dashboard?purchase=cancelled&tier=${tier}`,
+      success_url: `${appUrl}/dashboard?${successParams.toString()}`,
+      cancel_url: `${appUrl}/dashboard?${cancelParams.toString()}`,
       metadata: {
         ...metadata,
         isFirstTimeBuyer: (discount.enabled && isFirstTimeBuyer) ? "1" : "0",

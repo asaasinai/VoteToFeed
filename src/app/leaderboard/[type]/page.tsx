@@ -5,6 +5,7 @@ import { authOptions } from "@/lib/auth";
 import { PetCard } from "@/components/pets/PetCard";
 import { ShelterBanner } from "@/components/layout/ShelterBanner";
 import { GapToFirstWidget } from "@/components/shared/GapToFirstWidget";
+import { PageViewTracker } from "@/components/analytics/PageViewTracker";
 import { getAnimalType, getWeeklyVoteGoal } from "@/lib/admin-settings";
 import prisma from "@/lib/prisma";
 import { getCurrentWeekId, getWeekDateRange, formatDisplayName } from "@/lib/utils";
@@ -87,17 +88,26 @@ export default async function LeaderboardPage({ params, searchParams }: PageProp
   // Gap-to-#1 for logged-in user (page 1 only, same type)
   const topEntry = entries[0];
   const topVotes = topEntry?.totalVotes ?? 0;
-  let myGapEntry: { petName: string; myVotes: number; myRank: number } | null = null;
+  let myGapEntry: { petId: string; petName: string; myVotes: number; myRank: number } | null = null;
   if (userId && page === 1) {
     const myPetStats = entries.find((s) => s.pet.userId === userId);
     if (myPetStats && myPetStats.pet.id !== topEntry?.pet.id) {
       const myRank = entries.indexOf(myPetStats) + 1;
-      myGapEntry = { petName: myPetStats.pet.name, myVotes: myPetStats.totalVotes, myRank };
+      myGapEntry = { petId: myPetStats.pet.id, petName: myPetStats.pet.name, myVotes: myPetStats.totalVotes, myRank };
     }
   }
 
   return (
     <div className="max-w-5xl mx-auto px-4 sm:px-6 py-6 sm:py-8">
+      <PageViewTracker
+        eventName="view_leaderboard"
+        properties={{
+          leaderboard_type: type,
+          page,
+          state: state || "all",
+          total_entries: total,
+        }}
+      />
       {/* Dog/Cat toggle */}
       <div className="flex items-center gap-2 mb-6">
         <Link
@@ -138,6 +148,7 @@ export default async function LeaderboardPage({ params, searchParams }: PageProp
           myVotes={myGapEntry.myVotes}
           topVotes={topVotes}
           petName={myGapEntry.petName}
+          petId={myGapEntry.petId}
           myRank={myGapEntry.myRank}
           showBuyCta
           className="mt-5"

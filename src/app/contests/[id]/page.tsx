@@ -9,6 +9,7 @@ import { EntriesPaginator } from "@/components/contests/EntriesPaginator";
 import { ContestCountdown } from "@/components/contests/ContestCountdown";
 import { ContestLiveBattle } from "@/components/contests/ContestLiveBattle";
 import { ContestEntriesLive } from "@/components/contests/ContestEntriesLive";
+import { BuyVotesLink } from "@/components/voting/BuyVotesLink";
 import { getAnimalType } from "@/lib/admin-settings";
 import { formatDisplayName } from "@/lib/utils";
 
@@ -423,13 +424,19 @@ export default async function ContestDetailPage({
                                   <p className="text-[11px] text-emerald-600 font-semibold mt-0.5">📈 Extends your lead by {recommended.votes} votes</p>
                                 )}
                               </div>
-                              <Link
-                                href={`/dashboard#votes`}
+                              <BuyVotesLink
+                                href={`/dashboard?buy=${recommended.tier}&pet=${entry.pet.id}`}
+                                source="contest_recommended_pack"
+                                petId={entry.pet.id}
+                                petName={entry.pet.name}
+                                packageTier={recommended.tier}
+                                votesNeeded={rank === 1 ? chaserGap : gap}
+                                currentRank={rank}
                                 className="shrink-0 inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-brand-500 hover:bg-brand-600 text-white text-xs font-bold transition-colors shadow-sm"
                               >
                                 <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>
                                 Get it
-                              </Link>
+                              </BuyVotesLink>
                             </div>
                           </div>
                         )}
@@ -437,8 +444,14 @@ export default async function ContestDetailPage({
                         {/* Action row: Buy Votes (primary) + Share */}
                         {!hasEnded && (
                           <div className="p-3 sm:p-4 pt-3 flex items-center gap-2 flex-wrap">
-                            <Link
-                              href={`/pets/${entry.pet.id}#buy-votes`}
+                            <BuyVotesLink
+                              href={`/dashboard?buy=${recommended.tier}&pet=${entry.pet.id}`}
+                              source="contest_entry_primary_cta"
+                              petId={entry.pet.id}
+                              petName={entry.pet.name}
+                              packageTier={recommended.tier}
+                              votesNeeded={rank === 1 ? chaserGap : gap}
+                              currentRank={rank}
                               className="flex-1 min-w-[180px] inline-flex items-center justify-center gap-2 px-4 py-2.5 sm:py-3 rounded-xl bg-gradient-to-r from-emerald-500 to-emerald-600 hover:from-emerald-600 hover:to-emerald-700 text-white text-sm font-bold shadow-md hover:shadow-lg transition-all active:scale-[0.98]"
                             >
                               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
@@ -451,7 +464,7 @@ export default async function ContestDetailPage({
                                   : rank <= 10
                                     ? "Buy votes — climb the ranks"
                                     : "Buy votes — boost ranking"}
-                            </Link>
+                            </BuyVotesLink>
                             <Link
                               href={`/pets/${entry.pet.id}`}
                               className="inline-flex items-center justify-center gap-1.5 px-4 py-2.5 sm:py-3 rounded-xl border border-surface-200 text-surface-700 hover:bg-surface-50 text-sm font-semibold transition-colors"

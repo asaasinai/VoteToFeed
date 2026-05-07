@@ -1,6 +1,6 @@
 "use client";
 
-import Link from "next/link";
+import { BuyVotesLink } from "@/components/voting/BuyVotesLink";
 
 interface GapToFirstWidgetProps {
   /** Votes the current viewer's pet has */
@@ -11,6 +11,8 @@ interface GapToFirstWidgetProps {
   petName: string;
   /** Current rank of the viewer's pet */
   myRank: number;
+  /** ID of the viewer's pet (optional) */
+  petId?: string | null;
   /** Contest or leaderboard identifier (for the buy CTA URL) */
   contestId?: string;
   /** Show "buy to climb" CTA */
@@ -25,10 +27,10 @@ const LEGEND_TIER_PRICE = 249;
 const HERO_TIER_VOTES = 750;
 const HERO_TIER_PRICE = 99;
 
-function recommendedTier(gap: number): { label: string; votes: number; price: number } {
-  if (gap >= ICON_TIER_VOTES * 0.8) return { label: "Icon", votes: ICON_TIER_VOTES, price: ICON_TIER_PRICE };
-  if (gap >= LEGEND_TIER_VOTES * 0.8) return { label: "Legend", votes: LEGEND_TIER_VOTES, price: LEGEND_TIER_PRICE };
-  return { label: "Hero", votes: HERO_TIER_VOTES, price: HERO_TIER_PRICE };
+function recommendedTier(gap: number): { tier: "HERO" | "LEGEND" | "ICON"; label: string; votes: number; price: number } {
+  if (gap >= ICON_TIER_VOTES * 0.8) return { tier: "ICON", label: "Icon", votes: ICON_TIER_VOTES, price: ICON_TIER_PRICE };
+  if (gap >= LEGEND_TIER_VOTES * 0.8) return { tier: "LEGEND", label: "Legend", votes: LEGEND_TIER_VOTES, price: LEGEND_TIER_PRICE };
+  return { tier: "HERO", label: "Hero", votes: HERO_TIER_VOTES, price: HERO_TIER_PRICE };
 }
 
 export function GapToFirstWidget({
@@ -39,6 +41,7 @@ export function GapToFirstWidget({
   contestId,
   showBuyCta = true,
   className = "",
+  petId,
 }: GapToFirstWidgetProps) {
   const gap = Math.max(0, topVotes - myVotes);
   const isFirst = myRank === 1;
@@ -104,12 +107,18 @@ export function GapToFirstWidget({
                 +{tier.votes.toLocaleString()} votes · ${tier.price} — closes the gap instantly
               </p>
             </div>
-            <Link
-              href={`/dashboard#votes?tier=${tier.label.toUpperCase()}`}
+            <BuyVotesLink
+              href={`/dashboard?buy=${tier.tier}${petId ? `&pet=${petId}` : ""}`}
+              source="gap_to_first_widget"
+              petId={petId}
+              petName={petName}
+              packageTier={tier.tier}
+              votesNeeded={gap}
+              currentRank={myRank}
               className="shrink-0 inline-flex items-center justify-center gap-1.5 rounded-xl bg-brand-600 hover:bg-brand-700 text-white text-xs font-bold px-4 py-2 transition-colors"
             >
               Buy Votes →
-            </Link>
+            </BuyVotesLink>
           </div>
         </div>
       )}

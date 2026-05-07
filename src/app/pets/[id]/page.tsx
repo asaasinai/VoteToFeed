@@ -6,6 +6,7 @@ import prisma from "@/lib/prisma";
 import { getCurrentWeekId } from "@/lib/utils";
 import { getAnimalType, getMealRate } from "@/lib/admin-settings";
 import { VoteButton } from "@/components/voting/VoteButton";
+import { GapToFirstWidget } from "@/components/shared/GapToFirstWidget";
 import { CommentForm } from "@/components/pets/CommentForm";
 import { CommentList } from "@/components/pets/CommentList";
 import { rankSuffix, timeAgo } from "@/lib/utils";
@@ -253,9 +254,10 @@ export default async function PetDetailPage({
   const weeklyVotes = totalContestVotes;
   const weeklyRank = contestRank ?? liveRank ?? pet.weeklyStats[0]?.rank ?? null;
 
-  // Calculate votes needed for top 3 (for competitive nudge)
+  // Calculate votes needed for top 3 (for competitive nudge) + top votes for GapToFirstWidget
   let votesNeededForTop3: number | null = null;
-  if (activeContestEntry && weeklyRank != null && weeklyRank > 3) {
+  let topContestVotes = 0;
+  if (activeContestEntry && weeklyRank != null && weeklyRank > 1) {
     const contestDateFilter2 = {
       gte: activeContestEntry.contest.startDate,
       lte: activeContestEntry.contest.endDate,
@@ -273,8 +275,11 @@ export default async function PetDetailPage({
     const ranked = petIds2
       .map((pid) => (vg.find((v) => v.petId === pid)?._sum.quantity ?? 0) + (am.get(pid) ?? 0))
       .sort((a, b) => b - a);
-    const thirdPlaceVotes = ranked[2] ?? 0;
-    votesNeededForTop3 = Math.max(0, thirdPlaceVotes - totalContestVotes + 1);
+    topContestVotes = ranked[0] ?? 0;
+    if (weeklyRank > 3) {
+      const thirdPlaceVotes = ranked[2] ?? 0;
+      votesNeededForTop3 = Math.max(0, thirdPlaceVotes - totalContestVotes + 1);
+    }
   }
 
   const contestEndDate = activeContestEntry?.contest.endDate?.toISOString() ?? null;
@@ -410,6 +415,17 @@ export default async function PetDetailPage({
               mealRate={mealRate}
             />
           </div>
+
+          {weeklyRank != null && weeklyRank > 1 && topContestVotes > 0 && (
+            <GapToFirstWidget
+              myVotes={weeklyVotes}
+              topVotes={topContestVotes}
+              petName={pet.name}
+              myRank={weeklyRank}
+              petId={pet.id}
+              showBuyCta={true}
+            />
+          )}
 
           {pet.votes.length > 0 && (
             <div>

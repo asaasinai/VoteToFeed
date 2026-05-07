@@ -91,18 +91,30 @@ function StepCard({
   step,
   title,
   description,
+  highlight,
 } : {
   step: string;
   title: string;
   description: string;
+  highlight?: boolean;
 }) {
   return (
-    <div className="card p-6">
-      <div className="w-10 h-10 rounded-2xl bg-brand-500 text-white flex items-center justify-center text-sm font-black shadow-sm">
+    <div className={`card p-6 relative ${highlight ? "border-brand-300 ring-2 ring-brand-100 bg-brand-50/40" : ""}`}>
+      {highlight && (
+        <span className="absolute -top-2.5 left-1/2 -translate-x-1/2 px-3 py-0.5 rounded-full bg-brand-500 text-white text-[10px] font-bold uppercase tracking-wide whitespace-nowrap">
+          Optional boost
+        </span>
+      )}
+      <div className={`w-10 h-10 rounded-2xl flex items-center justify-center text-sm font-black shadow-sm ${highlight ? "bg-gradient-to-br from-brand-500 to-brand-600 text-white" : "bg-brand-500 text-white"}`}>
         {step}
       </div>
       <h3 className="mt-4 text-xl font-extrabold text-surface-900 tracking-tight">{title}</h3>
       <p className="mt-2 text-base text-surface-700 leading-relaxed">{description}</p>
+      {highlight && (
+        <a href="/auth/signup" className="mt-4 inline-flex items-center gap-1.5 text-sm font-bold text-brand-600 hover:text-brand-700">
+          Start for $0.99 →
+        </a>
+      )}
     </div>
   );
 }
@@ -268,10 +280,11 @@ export default async function HomePage() {
           <p className="mt-4 text-lg text-surface-700 leading-relaxed">No maze. No clutter. Just a clean path from click to account to pet entry.</p>
         </div>
 
-        <div className="mt-8 grid grid-cols-1 md:grid-cols-3 gap-4 sm:gap-5">
+        <div className="mt-8 grid grid-cols-1 md:grid-cols-4 gap-4 sm:gap-5">
           <StepCard step="1" title="Create your free account" description="Start with signup so every visitor can vote, save progress, and enter a pet without getting lost." />
           <StepCard step="2" title="Upload your pet" description="Add a photo, pick the contest, and set up your pet profile in under a minute on mobile." />
           <StepCard step="3" title="Collect votes and win" description="Share your profile, climb the leaderboard, and help fund meals for shelter pets with every vote." />
+          <StepCard step="4" title="Want to climb faster? Boost with votes" description="Buy vote packs starting from just $0.99. Every paid vote also feeds a real shelter pet — a win-win." highlight />
         </div>
       </section>
 
