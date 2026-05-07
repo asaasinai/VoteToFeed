@@ -48,7 +48,8 @@ export async function GET() {
     }));
 
     return NextResponse.json(result);
-  } catch {
-    return NextResponse.json([], { status: 200 });
+  } catch (error) {
+    console.error("[recent-purchases] Failed to fetch:", error);
+    return NextResponse.json({ error: "Failed to fetch recent purchases" }, { status: 500 });
   }
 }

@@ -54,7 +54,7 @@ export function VoteButton({
   const noVotesLeft = freeVotes === 0 && paidVotes === 0;
   const earlyBoostPackage = useMemo(() => {
     const targetVotes = votesNeededForTop3 && votesNeededForTop3 > 0 ? votesNeededForTop3 : 30;
-    return VOTE_PACKAGES.find((pkg) => pkg.votes >= targetVotes) ?? VOTE_PACKAGES[1] ?? VOTE_PACKAGES[0];
+    return VOTE_PACKAGES.find((pkg) => pkg.votes >= targetVotes) ?? VOTE_PACKAGES[VOTE_PACKAGES.length - 1];
   }, [votesNeededForTop3]);
   const earlyBoostMeals = calculateMeals(earlyBoostPackage.price, mealRate);
 
