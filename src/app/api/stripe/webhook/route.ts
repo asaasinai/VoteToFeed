@@ -4,7 +4,7 @@ export const dynamic = "force-dynamic";
 import Stripe from "stripe";
 import { getStripeAsync } from "@/lib/stripe";
 import prisma from "@/lib/prisma";
-import { sendPurchaseConfirmation } from "@/lib/email";
+import { sendPurchaseConfirmation, sendAbandonedCheckoutEmail } from "@/lib/email";
 import { getAnimalType } from "@/lib/admin-settings";
 
 async function findPurchase(metadata?: Record<string, string | undefined>, stripeSessionId?: string | null) {
@@ -28,6 +28,7 @@ async function completePurchase({
   votes,
   amount,
   meals,
+  petId,
 }: {
   purchase: { id: string; status: string; userId: string; votes: number; amount: number; mealsProvided: number };
   stripePaymentId?: string | null;
@@ -35,6 +36,7 @@ async function completePurchase({
   votes?: number;
   amount?: number;
   meals?: number;
+  petId?: string;
 }) {
   if (purchase.status === "COMPLETED") return;
 
@@ -88,12 +90,19 @@ async function completePurchase({
 
   if (user?.email) {
     const animalType = await getAnimalType();
+    let petName: string | undefined;
+    if (petId) {
+      const pet = await prisma.pet.findUnique({ where: { id: petId }, select: { name: true } });
+      petName = pet?.name ?? undefined;
+    }
     await sendPurchaseConfirmation(
       user.email,
       resolvedVotes,
       resolvedAmount || 0,
       resolvedMeals || 0,
-      animalType
+      animalType,
+      petId,
+      petName
     ).catch(console.error);
   }
 }
@@ -144,7 +153,38 @@ export async function POST(req: NextRequest) {
           votes: metadata.votes ? parseInt(metadata.votes, 10) : undefined,
           amount: metadata.amount ? parseInt(metadata.amount, 10) : undefined,
           meals: metadata.meals ? parseFloat(metadata.meals) : undefined,
+          petId: metadata.petId || undefined,
         });
+        break;
+      }
+
+      case "checkout.session.expired": {
+        const expiredSession = event.data.object as Stripe.Checkout.Session;
+        const expiredMeta = (expiredSession.metadata || {}) as Record<string, string>;
+        const expiredPurchase = await findPurchase(expiredMeta, expiredSession.id);
+        if (expiredPurchase && expiredPurchase.status === "PENDING") {
+          await prisma.purchase.update({ where: { id: expiredPurchase.id }, data: { status: "FAILED" } });
+          const expiredUser = await prisma.user.findUnique({
+            where: { id: expiredPurchase.userId },
+            select: { email: true, name: true },
+          });
+          if (expiredUser?.email) {
+            const tier = expiredMeta.tier || expiredPurchase.packageTier;
+            const petId = expiredMeta.petId || undefined;
+            let petName: string | undefined;
+            if (petId) {
+              const pet = await prisma.pet.findUnique({ where: { id: petId }, select: { name: true } });
+              petName = pet?.name ?? undefined;
+            }
+            await sendAbandonedCheckoutEmail(
+              expiredUser.email,
+              expiredUser.name?.split(" ")[0] ?? "there",
+              tier,
+              petId,
+              petName
+            ).catch(console.error);
+          }
+        }
         break;
       }
 
@@ -168,6 +208,7 @@ export async function POST(req: NextRequest) {
           votes: metadata.votes ? parseInt(metadata.votes, 10) : undefined,
           amount: metadata.amount ? parseInt(metadata.amount, 10) : undefined,
           meals: metadata.meals ? parseFloat(metadata.meals) : undefined,
+          petId: metadata.petId || undefined,
         });
         break;
       }

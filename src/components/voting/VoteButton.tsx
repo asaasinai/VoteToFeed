@@ -52,6 +52,11 @@ export function VoteButton({
   const [impactVoteCount, setImpactVoteCount] = useState(0);
   const [navigatingPkg, setNavigatingPkg] = useState<string | null>(null);
   const noVotesLeft = freeVotes === 0 && paidVotes === 0;
+  const earlyBoostPackage = useMemo(() => {
+    const targetVotes = votesNeededForTop3 && votesNeededForTop3 > 0 ? votesNeededForTop3 : 30;
+    return VOTE_PACKAGES.find((pkg) => pkg.votes >= targetVotes) ?? VOTE_PACKAGES[1] ?? VOTE_PACKAGES[0];
+  }, [votesNeededForTop3]);
+  const earlyBoostMeals = calculateMeals(earlyBoostPackage.price, mealRate);
 
   const [rankUpMsg, setRankUpMsg] = useState<string | null>(null);
   const [showConfetti, setShowConfetti] = useState(false);
@@ -141,6 +146,22 @@ export function VoteButton({
   }, [status]);
 
   const hasVotes = freeVotes > 0 || paidVotes > 0;
+
+  const startPackageCheckout = useCallback((pkg: (typeof VOTE_PACKAGES)[number], source: string, votesNeeded?: number | null) => {
+    trackPostHogEvent("buy_to_climb_click", {
+      source,
+      pet_id: petId,
+      pet_name: petName,
+      pet_type: petType,
+      package_tier: pkg.tier,
+      votes_needed: votesNeeded ?? undefined,
+      current_rank: rankState ?? undefined,
+    });
+    setNavigatingPkg(pkg.tier);
+    const dashboardUrl = `/dashboard?buy=${pkg.tier}&pet=${petId}`;
+    const url = status === "authenticated" ? dashboardUrl : `/auth/signin?callbackUrl=${encodeURIComponent(dashboardUrl)}`;
+    window.location.href = url;
+  }, [petId, petName, petType, rankState, status]);
 
   const handleVote = useCallback(async () => {
     if (!hasVotes) {
@@ -286,7 +307,7 @@ export function VoteButton({
         </div>
       )}
 
-      <VoteStats voteCount={voteCount} animalType={animalType} weeklyRank={rankState} petType={petType} animating={animating} contestEndDate={contestEndDate} contestName={contestName} votesNeededForTop3={votesNeededForTop3} gapToFirst={gapToFirst} />
+      <VoteStats voteCount={voteCount} animalType={animalType} weeklyRank={rankState} petType={petType} animating={animating} contestEndDate={contestEndDate} contestName={contestName} votesNeededForTop3={votesNeededForTop3} gapToFirst={gapToFirst} petId={petId} petName={petName} />
 
       <button
         onClick={handleVote}
@@ -341,6 +362,41 @@ export function VoteButton({
         Every vote helps feed shelter pets in need
       </p>
 
+      {status === "authenticated" && hasVotes && !showPurchase && earlyBoostPackage && (
+        <div className={`rounded-2xl p-3 flex flex-col sm:flex-row sm:items-center gap-3 animate-slide-up ${isOwner ? "border-2 border-brand-300 bg-gradient-to-r from-brand-50 to-white shadow-sm" : "border border-brand-100 bg-brand-50/70"}`}>
+          <div className="flex-1 min-w-0">
+            {isOwner ? (
+              <>
+                <p className="text-sm font-black text-brand-700">🚀 This is YOUR pet — give them a boost!</p>
+                <p className="text-xs text-surface-600 mt-0.5">
+                  {earlyBoostPackage.votes.toLocaleString()} votes · ~{earlyBoostMeals} shelter meals · starting at ${(earlyBoostPackage.price / 100).toFixed(2)}
+                </p>
+              </>
+            ) : (
+              <>
+                <p className="text-sm font-bold text-surface-900">Boost {petName || "this pet"} now</p>
+                <p className="text-xs text-surface-600 mt-0.5">
+                  Add {earlyBoostPackage.votes.toLocaleString()} votes and feed ~{earlyBoostMeals} shelter {animalType}.
+                </p>
+              </>
+            )}
+          </div>
+          <button
+            onClick={() => startPackageCheckout(earlyBoostPackage, isOwner ? "pet_page_owner_cta" : "pet_page_early_cta", votesNeededForTop3)}
+            disabled={!!navigatingPkg}
+            className={`inline-flex shrink-0 items-center justify-center rounded-xl px-4 py-2.5 text-xs font-bold text-white transition-colors disabled:opacity-70 ${isOwner ? "bg-brand-500 hover:bg-brand-600 shadow-sm animate-pulse-subtle" : "bg-brand-600 hover:bg-brand-700"}`}
+          >
+            {navigatingPkg === earlyBoostPackage.tier ? (
+              <span className="w-4 h-4 rounded-full border-2 border-white border-t-transparent animate-spin" />
+            ) : isOwner ? (
+              <>⚡ Boost for ${(earlyBoostPackage.price / 100).toFixed(2)}</>
+            ) : (
+              <>Boost for ${(earlyBoostPackage.price / 100).toFixed(2)}</>
+            )}
+          </button>
+        </div>
+      )}
+
       {status !== "authenticated" && (
         <p className="text-center text-xs text-surface-500">
           Want more than 3 free votes?{" "}
@@ -351,55 +407,77 @@ export function VoteButton({
       )}
 
       {showPurchase && (
-        <div className="card p-4 border-brand-200 bg-gradient-to-b from-brand-50 to-white text-center animate-slide-up space-y-3">
-          <p className="text-sm font-bold text-surface-900">
-            {freeVotes === 0 && paidVotes === 0 ? "🔥 Out of votes!" : "⚡ Boost your votes"}
-          </p>
-          <p className="text-xs text-surface-500">Every vote feeds a shelter pet. Pick a package:</p>
-          <div className="grid grid-cols-3 gap-2">
-            {VOTE_PACKAGES.slice(0, 3).map((pkg) => {
-              const meals = calculateMeals(pkg.price, mealRate);
-              const isBest = pkg.tier === "CHAMPION";
-              return (
+        <div className="card border-2 border-red-100 bg-gradient-to-b from-red-50 to-white animate-slide-up overflow-hidden">
+          {/* Header */}
+          <div className="px-4 pt-4 pb-3 text-center border-b border-red-100">
+            <p className={`text-lg font-black ${freeVotes === 0 && paidVotes === 0 ? "text-red-600" : "text-brand-600"}`}>
+              {freeVotes === 0 && paidVotes === 0 ? "🔥 You're out of votes!" : "⚡ Boost your votes"}
+            </p>
+            {freeVotes === 0 && paidVotes === 0 && (
+              <p className="text-xs text-surface-500 mt-0.5">Every vote feeds a shelter pet</p>
+            )}
+          </div>
+
+          {/* Best value — big prominent CTA */}
+          {(() => {
+            const champion = VOTE_PACKAGES.find((p) => p.tier === "CHAMPION");
+            if (!champion) return null;
+            const meals = calculateMeals(champion.price, mealRate);
+            return (
+              <div className="px-4 pt-3">
                 <button
-                  key={pkg.tier}
-                  onClick={() => {
-                    setNavigatingPkg(pkg.tier);
-                    const dashboardUrl = `/dashboard?buy=${pkg.tier}&pet=${petId}`;
-                    const url = status === "authenticated" ? dashboardUrl : `/auth/signin?callbackUrl=${encodeURIComponent(dashboardUrl)}`;
-                    window.location.href = url;
-                  }}
+                  onClick={() => startPackageCheckout(champion, "vote_button_out_of_votes")}
                   disabled={!!navigatingPkg}
-                  className={`relative rounded-xl p-3 text-center transition-all hover:shadow-md disabled:opacity-70 ${
-                    isBest
-                      ? "bg-brand-500 text-white ring-2 ring-brand-300 shadow-sm"
-                      : "bg-surface-50 hover:bg-surface-100 border border-surface-200"
-                  }`}
+                  className="w-full py-3 rounded-xl bg-brand-500 hover:bg-brand-600 text-white font-black text-sm transition-all shadow-sm hover:shadow-md disabled:opacity-60 animate-pulse-subtle"
                 >
-                  {navigatingPkg === pkg.tier ? (
-                    <div className="flex items-center justify-center py-3">
-                      <div className={`w-5 h-5 rounded-full border-2 ${isBest ? "border-white border-t-transparent" : "border-brand-500 border-t-transparent"} animate-spin`} />
-                    </div>
+                  {navigatingPkg === champion.tier ? (
+                    <span className="flex items-center justify-center gap-2">
+                      <span className="w-4 h-4 rounded-full border-2 border-white border-t-transparent animate-spin" />
+                      Preparing…
+                    </span>
                   ) : (
-                    <>
-                      {isBest && (
-                        <span className="absolute -top-2 left-1/2 -translate-x-1/2 px-2 py-0.5 rounded-full bg-yellow-400 text-[9px] font-bold uppercase text-yellow-900 whitespace-nowrap">
-                          Best Value
-                        </span>
-                      )}
-                      <p className={`text-lg font-black ${isBest ? "text-white" : "text-surface-900"}`}>{pkg.votes}</p>
-                      <p className={`text-[10px] font-medium ${isBest ? "text-white/80" : "text-surface-400"}`}>votes</p>
-                      <p className={`text-sm font-bold mt-1 ${isBest ? "text-white" : "text-brand-600"}`}>${(pkg.price / 100).toFixed(2)}</p>
-                      <p className={`text-[10px] mt-0.5 ${isBest ? "text-white/70" : "text-accent-600"}`}>~{meals} meals</p>
-                    </>
+                    <>⚡ Get {champion.votes} votes for ${(champion.price / 100).toFixed(2)} — ~{meals} meals 🐾</>
                   )}
                 </button>
-              );
-            })}
+                <p className="text-center text-[10px] text-surface-400 mt-1">Most popular · Best value</p>
+              </div>
+            );
+          })()}
+
+          {/* Smaller options */}
+          <div className="px-4 pt-2 pb-3">
+            <div className="grid grid-cols-3 gap-2">
+              {VOTE_PACKAGES.filter((p) => p.tier !== "CHAMPION").slice(0, 3).map((pkg) => {
+                const meals = calculateMeals(pkg.price, mealRate);
+                return (
+                  <button
+                    key={pkg.tier}
+                    onClick={() => startPackageCheckout(pkg, "vote_button_out_of_votes")}
+                    disabled={!!navigatingPkg}
+                    className="rounded-xl p-2.5 text-center transition-all hover:shadow-sm bg-surface-50 hover:bg-surface-100 border border-surface-200 disabled:opacity-70"
+                  >
+                    {navigatingPkg === pkg.tier ? (
+                      <div className="flex items-center justify-center py-2">
+                        <div className="w-4 h-4 rounded-full border-2 border-brand-500 border-t-transparent animate-spin" />
+                      </div>
+                    ) : (
+                      <>
+                        <p className="text-base font-black text-surface-900">{pkg.votes}</p>
+                        <p className="text-[10px] text-surface-400">votes</p>
+                        <p className="text-sm font-bold text-brand-600 mt-0.5">${(pkg.price / 100).toFixed(2)}</p>
+                        <p className="text-[10px] text-accent-600">~{meals} 🐾</p>
+                      </>
+                    )}
+                  </button>
+                );
+              })}
+            </div>
           </div>
-          <Link href="/dashboard#votes" className="text-[11px] text-brand-600 font-medium hover:underline">
-            View all packages →
-          </Link>
+          <div className="px-4 pb-3 text-center">
+            <Link href={`/dashboard?pet=${petId}&buy=HERO`} className="text-[11px] text-brand-600 font-semibold hover:underline">
+              View all packages →
+            </Link>
+          </div>
         </div>
       )}
 
@@ -429,6 +507,8 @@ function VoteStats({
   contestName,
   votesNeededForTop3,
   gapToFirst,
+  petId,
+  petName,
 }: {
   voteCount: number;
   animalType: string;
@@ -439,6 +519,8 @@ function VoteStats({
   contestName?: string | null;
   votesNeededForTop3?: number | null;
   gapToFirst?: { gap: number; leader: string } | null;
+  petId: string;
+  petName?: string;
 }) {
   const rankSuffix = (n: number) => {
     const s = ["th", "st", "nd", "rd"];
@@ -481,7 +563,17 @@ function VoteStats({
               {countdown.days > 0 ? `${countdown.days}d ${countdown.hours}h` : countdown.hours > 0 ? `${countdown.hours}h ${countdown.minutes}m` : `${countdown.minutes}m ${countdown.seconds}s`}
             </div>
             {countdown.totalHours <= 48 && (
-              <p className="text-[9px] font-bold text-red-500 mt-1">⚡ Ends soon!</p>
+              <div className="mt-1 text-right">
+                <p className="text-[9px] font-bold text-red-500">⚡ Ends soon!</p>
+                {petId && (
+                  <Link
+                    href={`/dashboard?pet=${petId}&buy=CHAMPION`}
+                    className="mt-0.5 inline-block text-[9px] font-black px-2 py-0.5 rounded-full bg-red-500 text-white hover:bg-red-600 transition-colors"
+                  >
+                    Buy votes →
+                  </Link>
+                )}
+              </div>
             )}
           </div>
         )}
@@ -514,7 +606,18 @@ function VoteStats({
             const pkg = VOTE_PACKAGES.find(p => p.votes >= votesNeededForTop3) || VOTE_PACKAGES[VOTE_PACKAGES.length - 1];
             return (
               <button
-                onClick={() => { window.location.href = `/dashboard?buy=${pkg.tier}`; }}
+                onClick={() => {
+                  trackPostHogEvent("buy_to_climb_click", {
+                    source: "pet_page_top3_cta",
+                    pet_id: petId,
+                    pet_name: petName,
+                    pet_type: petType,
+                    package_tier: pkg.tier,
+                    votes_needed: votesNeededForTop3,
+                    current_rank: weeklyRank,
+                  });
+                  window.location.href = `/dashboard?buy=${pkg.tier}&pet=${petId}`;
+                }}
                 className="w-full py-2 rounded-lg bg-amber-500 hover:bg-amber-600 text-white text-xs font-bold transition-colors"
               >
                 🔥 Only {votesNeededForTop3} vote{votesNeededForTop3 !== 1 ? "s" : ""} from Top 3 — Get {pkg.votes} for ${(pkg.price / 100).toFixed(2)}!

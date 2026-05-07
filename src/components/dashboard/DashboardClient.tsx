@@ -18,6 +18,7 @@ type Pet = {
 };
 type Purchase = { tier: string; votes: number; meals: number; amount: number; createdAt: string };
 type VoteHistoryItem = { id: string; petName: string; petPhoto: string | null; type: string; quantity: number; createdAt: string };
+type PurchasePet = { id: string; name: string };
 
 type Props = {
   userName: string;
@@ -35,6 +36,7 @@ type Props = {
   totalVotesCast: number;
   purchaseStatus?: "success" | "cancelled" | null;
   purchaseTier?: string | null;
+  purchasePet?: PurchasePet | null;
   isFirstTimeBuyer?: boolean;
   discountEnabled?: boolean;
   discountPct?: number;
@@ -58,6 +60,7 @@ export function DashboardClient({
   totalVotesCast,
   purchaseStatus,
   purchaseTier,
+  purchasePet,
   isFirstTimeBuyer = false,
   discountEnabled = true,
   discountPct = 20,
@@ -66,10 +69,12 @@ export function DashboardClient({
   const [buyingTier, setBuyingTier] = useState<string | null>(null);
   const [activityIdx, setActivityIdx] = useState(0);
   const [activityVisible, setActivityVisible] = useState(true);
-  const [weekTimeLeft, setWeekTimeLeft] = useState("");
+  const [pendingCheckoutBanner, setPendingCheckoutBanner] = useState<{ tier: string; petName?: string } | null>(null);
+  const [liveActivity, setLiveActivity] = useState<Array<{ name: string; pkg: string; votes: number; emoji: string }>>([]);
   const daysLeft = daysRemainingInWeek();
 
-  const LIVE_ACTIVITY = [
+  const TIER_EMOJI: Record<string, string> = { STARTER: "🐾", FRIEND: "💛", SUPPORTER: "💚", CHAMPION: "🏆", HERO: "⚡", LEGEND: "🌟", ICON: "👑" };
+  const FALLBACK_ACTIVITY = [
     { name: "Alex M.", pkg: "Champion Pack", votes: 150, emoji: "🏆" },
     { name: "Sarah K.", pkg: "Hero Pack", votes: 750, emoji: "⚡" },
     { name: "Jordan L.", pkg: "Friend Pack", votes: 30, emoji: "💛" },
@@ -81,6 +86,7 @@ export function DashboardClient({
     { name: "Noah D.", pkg: "Champion Pack", votes: 150, emoji: "🏆" },
     { name: "Ava P.", pkg: "Friend Pack", votes: 30, emoji: "💛" },
   ];
+  const LIVE_ACTIVITY = liveActivity.length >= 5 ? liveActivity : FALLBACK_ACTIVITY;
 
   const SOCIAL_PROOF: Record<string, { today: number; hot?: boolean }> = {
     STARTER: { today: 19 },
@@ -103,21 +109,12 @@ export function DashboardClient({
   }, []);
 
   useEffect(() => {
-    function calcWeekTime() {
-      const now = new Date();
-      const endOfWeek = new Date(now);
-      endOfWeek.setDate(now.getDate() + (7 - now.getDay()));
-      endOfWeek.setHours(23, 59, 59, 0);
-      const diff = endOfWeek.getTime() - now.getTime();
-      if (diff <= 0) return "00:00:00";
-      const h = Math.floor(diff / 3600000);
-      const m = Math.floor((diff % 3600000) / 60000);
-      const s = Math.floor((diff % 60000) / 1000);
-      return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
-    }
-    setWeekTimeLeft(calcWeekTime());
-    const t = setInterval(() => setWeekTimeLeft(calcWeekTime()), 1000);
-    return () => clearInterval(t);
+    fetch("/api/analytics/recent-purchases")
+      .then((r) => r.ok ? r.json() : null)
+      .then((data) => {
+        if (Array.isArray(data) && data.length >= 3) setLiveActivity(data);
+      })
+      .catch(() => {});
   }, []);
 
   useEffect(() => {
@@ -130,11 +127,13 @@ export function DashboardClient({
     // Auto-trigger checkout from ?buy=TIER query param (from VoteButton packages)
     const params = new URLSearchParams(window.location.search);
     const buyTier = params.get("buy");
+    const sourcePetId = params.get("pet");
     if (buyTier && VOTE_PACKAGES.some((pkg) => pkg.tier === buyTier)) {
       setActiveTab("votes");
-      handleBuyVotes(buyTier);
+      setPendingCheckoutBanner({ tier: buyTier, petName: purchasePet?.name });
+      handleBuyVotes(buyTier, sourcePetId);
     }
-  }, []);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (purchaseStatus !== "success" || recentPurchases.length === 0) return;
@@ -146,12 +145,14 @@ export function DashboardClient({
     });
     trackPostHogEvent("checkout_completed", {
       package_tier: latestPurchase.tier,
+      pet_id: purchasePet?.id,
+      pet_name: purchasePet?.name,
       amount_cents: latestPurchase.amount,
       amount_dollars: latestPurchase.amount / 100,
       votes: latestPurchase.votes,
       meals: latestPurchase.meals,
     });
-  }, [purchaseStatus, recentPurchases]);
+  }, [purchasePet?.id, purchasePet?.name, purchaseStatus, recentPurchases]);
 
   useEffect(() => {
     if (purchaseStatus !== "cancelled") return;
@@ -160,7 +161,7 @@ export function DashboardClient({
     });
   }, [purchaseStatus, purchaseTier]);
 
-  async function handleBuyVotes(tier: string) {
+  async function handleBuyVotes(tier: string, petId?: string | null) {
     setBuyingTier(tier);
     const selectedPackage = VOTE_PACKAGES.find((pkg) => pkg.tier === tier);
     trackCheckoutStartedEvent({
@@ -170,6 +171,7 @@ export function DashboardClient({
     });
     trackPostHogEvent("checkout_started", {
       package_tier: tier,
+      pet_id: petId || undefined,
       votes: selectedPackage?.votes,
       amount_cents: selectedPackage?.price,
       amount_dollars: selectedPackage ? selectedPackage.price / 100 : undefined,
@@ -178,12 +180,25 @@ export function DashboardClient({
       const res = await fetch("/api/stripe/checkout", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ tier }),
+        body: JSON.stringify({ tier, petId: petId || undefined }),
       });
       const data = await res.json();
       if (data.url) window.location.href = data.url;
-      else alert(data.error || "Checkout failed");
-    } catch {
+      else {
+        trackPostHogEvent("checkout_error", {
+          package_tier: tier,
+          pet_id: petId || undefined,
+          status_code: res.status,
+          error_message: data.error || "Checkout failed",
+        });
+        alert(data.error || "Checkout failed");
+      }
+    } catch (error) {
+      trackPostHogEvent("checkout_error", {
+        package_tier: tier,
+        pet_id: petId || undefined,
+        error_message: error instanceof Error ? error.message : "Something went wrong",
+      });
       alert("Something went wrong");
     } finally {
       setBuyingTier(null);
@@ -228,6 +243,12 @@ export function DashboardClient({
     },
   ];
 
+  const purchaseMessage = purchaseStatus === "success"
+    ? recentPurchases.length > 0
+      ? `🎉 ${recentPurchases[0].votes.toLocaleString()} votes added to your balance! You now have ${(freeVotesRemaining + paidVoteBalance).toLocaleString()} votes ready to use.`
+      : `✅ Payment received${purchaseTier ? ` for the ${purchaseTier.toLowerCase()} package` : ""}. Your votes are being added — refresh in a moment.`
+    : `Checkout cancelled${purchaseTier ? ` for the ${purchaseTier.toLowerCase()} package` : ""}. No charge was made.`;
+
   return (
     <div className="min-h-screen bg-[#FAFAFA]">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 py-8">
@@ -244,6 +265,15 @@ export function DashboardClient({
           </Link>
         </div>
 
+        {pendingCheckoutBanner && !purchaseStatus && (
+          <div className="mb-4 rounded-2xl border border-brand-200 bg-brand-50 px-4 py-3 text-sm flex items-center gap-3">
+            <div className="w-5 h-5 rounded-full border-2 border-brand-500 border-t-transparent animate-spin shrink-0" />
+            <span className="text-brand-800 font-medium">
+              Preparing your checkout{pendingCheckoutBanner.petName ? ` for ${pendingCheckoutBanner.petName}` : ""}… you'll be redirected to Stripe in a moment.
+            </span>
+          </div>
+        )}
+
         {purchaseStatus && (
           <div className={`mb-6 rounded-2xl border px-4 py-3 text-sm ${
             purchaseStatus === "success"
@@ -252,11 +282,22 @@ export function DashboardClient({
                 : "border-amber-200 bg-amber-50 text-amber-800"
               : "border-amber-200 bg-amber-50 text-amber-800"
           }`}>
-            {purchaseStatus === "success"
-              ? recentPurchases.length > 0
-                ? `Payment received${purchaseTier ? ` for the ${purchaseTier.toLowerCase()} package` : ""}. Your votes were added to your balance.`
-                : `Payment received${purchaseTier ? ` for the ${purchaseTier.toLowerCase()} package` : ""}. Your votes are being processed — please refresh in a moment.`
-              : `Checkout cancelled${purchaseTier ? ` for the ${purchaseTier.toLowerCase()} package` : ""}. No charge was made.`}
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+              <span>{purchaseMessage}</span>
+              {purchaseStatus === "success" && recentPurchases.length > 0 && purchasePet && (
+                <Link
+                  href={`/pets/${purchasePet.id}#buy-votes`}
+                  onClick={() => trackPostHogEvent("post_purchase_continue_click", {
+                    pet_id: purchasePet.id,
+                    pet_name: purchasePet.name,
+                    package_tier: purchaseTier || undefined,
+                  })}
+                  className="inline-flex shrink-0 items-center justify-center rounded-xl bg-emerald-600 px-4 py-2 text-xs font-bold text-white hover:bg-emerald-700 transition-colors"
+                >
+                  Use votes on {purchasePet.name} now
+                </Link>
+              )}
+            </div>
           </div>
         )}
 
@@ -282,7 +323,7 @@ export function DashboardClient({
             <div className="grid grid-cols-1 xs:grid-cols-2 lg:grid-cols-5 gap-3 sm:gap-4">
               <StatCard label="Free Votes" value={String(freeVotesRemaining)} sub={`Resets in ${daysLeft}d`} color="accent" icon={<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M20.84 4.61a5.5 5.5 0 00-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 00-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 000-7.78z"/></svg>} />
               <StatCard label="Paid Balance" value={formatVotes(paidVoteBalance)} sub="Never expires" color="brand" icon={<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/><path d="M9 12l2 2 4-4"/></svg>} />
-              <StatCard label="Voting Streak" value={`${votingStreak}w`} sub="Consecutive weeks" color="default" icon={<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>} />
+              <StatCard label="Voting Streak" value={`${votingStreak}w`} sub={freeVotesRemaining === 0 && paidVoteBalance === 0 ? "⚠️ At risk — buy votes!" : "Consecutive weeks"} color={freeVotesRemaining === 0 && paidVoteBalance === 0 ? "accent" : "default"} icon={<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>} />
               <StatCard label="Pets Entered" value={String(pets.length)} sub="In active contests" color="default" icon={<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 01-2.83 2.83l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg>} />
               <StatCard label="Shelter Impact" value={`~${Math.round(lifetimeMeals)}`} sub={`${animalType} helped`} color="accent" icon={<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>} />
             </div>
@@ -341,7 +382,18 @@ export function DashboardClient({
                     <span className="w-1 h-1 rounded-full bg-white/40" />
                     <span>{formatVotes(paidVoteBalance)} paid</span>
                   </div>
-                  <button onClick={() => setActiveTab("votes")} className="mt-4 w-full py-2 rounded-lg bg-white/20 hover:bg-white/30 text-sm font-semibold transition-colors">Buy More Votes</button>
+                  {freeVotesRemaining === 0 && paidVoteBalance === 0 ? (
+                    <button onClick={() => setActiveTab("votes")} className="mt-4 w-full py-2.5 rounded-lg bg-white text-brand-600 text-sm font-black transition-colors animate-pulse">
+                      🔥 Buy Votes Now
+                    </button>
+                  ) : (
+                    <button onClick={() => setActiveTab("votes")} className="mt-4 w-full py-2 rounded-lg bg-white/20 hover:bg-white/30 text-sm font-semibold transition-colors">Buy More Votes</button>
+                  )}
+                  {votingStreak > 0 && freeVotesRemaining === 0 && paidVoteBalance === 0 && (
+                    <p className="mt-2 text-xs text-white/70 text-center">
+                      🔥 {votingStreak}-week streak at risk! Buy before Sunday.
+                    </p>
+                  )}
                 </div>
 
                 <div className="card p-0 overflow-hidden">
@@ -440,17 +492,6 @@ export function DashboardClient({
               </div>
             </div>
 
-            {/* Weekly countdown urgency bar */}
-            <div className="max-w-4xl mx-auto">
-              <div className="flex items-center justify-between px-4 py-2.5 rounded-xl bg-gradient-to-r from-amber-50 to-orange-50 border border-amber-200">
-                <div className="flex items-center gap-2">
-                  <span className="text-lg">⏰</span>
-                  <span className="text-sm font-semibold text-amber-800">Weekly leaderboard resets in</span>
-                </div>
-                <span className="font-mono text-base font-bold text-orange-600 bg-white px-3 py-1 rounded-lg border border-orange-200 shadow-sm">{weekTimeLeft}</span>
-              </div>
-            </div>
-
             {/* First-time buyer discount banner */}
             {isFirstTimeBuyer && discountEnabled && (
               <div className="max-w-4xl mx-auto">
@@ -478,10 +519,12 @@ export function DashboardClient({
                 const meals = calculateMeals(pkg.price, mealRate);
                 const isBest = pkg.tier === "CHAMPION";
                 const isHero = pkg.tier === "HERO" || pkg.tier === "LEGEND";
+                const isStarter = pkg.tier === "STARTER";
                 const proof = SOCIAL_PROOF[pkg.tier];
                 return (
-                  <div key={pkg.tier} className={`card p-5 relative transition-all hover:shadow-card-hover ${isBest ? "border-brand-300 ring-2 ring-brand-100 shadow-md" : ""} ${isHero ? "border-accent-200" : ""}`}>
+                  <div key={pkg.tier} className={`card p-5 relative transition-all hover:shadow-card-hover ${isBest ? "border-brand-300 ring-2 ring-brand-100 shadow-md" : ""} ${isHero ? "border-accent-200" : ""} ${isStarter ? "border-emerald-200" : ""}`}>
                     {isBest && <span className="absolute -top-2.5 left-1/2 -translate-x-1/2 px-3 py-0.5 rounded-full bg-brand-500 text-white text-[10px] font-bold uppercase tracking-wide">Most Popular</span>}
+                    {isStarter && <span className="absolute -top-2.5 left-1/2 -translate-x-1/2 px-3 py-0.5 rounded-full bg-emerald-500 text-white text-[10px] font-bold uppercase tracking-wide">Try for $0.99</span>}
                     <div className="flex items-start justify-between">
                       <div><p className="text-sm font-bold text-surface-900">{pkg.label}</p><p className="text-2xl font-bold text-surface-900 mt-1">${(pkg.price / 100).toFixed(2)}</p></div>
                       <div className="text-right"><p className="text-xl font-bold text-brand-600">{pkg.votes}</p><p className="text-[11px] text-surface-400">votes</p></div>
@@ -497,13 +540,28 @@ export function DashboardClient({
                     <button
                       onClick={() => handleBuyVotes(pkg.tier)}
                       disabled={!!buyingTier}
-                      className={`mt-4 w-full py-2.5 text-sm font-semibold rounded-lg transition-all disabled:opacity-50 ${isBest ? "bg-brand-500 text-white hover:bg-brand-600 shadow-sm animate-pulse-subtle" : "bg-surface-100 text-surface-700 hover:bg-surface-200"}`}
+                      className={`mt-4 w-full py-2.5 text-sm font-semibold rounded-lg transition-all disabled:opacity-50 ${isBest ? "bg-brand-500 text-white hover:bg-brand-600 shadow-sm animate-pulse-subtle" : isStarter ? "bg-emerald-500 text-white hover:bg-emerald-600 shadow-sm" : "bg-surface-100 text-surface-700 hover:bg-surface-200"}`}
                     >
-                      {buyingTier === pkg.tier ? "Processing..." : isBest ? "⚡ Get Best Value" : "Buy Now"}
+                      {buyingTier === pkg.tier ? "Processing..." : isBest ? "⚡ Get Best Value" : isStarter ? "Try for $0.99" : "Buy Now"}
                     </button>
                   </div>
                 );
               })}
+            </div>
+
+            {/* Testimonials */}
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 max-w-4xl mx-auto">
+              {[
+                { stars: 5, quote: "Bought Champion pack and my dog jumped to #1 in 2 days!", name: "Jessica M." },
+                { stars: 5, quote: "Super easy checkout. Votes showed up instantly. Totally worth it!", name: "Mark T." },
+                { stars: 5, quote: "Love knowing my purchase actually feeds shelter animals. Win-win!", name: "Priya S." },
+              ].map((t) => (
+                <div key={t.name} className="card p-4 text-center">
+                  <p className="text-yellow-400 text-sm">{"★".repeat(t.stars)}</p>
+                  <p className="text-xs text-surface-700 font-medium mt-2 leading-relaxed">&ldquo;{t.quote}&rdquo;</p>
+                  <p className="text-[11px] text-surface-400 mt-2">— {t.name}</p>
+                </div>
+              ))}
             </div>
 
             {/* Bottom trust bar */}

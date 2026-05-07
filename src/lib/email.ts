@@ -299,8 +299,12 @@ export async function sendPurchaseConfirmation(
   votes: number,
   amount: number,
   mealsProvided: number,
-  animalType: string
+  animalType: string,
+  petId?: string,
+  petName?: string
 ) {
+  const ctaUrl = petId ? `${appUrl()}/pets/${petId}` : appUrl();
+  const ctaLabel = petName ? `Go vote for ${petName} now →` : "Start Voting Now";
   await sendEmail({
     from: FROM_EMAIL,
     to: [to],
@@ -310,8 +314,37 @@ export async function sendPurchaseConfirmation(
       <h1 style="margin:0 0 20px;font-size:28px;font-weight:900;color:#18181b;line-height:1.2;">${votes} votes added<br/>to your account! ✅</h1>
       ${statRow([{ label: "Votes Added", value: String(votes) }, { label: "Amount Paid", value: `$${(amount / 100).toFixed(2)}` }, { label: "Meals Provided", value: String(Math.round(mealsProvided)) }])}
       ${infoBox(`<strong>🐾 ${Math.round(mealsProvided)} shelter pets</strong> will be fed because of your vote. Thank you for making a difference!`, "#f0fdf4", "#86efac")}
-      ${ctaButton("Start Voting Now", appUrl(), "#16a34a")}
+      ${ctaButton(ctaLabel, ctaUrl, "#16a34a")}
     `, `${votes} votes added — you helped feed ${Math.round(mealsProvided)} shelter pets!`),
+  });
+}
+
+export async function sendAbandonedCheckoutEmail(
+  to: string,
+  userName: string,
+  tier: string,
+  petId?: string,
+  petName?: string
+) {
+  const tierLabels: Record<string, string> = {
+    STARTER: "Starter Pack", FRIEND: "Friend Pack", SUPPORTER: "Supporter Pack",
+    CHAMPION: "Champion Pack", HERO: "Hero Pack", LEGEND: "Legend Pack", ICON: "Icon Pack",
+  };
+  const tierName = tierLabels[tier] ?? tier;
+  const ctaUrl = petId ? `${appUrl()}/dashboard?pet=${petId}&buy=${tier}` : `${appUrl()}/dashboard`;
+  const petLine = petName ? `<p style="margin:0 0 16px;color:#52525b;font-size:16px;">You were buying votes for <strong>${petName}</strong> — they still need your support!</p>` : "";
+  await sendEmail({
+    from: FROM_EMAIL,
+    to: [to],
+    subject: `🛒 You left your ${tierName} behind, ${userName}!`,
+    html: emailShell(`
+      <p style="margin:0 0 6px;font-size:13px;font-weight:700;color:#ef4444;text-transform:uppercase;letter-spacing:1px;">Almost There!</p>
+      <h1 style="margin:0 0 20px;font-size:28px;font-weight:900;color:#18181b;line-height:1.2;">Your ${tierName} is<br/>waiting, ${userName}! 🛒</h1>
+      ${petLine}
+      ${infoBox(`Every vote you buy feeds a real shelter pet. <strong>Your purchase makes a difference. 🐾</strong>`)}
+      ${ctaButton(`Complete My ${tierName} →`, ctaUrl, "#ef4444")}
+      <p style="margin-top:20px;font-size:13px;color:#a1a1aa;">This offer won't last forever — complete your purchase now to keep your pet in the running!</p>
+    `, `You left your ${tierName} behind — complete your purchase to support ${petName ?? "your pet"}!`),
   });
 }
 

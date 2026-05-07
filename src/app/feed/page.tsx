@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useSession } from "next-auth/react";
 import { formatUserName } from "@/lib/utils";
 import { MediaCarousel } from "@/components/shared/MediaCarousel";
+import { BuyVotesLink } from "@/components/voting/BuyVotesLink";
 
 /* ─── Types ─── */
 type FeedUser = {
@@ -511,12 +512,25 @@ function PetCard({ pet }: { pet: FeedPet }) {
             </span>
           )}
         </div>
-        <Link
-          href={`/pets/${pet.id}`}
-          className="px-4 py-1.5 rounded-full text-xs font-bold bg-brand-500 text-white hover:bg-brand-600 transition-colors active:scale-95"
-        >
-          View &amp; Vote
-        </Link>
+        <div className="flex items-center gap-2">
+          <BuyVotesLink
+            href={`/dashboard?buy=FRIEND&pet=${pet.id}`}
+            source="feed_pet_card"
+            petId={pet.id}
+            petName={pet.name}
+            packageTier="FRIEND"
+            currentRank={pet.weeklyRank}
+            className="px-3 py-1.5 rounded-full text-xs font-bold border border-brand-200 bg-brand-50 text-brand-700 hover:bg-brand-100 transition-colors active:scale-95"
+          >
+            ⚡ Buy Votes
+          </BuyVotesLink>
+          <Link
+            href={`/pets/${pet.id}`}
+            className="px-4 py-1.5 rounded-full text-xs font-bold bg-brand-500 text-white hover:bg-brand-600 transition-colors active:scale-95"
+          >
+            View &amp; Vote
+          </Link>
+        </div>
       </div>
     </article>
   );
@@ -678,6 +692,7 @@ export default function FeedPage() {
   const [lightboxUrl, setLightboxUrl] = useState<string | null>(null);
   const [doubleTapHeart, setDoubleTapHeart] = useState<string | null>(null);
   const [likesModalPostId, setLikesModalPostId] = useState<string | null>(null);
+  const [voteBalance, setVoteBalance] = useState<{ free: number; paid: number } | null>(null);
   const lastTapRef = useRef<Record<string, number>>({});
   const observerRef = useRef<HTMLDivElement>(null);
 
@@ -707,6 +722,17 @@ export default function FeedPage() {
   useEffect(() => {
     loadFeed();
   }, [loadFeed]);
+
+  // Fetch user's vote balance to show low-votes nudge in feed header
+  useEffect(() => {
+    if (status !== "authenticated") return;
+    fetch("/api/votes/remaining", { cache: "no-store" })
+      .then((r) => r.ok ? r.json() : null)
+      .then((data) => {
+        if (data) setVoteBalance({ free: data.freeVotesRemaining ?? 0, paid: data.paidVoteBalance ?? 0 });
+      })
+      .catch(() => {});
+  }, [status]);
 
   // Fetch pets to show inline in feed (most recent, random shuffle so it feels fresh)
   useEffect(() => {
@@ -969,6 +995,26 @@ export default function FeedPage() {
                   Sign up free
                 </Link>
               </div>
+            </div>
+          )}
+
+          {/* Vote balance nudge — only when running low */}
+          {isLoggedIn && voteBalance !== null && (voteBalance.free + voteBalance.paid) <= 3 && (
+            <div className={`flex items-center justify-between gap-3 px-4 py-3 rounded-2xl animate-slide-up ${voteBalance.free + voteBalance.paid === 0 ? "bg-red-50 border border-red-200" : "bg-amber-50 border border-amber-200"}`}>
+              <div className="flex items-center gap-2 text-sm font-semibold">
+                <span>{voteBalance.free + voteBalance.paid === 0 ? "🔥" : "⚠️"}</span>
+                <span className={voteBalance.free + voteBalance.paid === 0 ? "text-red-700" : "text-amber-700"}>
+                  {voteBalance.free + voteBalance.paid === 0
+                    ? "You're out of votes!"
+                    : `Only ${voteBalance.free + voteBalance.paid} vote${voteBalance.free + voteBalance.paid === 1 ? "" : "s"} left`}
+                </span>
+              </div>
+              <Link
+                href="/dashboard#votes"
+                className={`shrink-0 px-3 py-1.5 rounded-xl text-xs font-bold text-white transition-colors ${voteBalance.free + voteBalance.paid === 0 ? "bg-red-500 hover:bg-red-600" : "bg-amber-500 hover:bg-amber-600"}`}
+              >
+                Buy Votes →
+              </Link>
             </div>
           )}
         </div>
