@@ -29,6 +29,16 @@ type AppNotification = {
   sourceUser: { name: string | null; image: string | null } | null;
 };
 
+type SmartTip = {
+  id: string;
+  icon: string;
+  title: string;
+  message: string;
+  ctaText: string;
+  ctaUrl: string;
+  color: string;
+};
+
 function useDropdownAutoClose(
   ref: RefObject<HTMLElement | null>,
   isOpen: boolean,
@@ -74,6 +84,7 @@ export function Nav({
   const [contests, setContests] = useState<NavContest[]>([]);
   const [notifications, setNotifications] = useState<AppNotification[]>([]);
   const [unreadCount, setUnreadCount] = useState(0);
+  const [smartTips, setSmartTips] = useState<SmartTip[]>([]);
   const contestRef = useRef<HTMLDivElement>(null);
   const leaderboardRef = useRef<HTMLDivElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
@@ -108,6 +119,11 @@ export function Nav({
             setUnreadCount(data.unreadCount || 0);
           }
         })
+        .catch(() => {});
+      // Fetch smart engagement tips
+      fetch("/api/smart-tips")
+        .then((r) => r.json())
+        .then((data) => { if (data?.tips) setSmartTips(data.tips); })
         .catch(() => {});
     }
   }, [session]);
@@ -287,7 +303,7 @@ export function Nav({
                   className="flex items-center justify-center w-11 h-11 rounded-full text-surface-600 hover:text-surface-900 hover:bg-surface-100 transition-colors relative"
                 >
                   <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 8A6 6 0 006 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 01-3.46 0"/></svg>
-                  {unreadCount > 0 && (
+                  {(unreadCount > 0 || smartTips.length > 0) && (
                     <span className="absolute top-2.5 right-2.5 w-2 h-2 rounded-full bg-red-500 ring-2 ring-white"></span>
                   )}
                 </button>
@@ -302,7 +318,38 @@ export function Nav({
                     </div>
                     
                     <div className="max-h-[360px] overflow-y-auto">
-                      {notifications.length === 0 ? (
+                      {/* Smart contextual tips */}
+                      {smartTips.map((tip) => {
+                        const colorMap: Record<string, { bg: string; border: string; cta: string; iconBg: string }> = {
+                          brand:  { bg: "from-teal-50 to-cyan-50",   border: "border-teal-200",  cta: "bg-teal-500 hover:bg-teal-600",   iconBg: "bg-teal-100" },
+                          amber:  { bg: "from-amber-50 to-orange-50", border: "border-amber-200", cta: "bg-amber-500 hover:bg-amber-600", iconBg: "bg-amber-100" },
+                          green:  { bg: "from-emerald-50 to-green-50",border: "border-emerald-200",cta: "bg-emerald-500 hover:bg-emerald-600",iconBg: "bg-emerald-100" },
+                          purple: { bg: "from-violet-50 to-purple-50",border: "border-violet-200", cta: "bg-violet-500 hover:bg-violet-600", iconBg: "bg-violet-100" },
+                        };
+                        const c = colorMap[tip.color] ?? colorMap.brand;
+                        return (
+                          <div key={tip.id} className={`mx-3 my-2.5 rounded-xl bg-gradient-to-br ${c.bg} border ${c.border} p-3 flex gap-3 items-start`}>
+                            <div className={`w-9 h-9 rounded-full ${c.iconBg} flex items-center justify-center shrink-0 text-lg`}>
+                              {tip.icon}
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <p className="text-sm font-bold text-surface-900 leading-tight">{tip.title}</p>
+                              <p className="text-xs text-surface-600 mt-0.5 leading-snug">{tip.message}</p>
+                              <Link
+                                href={tip.ctaUrl}
+                                onClick={closeNotifications}
+                                className={`inline-block mt-2 text-[11px] font-bold text-white px-3 py-1 rounded-full ${c.cta} transition-colors`}
+                              >
+                                {tip.ctaText} →
+                              </Link>
+                            </div>
+                          </div>
+                        );
+                      })}
+                      {smartTips.length > 0 && notifications.length > 0 && (
+                        <div className="mx-4 border-t border-surface-100 mb-1" />
+                      )}
+                      {notifications.length === 0 && smartTips.length === 0 ? (
                         <div className="p-6 text-center text-sm text-surface-500">No new notifications.</div>
                       ) : (
                         notifications.map((n) => (
@@ -342,9 +389,7 @@ export function Nav({
                       )}
                     </div>
                     
-                    <div className="px-4 py-3 text-center border-t border-surface-100 bg-surface-50/50">
-                      <Link href="/feed" className="text-xs font-bold text-surface-500 hover:text-brand-600 transition-colors uppercase tracking-wider" onClick={closeNotifications}>View All</Link>
-                    </div>
+
                   </div>
                 )}
               </div>

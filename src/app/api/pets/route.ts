@@ -208,6 +208,33 @@ export async function POST(req: NextRequest) {
       console.error("Failed to schedule welcome comments:", scheduleError);
     }
 
+    // Auto-create a feed post introducing the new pet
+    try {
+      const petEmoji = type === "DOG" ? "🐶" : type === "CAT" ? "🐱" : "🐾";
+      const lines: string[] = [`${petEmoji} Meet ${name}!`];
+      if (bio) lines.push(bio);
+      if (story) lines.push(story);
+      const postContent = lines.join("\n\n");
+
+      const petPhotos: string[] = Array.isArray(photos) ? photos.slice(0, 3) : [];
+      const postImageUrl =
+        petPhotos.length === 0
+          ? null
+          : petPhotos.length === 1
+          ? petPhotos[0]
+          : JSON.stringify(petPhotos);
+
+      await prisma.userPost.create({
+        data: {
+          content: postContent,
+          imageUrl: postImageUrl,
+          userId,
+        },
+      });
+    } catch (postError) {
+      console.error("Failed to auto-create feed post for new pet:", postError);
+    }
+
     return NextResponse.json(pet, { status: 201 });
   } catch (error) {
     console.error("Error creating pet:", error);
