@@ -147,10 +147,24 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ ok: true, skipped: "no-from" });
     }
 
+    // Ignore emails sent from our own system addresses to prevent loops/bounces
+    const OWN_DOMAINS = ["noreply@votetofeed.com", "support@votetofeed.com"];
+    if (OWN_DOMAINS.includes(fromEmail) || fromEmail.endsWith("@votetofeed.com")) {
+      console.info("[inbound/email] Ignoring email from own address:", fromEmail);
+      return NextResponse.json({ ok: true, skipped: "own-address" });
+    }
+
     const rawText = data.text?.trim()
       || (data.html ? htmlToPlainText(data.html) : "")
       || "";
-    const cleanBody = stripQuotedReply(rawText).slice(0, 5000) || "(empty reply)";
+    const cleanBody = stripQuotedReply(rawText).slice(0, 5000);
+
+    // Skip emails with no real content (bounces, auto-replies, empty notifications)
+    if (!cleanBody) {
+      console.info("[inbound/email] Skipping empty email from", fromEmail, "subject:", data.subject);
+      return NextResponse.json({ ok: true, skipped: "empty-body" });
+    }
+
     const subject = data.subject?.trim() || "(no subject)";
 
     // Match by sender email: most recent ticket first, else most recent conversation

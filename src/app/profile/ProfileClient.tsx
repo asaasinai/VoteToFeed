@@ -296,24 +296,26 @@ export function ProfileClient({ user }: { user: UserProfile }) {
             </div>
           )}
 
-          {/* View Public Profile link */}
-          <Link
-            href={`/users/${user.id}`}
-            className="mt-3 inline-flex items-center gap-1.5 text-xs font-semibold text-brand-500 hover:text-brand-600 transition-colors"
-          >
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
-            View Public Profile
-          </Link>
-
-          {image && (
-            <button
-              onClick={handleRemovePhoto}
-              disabled={saving}
-              className="mt-3 text-xs text-red-500 hover:text-red-700 font-medium transition-colors"
+          {/* View Public Profile + Remove photo — prettier action row */}
+          <div className="mt-4 flex flex-wrap items-center gap-2">
+            <Link
+              href={`/users/${user.id}`}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold bg-gradient-to-r from-brand-50 to-rose-50 text-brand-600 border border-brand-200/70 hover:from-brand-100 hover:to-rose-100 hover:shadow-sm transition-all active:scale-[0.97]"
             >
-              Remove photo
-            </button>
-          )}
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+              👁️ View Public Profile
+            </Link>
+
+            {image && (
+              <button
+                onClick={handleRemovePhoto}
+                disabled={saving}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold bg-red-50 text-red-600 border border-red-200/70 hover:bg-red-100 hover:shadow-sm transition-all active:scale-[0.97] disabled:opacity-50"
+              >
+                🗑️ Remove photo
+              </button>
+            )}
+          </div>
 
           {user.isOAuth && (
             <div className="mt-3 flex items-center gap-1.5 text-xs text-surface-400">
