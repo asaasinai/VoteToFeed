@@ -34,7 +34,7 @@ export async function GET() {
           take: 1,
         },
       },
-      take: 3,
+      orderBy: { createdAt: "asc" },
     }),
     prisma.user.findUnique({
       where: { id: userId },
@@ -110,15 +110,15 @@ export async function GET() {
       });
     }
 
-    // Out of votes tip (only if pet is competing and not already #1)
+    // Out of votes tip (only if a pet is actively competing and not already #1)
     const totalVotes = (user?.freeVotesRemaining ?? 0) + (user?.paidVoteBalance ?? 0);
     const isFirst = rankedPet?.weeklyStats[0]?.rank === 1;
-    if (!isFirst && totalVotes === 0 && featuredPet) {
+    if (!isFirst && totalVotes === 0 && rankedPet) {
       tips.push({
         id: "no-votes",
         icon: "⚡",
         title: "You're out of votes!",
-        message: `Buy a vote pack to keep ${featuredPet.name} climbing the leaderboard this week! ✨`,
+        message: `Buy a vote pack to keep ${rankedPet.name} climbing the leaderboard this week! ✨`,
         ctaText: "Buy Votes",
         ctaUrl: "/dashboard#votes",
         color: "brand",

@@ -216,7 +216,24 @@ export async function POST(req: NextRequest) {
       if (story) lines.push(story);
       const postContent = lines.join("\n\n");
 
-      const petPhotos: string[] = Array.isArray(photos) ? photos.slice(0, 3) : [];
+      function isTrustedMediaUrl(url: string): boolean {
+        if (!url) return false;
+        if (url.startsWith("/uploads/")) return true;
+        try {
+          const { hostname, protocol } = new URL(url);
+          if (protocol !== "https:") return false;
+          if (hostname === "public.blob.vercel-storage.com") return true;
+          if (hostname.endsWith(".public.blob.vercel-storage.com")) return true;
+          if (process.env.BLOB_BASE_URL) {
+            try { if (hostname === new URL(process.env.BLOB_BASE_URL).hostname) return true; } catch { /* ignore */ }
+          }
+          return false;
+        } catch { return false; }
+      }
+
+      const petPhotos: string[] = (Array.isArray(photos) ? photos : [])
+        .filter((u): u is string => typeof u === "string" && isTrustedMediaUrl(u.trim()))
+        .slice(0, 3);
       const postImageUrl =
         petPhotos.length === 0
           ? null
