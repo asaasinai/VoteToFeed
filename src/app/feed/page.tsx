@@ -164,7 +164,23 @@ function CreatePostModal({ onClose, onCreated }: { onClose: () => void; onCreate
   // vvMaxH:  max height of the modal so it never overlaps the keyboard
   const [vvBottom, setVvBottom] = useState(0);
   const [vvMaxH, setVvMaxH] = useState<number | null>(null);
+  const [showEmojis, setShowEmojis] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  const POST_EMOJIS = ["😀","😂","🥰","😍","🤩","😎","🥺","😭","🙏","❤️","🔥","✨","💯","👏","🎉","🐶","🐱","🐾","🐕","🐈","🦴","🐾","🌟","💪","👍","😁","🤣","😊","🥳","💕","💖","🌈","☀️","🍀","🎊","🏆","📸","💌","🤍","🐻"];
+
+  function insertPostEmoji(emoji: string) {
+    const ta = textareaRef.current;
+    if (!ta) { setContent((p) => p + emoji); return; }
+    const start = ta.selectionStart ?? content.length;
+    const end = ta.selectionEnd ?? content.length;
+    const next = content.slice(0, start) + emoji + content.slice(end);
+    setContent(next);
+    requestAnimationFrame(() => {
+      ta.focus();
+      ta.setSelectionRange(start + emoji.length, start + emoji.length);
+    });
+  }
 
   // visualViewport API — works on iOS 13+, Android Chrome 61+
   // When keyboard opens, visualViewport.height shrinks and offsetTop may change.
@@ -271,16 +287,17 @@ function CreatePostModal({ onClose, onCreated }: { onClose: () => void; onCreate
   }
 
   return (
-    <div className="fixed inset-0 z-50 animate-modal-backdrop">
-      {/* Backdrop */}
-      <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={onClose} />
-      {/* Modal card — pinned just above keyboard via visualViewport bottom offset */}
+    <div
+      className="fixed inset-0 z-50 animate-modal-backdrop bg-black/50 backdrop-blur-sm sm:flex sm:items-center sm:justify-center"
+      onClick={onClose}
+    >
+      {/* Modal card */}
       <div
-        className="fixed inset-x-0 sm:inset-auto sm:top-1/2 sm:left-1/2 sm:-translate-x-1/2 sm:-translate-y-1/2 sm:w-full sm:max-w-lg flex flex-col bg-white rounded-t-3xl sm:rounded-3xl shadow-2xl overflow-hidden animate-modal-slide-up"
-        style={{
-          bottom: `${vvBottom}px`,
-          maxHeight: vvMaxH ? `${vvMaxH}px` : "85svh",
-        }}
+        className="fixed inset-x-0 sm:static sm:w-full sm:max-w-lg flex flex-col bg-white rounded-t-3xl sm:rounded-3xl shadow-2xl overflow-hidden animate-modal-slide-up"
+        style={typeof window !== "undefined" && window.innerWidth < 640
+          ? { bottom: `${vvBottom}px`, maxHeight: vvMaxH ? `${vvMaxH}px` : "85svh" }
+          : { maxHeight: "min(680px, 90vh)" }
+        }
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header — always visible at top */}
@@ -329,7 +346,7 @@ function CreatePostModal({ onClose, onCreated }: { onClose: () => void; onCreate
           {mediaPreviews.length > 0 && (
             <div className={`mt-3 grid gap-2 ${mediaPreviews.length === 1 ? "grid-cols-1" : mediaPreviews.length === 2 ? "grid-cols-2" : "grid-cols-3"}`}>
               {mediaPreviews.map((src, idx) => (
-                <div key={idx} className="relative rounded-xl overflow-hidden border border-surface-200 aspect-square bg-black">
+                <div key={idx} className="relative rounded-xl overflow-hidden border border-surface-200 bg-black" style={{ aspectRatio: "1/1", maxHeight: mediaPreviews.length === 1 ? "220px" : "160px" }}>
                   {isVideo(mediaFiles[idx]?.name || src) ? (
                     <video src={src} className="w-full h-full object-cover" muted playsInline />
                   ) : (
@@ -349,23 +366,36 @@ function CreatePostModal({ onClose, onCreated }: { onClose: () => void; onCreate
                   </button>
                 </div>
               ))}
-              {mediaPreviews.length < MAX_MEDIA && (
-                <label className="relative rounded-xl border-2 border-dashed border-surface-200 hover:border-brand-300 transition-colors cursor-pointer aspect-square flex flex-col items-center justify-center gap-1 text-surface-400 hover:text-brand-500">
-                  <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-                  <span className="text-[10px] font-semibold">Add more</span>
-                  <input type="file" accept="image/*,video/*" multiple className="hidden" onChange={pickMedia} />
-                </label>
-              )}
             </div>
           )}
           {uploadError && (
             <p className="mt-2 text-xs text-red-500 font-medium">{uploadError}</p>
+          )}
+
+          {/* Emoji picker */}
+          {showEmojis && (
+            <div className="mt-3 grid grid-cols-8 gap-1 p-3 bg-surface-50 rounded-2xl border border-surface-100">
+              {POST_EMOJIS.map((e) => (
+                <button
+                  key={e}
+                  type="button"
+                  onClick={() => insertPostEmoji(e)}
+                  className="text-xl leading-none p-1.5 rounded-lg hover:bg-surface-200 transition-colors"
+                >{e}</button>
+              ))}
+            </div>
           )}
         </div>
 
         {/* Actions bar — pinned at bottom, above iOS safe area */}
         <div className="flex items-center justify-between px-5 py-3 border-t border-surface-100 bg-surface-50/50 shrink-0 pb-[calc(0.75rem+env(safe-area-inset-bottom,0px))]">
           <div className="flex gap-1 items-center">
+            <button
+              type="button"
+              onClick={() => setShowEmojis((v) => !v)}
+              className={`w-10 h-10 rounded-full flex items-center justify-center transition-colors text-lg ${showEmojis ? "bg-brand-50 text-brand-500" : "hover:bg-brand-50 text-surface-400 hover:text-brand-500"}`}
+              title="Emojis"
+            >😊</button>
             {mediaPreviews.length < MAX_MEDIA && (
               <>
                 <label className="w-10 h-10 rounded-full hover:bg-brand-50 flex items-center justify-center cursor-pointer transition-colors" title="Add photo">
@@ -688,6 +718,28 @@ export default function FeedPage() {
   const [expandedComments, setExpandedComments] = useState<Set<string>>(new Set());
   const [commentTexts, setCommentTexts] = useState<Record<string, string>>({});
   const [submittingComment, setSubmittingComment] = useState<string | null>(null);
+  const [emojiPickerPostId, setEmojiPickerPostId] = useState<string | null>(null);
+  const commentInputRefs = useRef<Record<string, HTMLInputElement | null>>({});
+
+  const FEED_EMOJIS = ["😍","🐾","🐶","🐱","🐰","🐹","🐻","🦊","🐼","🐨","🐸","🐯","🦁","🐧","🦜","🐠","🐢","🦋","🌟","❤️","🧡","💛","💚","💙","💜","🎉","🙌","👏","😂","😭","😊","😎","🥰","🤩","😅","🙏","👍","🔥","✨","💯"];
+
+  function insertFeedEmoji(postId: string, emoji: string) {
+    const input = commentInputRefs.current[postId];
+    const prev = commentTexts[postId] || "";
+    if (!input) {
+      setCommentTexts((t) => ({ ...t, [postId]: (prev + emoji).slice(0, 500) }));
+      return;
+    }
+    const start = input.selectionStart ?? prev.length;
+    const end = input.selectionEnd ?? prev.length;
+    const next = (prev.slice(0, start) + emoji + prev.slice(end)).slice(0, 500);
+    setCommentTexts((t) => ({ ...t, [postId]: next }));
+    requestAnimationFrame(() => {
+      input.focus();
+      const pos = Math.min(start + emoji.length, 500);
+      input.setSelectionRange(pos, pos);
+    });
+  }
   const [followingUser, setFollowingUser] = useState<string | null>(null);
   const [lightboxUrl, setLightboxUrl] = useState<string | null>(null);
   const [doubleTapHeart, setDoubleTapHeart] = useState<string | null>(null);
@@ -1276,26 +1328,49 @@ export default function FeedPage() {
                             </div>
                             <p className="text-xs text-surface-700 mt-0.5 leading-relaxed whitespace-pre-wrap">{c.content}</p>
                           </div>
-                          {isLoggedIn && (
-                            <button
-                              onClick={() => toggleCommentLike(post, c)}
-                              className={`mt-1 ml-3 inline-flex items-center gap-1 text-[11px] font-semibold transition-all active:scale-95 ${
-                                c.isLiked ? "text-red-500" : "text-surface-400 hover:text-red-400"
-                              }`}
-                              aria-label={c.isLiked ? "Unlike comment" : "Like comment"}
-                            >
-                              <svg width="12" height="12" viewBox="0 0 24 24" fill={c.isLiked ? "currentColor" : "none"} stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
-                                <path d="M20.84 4.61a5.5 5.5 0 00-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 00-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 000-7.78z" />
-                              </svg>
-                              {c.likeCount > 0 ? c.likeCount : "Like"}
-                            </button>
-                          )}
-                          {!isLoggedIn && c.likeCount > 0 && (
-                            <span className="mt-1 ml-3 inline-flex items-center gap-1 text-[11px] font-semibold text-surface-400">
-                              <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" strokeWidth="2"><path d="M20.84 4.61a5.5 5.5 0 00-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 00-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 000-7.78z" /></svg>
-                              {c.likeCount}
-                            </span>
-                          )}
+                          <div className="mt-1 ml-3 flex items-center gap-3">
+                            {isLoggedIn && (
+                              <button
+                                onClick={() => toggleCommentLike(post, c)}
+                                className={`inline-flex items-center gap-1 text-[11px] font-semibold transition-all active:scale-95 ${
+                                  c.isLiked ? "text-red-500" : "text-surface-400 hover:text-red-400"
+                                }`}
+                                aria-label={c.isLiked ? "Unlike comment" : "Like comment"}
+                              >
+                                <svg width="12" height="12" viewBox="0 0 24 24" fill={c.isLiked ? "currentColor" : "none"} stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                                  <path d="M20.84 4.61a5.5 5.5 0 00-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 00-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 000-7.78z" />
+                                </svg>
+                                {c.likeCount > 0 ? c.likeCount : "Like"}
+                              </button>
+                            )}
+                            {!isLoggedIn && c.likeCount > 0 && (
+                              <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-surface-400">
+                                <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" strokeWidth="2"><path d="M20.84 4.61a5.5 5.5 0 00-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 00-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 000-7.78z" /></svg>
+                                {c.likeCount}
+                              </span>
+                            )}
+                            {isLoggedIn && (
+                              <button
+                                onClick={() => {
+                                  const mention = `@${(c.user.name || "").split(" ")[0]} `;
+                                  setCommentTexts((prev) => ({ ...prev, [post.id]: mention }));
+                                  setEmojiPickerPostId(null);
+                                  // ensure comments expanded then focus input
+                                  setExpandedComments((s) => { const n = new Set(s); n.add(post.id); return n; });
+                                  requestAnimationFrame(() => {
+                                    const input = commentInputRefs.current[post.id];
+                                    if (input) { input.focus(); input.setSelectionRange(mention.length, mention.length); }
+                                  });
+                                }}
+                                className="inline-flex items-center gap-1 text-[11px] font-semibold text-surface-400 hover:text-brand-500 transition-colors"
+                              >
+                                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                                  <polyline points="9 17 4 12 9 7"/><path d="M20 18v-2a4 4 0 00-4-4H4"/>
+                                </svg>
+                                Reply
+                              </button>
+                            )}
+                          </div>
                         </div>
                       </div>
                     ))}
@@ -1310,27 +1385,48 @@ export default function FeedPage() {
                             <span className="text-xs font-bold text-brand-600">{(session?.user?.name || "U")[0].toUpperCase()}</span>
                           )}
                         </div>
-                        <div className="flex-1 flex gap-2 items-center bg-white rounded-full border border-surface-200 pl-3 pr-1 py-1 focus-within:ring-2 focus-within:ring-brand-400/30 focus-within:border-brand-300 transition-all">
-                          <input
-                            type="text"
-                            value={commentTexts[post.id] || ""}
-                            onChange={(e) => setCommentTexts((prev) => ({ ...prev, [post.id]: e.target.value }))}
-                            onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); submitComment(post); } }}
-                            placeholder="Write a comment..."
-                            maxLength={500}
-                            className="flex-1 text-xs text-surface-900 placeholder:text-surface-400 focus:outline-none bg-transparent py-1"
-                          />
-                          <button
-                            onClick={() => submitComment(post)}
-                            disabled={submittingComment === post.id || !(commentTexts[post.id] || "").trim()}
-                            className="w-7 h-7 flex-shrink-0 rounded-full bg-brand-500 text-white flex items-center justify-center hover:bg-brand-600 transition-colors disabled:opacity-40"
-                          >
-                            {submittingComment === post.id ? (
-                              <span className="w-3 h-3 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                            ) : (
-                              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
-                            )}
-                          </button>
+                        <div className="flex-1">
+                          <div className="flex gap-2 items-center bg-white rounded-full border border-surface-200 pl-3 pr-1 py-1 focus-within:ring-2 focus-within:ring-brand-400/30 focus-within:border-brand-300 transition-all">
+                            <button
+                              type="button"
+                              onClick={() => setEmojiPickerPostId((id) => id === post.id ? null : post.id)}
+                              className="text-base leading-none flex-shrink-0 hover:scale-110 transition-transform"
+                              title="Add emoji"
+                            >😊</button>
+                            <input
+                              ref={(el) => { commentInputRefs.current[post.id] = el; }}
+                              type="text"
+                              value={commentTexts[post.id] || ""}
+                              onChange={(e) => setCommentTexts((prev) => ({ ...prev, [post.id]: e.target.value }))}
+                              onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); submitComment(post); setEmojiPickerPostId(null); } }}
+                              placeholder="Write a comment..."
+                              maxLength={500}
+                              className="flex-1 text-xs text-surface-900 placeholder:text-surface-400 focus:outline-none bg-transparent py-1"
+                            />
+                            <button
+                              onClick={() => { submitComment(post); setEmojiPickerPostId(null); }}
+                              disabled={submittingComment === post.id || !(commentTexts[post.id] || "").trim()}
+                              className="w-7 h-7 flex-shrink-0 rounded-full bg-brand-500 text-white flex items-center justify-center hover:bg-brand-600 transition-colors disabled:opacity-40"
+                            >
+                              {submittingComment === post.id ? (
+                                <span className="w-3 h-3 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                              ) : (
+                                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
+                              )}
+                            </button>
+                          </div>
+                          {emojiPickerPostId === post.id && (
+                            <div className="mt-1.5 flex flex-wrap gap-0.5 p-2 rounded-2xl border border-surface-200 bg-white shadow-md">
+                              {FEED_EMOJIS.map((emoji) => (
+                                <button
+                                  key={emoji}
+                                  type="button"
+                                  onClick={() => insertFeedEmoji(post.id, emoji)}
+                                  className="text-lg w-8 h-8 flex items-center justify-center rounded-lg hover:bg-surface-100 transition-colors"
+                                >{emoji}</button>
+                              ))}
+                            </div>
+                          )}
                         </div>
                       </div>
                     )}

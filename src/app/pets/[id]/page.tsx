@@ -119,11 +119,11 @@ export default async function PetDetailPage({
         orderBy: { createdAt: "desc" },
         take: 20,
         include: {
-          user: { select: { name: true, image: true } },
+          user: { select: { id: true, name: true, image: true } },
           _count: { select: { likes: true } },
           replies: {
             include: {
-              user: { select: { name: true, image: true } },
+              user: { select: { id: true, name: true, image: true } },
               _count: { select: { likes: true } },
             },
             orderBy: { createdAt: "asc" },
@@ -367,6 +367,17 @@ export default async function PetDetailPage({
             votesRemaining={freeVotes.free + freeVotes.paid}
             isOwner={!!isOwner}
           />
+          {weeklyRank != null && weeklyRank > 1 && topContestVotes > 0 && (
+            <GapToFirstWidget
+              myVotes={weeklyVotes}
+              topVotes={topContestVotes}
+              petName={pet.name}
+              myRank={weeklyRank}
+              petId={pet.id}
+              showBuyCta={true}
+              className="mt-4"
+            />
+          )}
         </div>
 
         <div className="lg:col-span-2 space-y-5 px-4 sm:px-0">
@@ -415,17 +426,6 @@ export default async function PetDetailPage({
               mealRate={mealRate}
             />
           </div>
-
-          {weeklyRank != null && weeklyRank > 1 && topContestVotes > 0 && (
-            <GapToFirstWidget
-              myVotes={weeklyVotes}
-              topVotes={topContestVotes}
-              petName={pet.name}
-              myRank={weeklyRank}
-              petId={pet.id}
-              showBuyCta={true}
-            />
-          )}
 
           {pet.votes.length > 0 && (
             <div>

@@ -1,6 +1,8 @@
 "use client";
 
 import { useState, useEffect, useRef, useCallback, type RefObject } from "react";
+
+const EMOJIS = ["😊","😂","🥰","😍","🤩","😎","🥳","🎉","❤️","🧡","💛","💚","💙","💜","🐶","🐱","🐾","🐕","🐈","🦮","🐩","🏆","🥇","⭐","🌟","✨","🔥","💫","🎀","🌈","🍀","🌺","🌸","🌻","🍖","🦴","🎊","💝","😜","🤗"];
 import { useRouter } from "next/navigation";
 import { useSession } from "next-auth/react";
 import Link from "next/link";
@@ -78,6 +80,42 @@ export default function NewPetPage() {
   const closeBreedDropdown = useCallback(() => setBreedDropdownOpen(false), []);
 
   useDropdownAutoClose(breedDropdownRef, breedDropdownOpen, closeBreedDropdown);
+
+  const [emojiPickerOpen, setEmojiPickerOpen] = useState<"bio" | "story" | null>(null);
+  const bioTextareaRef = useRef<HTMLTextAreaElement>(null);
+  const storyTextareaRef = useRef<HTMLTextAreaElement>(null);
+  const bioEmojiContainerRef = useRef<HTMLDivElement>(null);
+  const storyEmojiContainerRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!emojiPickerOpen) return;
+    function handlePointerDown(e: PointerEvent) {
+      const container = emojiPickerOpen === "bio" ? bioEmojiContainerRef.current : storyEmojiContainerRef.current;
+      if (!container?.contains(e.target as Node)) setEmojiPickerOpen(null);
+    }
+    function handleEscape(e: KeyboardEvent) { if (e.key === "Escape") setEmojiPickerOpen(null); }
+    document.addEventListener("pointerdown", handlePointerDown);
+    document.addEventListener("keydown", handleEscape);
+    return () => { document.removeEventListener("pointerdown", handlePointerDown); document.removeEventListener("keydown", handleEscape); };
+  }, [emojiPickerOpen]);
+
+  function insertEmoji(field: "bio" | "story", emoji: string) {
+    const textarea = field === "bio" ? bioTextareaRef.current : storyTextareaRef.current;
+    const maxLen = field === "bio" ? 255 : 500;
+    if (textarea) {
+      const start = textarea.selectionStart ?? form[field].length;
+      const end = textarea.selectionEnd ?? form[field].length;
+      const newValue = form[field].substring(0, start) + emoji + form[field].substring(end);
+      if (newValue.length <= maxLen) {
+        setForm((f) => ({ ...f, [field]: newValue }));
+        requestAnimationFrame(() => { textarea.selectionStart = start + emoji.length; textarea.selectionEnd = start + emoji.length; textarea.focus(); });
+      }
+    } else {
+      const newValue = form[field] + emoji;
+      if (newValue.length <= maxLen) setForm((f) => ({ ...f, [field]: newValue }));
+    }
+    setEmojiPickerOpen(null);
+  }
 
   const [form, setForm] = useState({
     name: "",
@@ -496,7 +534,17 @@ export default function NewPetPage() {
 
         <div>
           <label className="block text-sm font-medium text-surface-700 mb-1.5">Bio (optional)</label>
-          <textarea value={form.bio} onChange={(e) => setForm((f) => ({ ...f, bio: e.target.value }))} maxLength={255} rows={3} placeholder="Tell us about your pet..." className="input-field resize-none" />
+          <div className="relative" ref={bioEmojiContainerRef}>
+            <textarea ref={bioTextareaRef} value={form.bio} onChange={(e) => setForm((f) => ({ ...f, bio: e.target.value }))} maxLength={255} rows={3} placeholder="Tell us about your pet..." className="input-field resize-none pb-10" />
+            <button type="button" onClick={() => setEmojiPickerOpen((o) => o === "bio" ? null : "bio")} className="absolute bottom-2.5 right-2.5 text-xl leading-none w-8 h-8 flex items-center justify-center rounded-lg hover:bg-surface-100 transition-colors">😊</button>
+            {emojiPickerOpen === "bio" && (
+              <div className="absolute bottom-12 right-0 z-20 bg-white border border-surface-200 rounded-xl shadow-xl p-2 grid grid-cols-8 gap-0.5 w-72">
+                {EMOJIS.map((em) => (
+                  <button key={em} type="button" onMouseDown={(e) => { e.preventDefault(); insertEmoji("bio", em); }} className="text-xl hover:bg-surface-100 rounded-lg p-1.5 transition-colors text-center leading-none">{em}</button>
+                ))}
+              </div>
+            )}
+          </div>
           <p className="text-xs text-surface-400 mt-1 text-right">{form.bio.length}/255</p>
         </div>
 
@@ -612,7 +660,17 @@ export default function NewPetPage() {
         {form.type !== "OTHER" && (
           <div>
             <label className="block text-sm font-medium text-surface-700 mb-1.5">Your story <span className="text-surface-400 font-normal">(optional)</span></label>
-            <textarea value={form.story} onChange={(e) => setForm((f) => ({ ...f, story: e.target.value }))} maxLength={500} rows={3} placeholder="Share a funny moment, how you met, or why your pet deserves to win..." className="input-field resize-none" />
+            <div className="relative" ref={storyEmojiContainerRef}>
+              <textarea ref={storyTextareaRef} value={form.story} onChange={(e) => setForm((f) => ({ ...f, story: e.target.value }))} maxLength={500} rows={3} placeholder="Share a funny moment, how you met, or why your pet deserves to win..." className="input-field resize-none pb-10" />
+              <button type="button" onClick={() => setEmojiPickerOpen((o) => o === "story" ? null : "story")} className="absolute bottom-2.5 right-2.5 text-xl leading-none w-8 h-8 flex items-center justify-center rounded-lg hover:bg-surface-100 transition-colors">😊</button>
+              {emojiPickerOpen === "story" && (
+                <div className="absolute bottom-12 right-0 z-20 bg-white border border-surface-200 rounded-xl shadow-xl p-2 grid grid-cols-8 gap-0.5 w-72">
+                  {EMOJIS.map((em) => (
+                    <button key={em} type="button" onMouseDown={(e) => { e.preventDefault(); insertEmoji("story", em); }} className="text-xl hover:bg-surface-100 rounded-lg p-1.5 transition-colors text-center leading-none">{em}</button>
+                  ))}
+                </div>
+              )}
+            </div>
             <p className="text-xs text-surface-400 mt-1 text-right">{form.story.length}/500</p>
           </div>
         )}

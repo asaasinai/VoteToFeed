@@ -208,6 +208,50 @@ export async function POST(req: NextRequest) {
       console.error("Failed to schedule welcome comments:", scheduleError);
     }
 
+    // Auto-create a feed post introducing the new pet
+    try {
+      const petEmoji = type === "DOG" ? "🐶" : type === "CAT" ? "🐱" : "🐾";
+      const lines: string[] = [`${petEmoji} Meet ${name}!`];
+      if (bio) lines.push(bio);
+      if (story) lines.push(story);
+      const postContent = lines.join("\n\n");
+
+      function isTrustedMediaUrl(url: string): boolean {
+        if (!url) return false;
+        if (url.startsWith("/uploads/")) return true;
+        try {
+          const { hostname, protocol } = new URL(url);
+          if (protocol !== "https:") return false;
+          if (hostname === "public.blob.vercel-storage.com") return true;
+          if (hostname.endsWith(".public.blob.vercel-storage.com")) return true;
+          if (process.env.BLOB_BASE_URL) {
+            try { if (hostname === new URL(process.env.BLOB_BASE_URL).hostname) return true; } catch { /* ignore */ }
+          }
+          return false;
+        } catch { return false; }
+      }
+
+      const petPhotos: string[] = (Array.isArray(photos) ? photos : [])
+        .filter((u): u is string => typeof u === "string" && isTrustedMediaUrl(u.trim()))
+        .slice(0, 3);
+      const postImageUrl =
+        petPhotos.length === 0
+          ? null
+          : petPhotos.length === 1
+          ? petPhotos[0]
+          : JSON.stringify(petPhotos);
+
+      await prisma.userPost.create({
+        data: {
+          content: postContent,
+          imageUrl: postImageUrl,
+          userId,
+        },
+      });
+    } catch (postError) {
+      console.error("Failed to auto-create feed post for new pet:", postError);
+    }
+
     return NextResponse.json(pet, { status: 201 });
   } catch (error) {
     console.error("Error creating pet:", error);
