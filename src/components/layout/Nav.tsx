@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useSession, signOut } from "next-auth/react";
-import { useState, useEffect, useRef, useCallback, type RefObject } from "react";
+import { useState, useEffect, useRef, useCallback, useMemo, type RefObject } from "react";
 
 type NavContest = {
   id: string;
@@ -85,6 +85,17 @@ export function Nav({
   const [notifications, setNotifications] = useState<AppNotification[]>([]);
   const [unreadCount, setUnreadCount] = useState(0);
   const [smartTips, setSmartTips] = useState<SmartTip[]>([]);
+  const [seenTipId, setSeenTipId] = useState<string | null>(null);
+  // On mount, restore the last seen tip id from localStorage
+  useEffect(() => { setSeenTipId(localStorage.getItem("vtf_seen_tip") ?? null); }, []);
+  // Rotate through tips every 20 minutes — pick one based on current time slot
+  const activeTip = useMemo(() => {
+    if (smartTips.length === 0) return null;
+    const index = Math.floor(Date.now() / (20 * 60 * 1000)) % smartTips.length;
+    return smartTips[index];
+  }, [smartTips]);
+  // Only show the tip if the user hasn't already seen this specific one
+  const visibleTip = activeTip && activeTip.id !== seenTipId ? activeTip : null;
   const contestRef = useRef<HTMLDivElement>(null);
   const leaderboardRef = useRef<HTMLDivElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
@@ -120,11 +131,18 @@ export function Nav({
           }
         })
         .catch(() => {});
-      // Fetch smart engagement tips
+    }
+  }, [session]);
+
+  // Fetch smart contextual tips for the notifications dropdown
+  useEffect(() => {
+    if (session) {
       fetch("/api/smart-tips")
         .then((r) => r.json())
-        .then((data) => { if (data?.tips) setSmartTips(data.tips); })
-        .catch(() => {});
+        .then((data) => setSmartTips(Array.isArray(data?.tips) ? data.tips : []))
+        .catch(() => setSmartTips([]));
+    } else {
+      setSmartTips([]);
     }
   }, [session]);
 
@@ -299,12 +317,22 @@ export function Nav({
               {/* Notifications Dropdown */}
               <div className="relative" ref={notificationsRef}>
                 <button
-                  onClick={() => setNotificationsOpen(!notificationsOpen)}
+                  onClick={() => {
+                    const opening = !notificationsOpen;
+                    setNotificationsOpen(opening);
+                    // Mark the currently visible tip as seen when the user opens the dropdown
+                    if (opening && visibleTip) {
+                      localStorage.setItem("vtf_seen_tip", visibleTip.id);
+                      setSeenTipId(visibleTip.id);
+                    }
+                  }}
                   className="flex items-center justify-center w-11 h-11 rounded-full text-surface-600 hover:text-surface-900 hover:bg-surface-100 transition-colors relative"
                 >
                   <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 8A6 6 0 006 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 01-3.46 0"/></svg>
-                  {(unreadCount > 0 || smartTips.length > 0) && (
-                    <span className="absolute top-2.5 right-2.5 w-2 h-2 rounded-full bg-red-500 ring-2 ring-white"></span>
+                  {(unreadCount > 0 || visibleTip) && (
+                    <span className="absolute -top-1 -right-1 min-w-[18px] h-[18px] px-1 rounded-full bg-red-500 ring-2 ring-white flex items-center justify-center text-[10px] font-bold text-white animate-bounce shadow-md">
+                      {unreadCount + (visibleTip ? 1 : 0)}
+                    </span>
                   )}
                 </button>
                 
@@ -318,38 +346,40 @@ export function Nav({
                     </div>
                     
                     <div className="max-h-[360px] overflow-y-auto">
-                      {/* Smart contextual tips */}
-                      {smartTips.map((tip) => {
+                      {/* Smart contextual tip — one at a time, rotates every 20 min, hides after seen */}
+                      {visibleTip && (() => {
                         const colorMap: Record<string, { bg: string; border: string; cta: string; iconBg: string }> = {
-                          brand:  { bg: "from-teal-50 to-cyan-50",   border: "border-teal-200",  cta: "bg-teal-500 hover:bg-teal-600",   iconBg: "bg-teal-100" },
-                          amber:  { bg: "from-amber-50 to-orange-50", border: "border-amber-200", cta: "bg-amber-500 hover:bg-amber-600", iconBg: "bg-amber-100" },
-                          green:  { bg: "from-emerald-50 to-green-50",border: "border-emerald-200",cta: "bg-emerald-500 hover:bg-emerald-600",iconBg: "bg-emerald-100" },
-                          purple: { bg: "from-violet-50 to-purple-50",border: "border-violet-200", cta: "bg-violet-500 hover:bg-violet-600", iconBg: "bg-violet-100" },
+                          brand:  { bg: "from-teal-50 to-cyan-50",      border: "border-teal-200",   cta: "bg-teal-500 hover:bg-teal-600",    iconBg: "bg-teal-100" },
+                          amber:  { bg: "from-amber-50 to-orange-50",   border: "border-amber-200",  cta: "bg-amber-500 hover:bg-amber-600",  iconBg: "bg-amber-100" },
+                          green:  { bg: "from-emerald-50 to-green-50",  border: "border-emerald-200",cta: "bg-emerald-500 hover:bg-emerald-600",iconBg: "bg-emerald-100" },
+                          purple: { bg: "from-violet-50 to-purple-50",  border: "border-violet-200", cta: "bg-violet-500 hover:bg-violet-600", iconBg: "bg-violet-100" },
+                          rose:   { bg: "from-rose-50 to-pink-50",      border: "border-rose-200",   cta: "bg-rose-500 hover:bg-rose-600",    iconBg: "bg-rose-100" },
+                          sky:    { bg: "from-sky-50 to-blue-50",       border: "border-sky-200",    cta: "bg-sky-500 hover:bg-sky-600",      iconBg: "bg-sky-100" },
                         };
-                        const c = colorMap[tip.color] ?? colorMap.brand;
+                        const c = colorMap[visibleTip.color] ?? colorMap.brand;
                         return (
-                          <div key={tip.id} className={`mx-3 my-2.5 rounded-xl bg-gradient-to-br ${c.bg} border ${c.border} p-3 flex gap-3 items-start`}>
+                          <div className={`mx-3 my-2.5 rounded-xl bg-gradient-to-br ${c.bg} border ${c.border} p-3 flex gap-3 items-start`}>
                             <div className={`w-9 h-9 rounded-full ${c.iconBg} flex items-center justify-center shrink-0 text-lg`}>
-                              {tip.icon}
+                              {visibleTip.icon}
                             </div>
                             <div className="flex-1 min-w-0">
-                              <p className="text-sm font-bold text-surface-900 leading-tight">{tip.title}</p>
-                              <p className="text-xs text-surface-600 mt-0.5 leading-snug">{tip.message}</p>
+                              <p className="text-sm font-bold text-surface-900 leading-tight">{visibleTip.title}</p>
+                              <p className="text-xs text-surface-600 mt-0.5 leading-snug">{visibleTip.message}</p>
                               <Link
-                                href={tip.ctaUrl}
+                                href={visibleTip.ctaUrl}
                                 onClick={closeNotifications}
                                 className={`inline-block mt-2 text-[11px] font-bold text-white px-3 py-1 rounded-full ${c.cta} transition-colors`}
                               >
-                                {tip.ctaText} →
+                                {visibleTip.ctaText} →
                               </Link>
                             </div>
                           </div>
                         );
-                      })}
-                      {smartTips.length > 0 && notifications.length > 0 && (
+                      })()}
+                      {visibleTip && notifications.length > 0 && (
                         <div className="mx-4 border-t border-surface-100 mb-1" />
                       )}
-                      {notifications.length === 0 && smartTips.length === 0 ? (
+                      {notifications.length === 0 && !visibleTip ? (
                         <div className="p-6 text-center text-sm text-surface-500">No new notifications.</div>
                       ) : (
                         notifications.map((n) => (
@@ -389,7 +419,9 @@ export function Nav({
                       )}
                     </div>
                     
-
+                    <div className="px-4 py-3 text-center border-t border-surface-100 bg-surface-50/50">
+                      <Link href="/feed" className="text-xs font-bold text-surface-500 hover:text-brand-600 transition-colors uppercase tracking-wider" onClick={closeNotifications}>View All</Link>
+                    </div>
                   </div>
                 )}
               </div>

@@ -185,6 +185,36 @@ export function PublicProfileClient({
   const [commentTexts, setCommentTexts] = useState<Record<string, string>>({});
   const [submittingComment, setSubmittingComment] = useState<string | null>(null);
   const [likesModalPostId, setLikesModalPostId] = useState<string | null>(null);
+  // Emoji picker — single global fixed picker
+  const [emojiPickerFor, setEmojiPickerFor] = useState<string | null>(null);
+  const [emojiPickerPos, setEmojiPickerPos] = useState<{ top: number; left: number }>({ top: 0, left: 0 });
+  const EMOJIS = [
+    "😊","😂","😍","🥰","😘","😉","😎","🤔",
+    "😭","🙌","👏","👍","👎","👋","👌","💪",
+    "❤️","🧡","💛","💚","💙","💜","🖤","💔",
+    "🔥","✨","⭐","🌟","🎉","🎊","🎁","🎂",
+    "🐶","🐱","🐰","🦊","🐻","🐨","🐯","🦁",
+    "🐾","🦴","🐂","🐴","🐮","🐖","🐑","🐔",
+    "🌺","🌸","🌻","🌼","🍂","🍀","🌲","🌳",
+  ];
+  function openEmojiPicker(target: string, e: React.MouseEvent<HTMLButtonElement>) {
+    if (emojiPickerFor === target) { setEmojiPickerFor(null); return; }
+    const rect = e.currentTarget.getBoundingClientRect();
+    const pickerW = 256;
+    const left = Math.min(rect.left, window.innerWidth - pickerW - 8);
+    const top = rect.bottom + 6;
+    setEmojiPickerPos({ top, left });
+    setEmojiPickerFor(target);
+  }
+  function insertEmoji(emoji: string) {
+    if (!emojiPickerFor) return;
+    if (emojiPickerFor === "post") {
+      setPostText((t) => t + emoji);
+    } else if (emojiPickerFor.startsWith("comment-")) {
+      const pid = emojiPickerFor.replace("comment-", "");
+      setCommentTexts((prev) => ({ ...prev, [pid]: (prev[pid] || "") + emoji }));
+    }
+  }
 
   // Scroll to post from URL hash (notification deep-link)
   useEffect(() => {
@@ -698,7 +728,7 @@ export function PublicProfileClient({
                   <div className="w-9 h-9 rounded-full bg-gradient-to-br from-brand-500 to-brand-600 flex items-center justify-center text-white text-sm font-bold flex-shrink-0">
                     {profile.name[0]?.toUpperCase()}
                   </div>
-                  <span className="text-surface-400 text-sm flex-1">Share something with your followers...</span>
+                  <span className="text-surface-400 text-sm flex-1">✨ Share something with your followers...</span>
                   <span className="text-xs font-bold text-brand-500 bg-brand-50 px-3 py-1.5 rounded-full border border-brand-200/60">+ Post</span>
                 </button>
               ) : (
@@ -706,7 +736,7 @@ export function PublicProfileClient({
                   <textarea
                     value={postText}
                     onChange={(e) => setPostText(e.target.value)}
-                    placeholder="Share something with your followers..."
+                    placeholder="✨ What's on your mind? Share a moment with your followers..."
                     rows={3}
                     maxLength={1000}
                     autoFocus
@@ -725,6 +755,19 @@ export function PublicProfileClient({
                         disabled={mediaFiles.length >= MAX_POST_MEDIA}
                       />
                     </label>
+                    {/* Emoji picker button */}
+                    <button
+                      type="button"
+                      onClick={(e) => openEmojiPicker("post", e)}
+                      className={`inline-flex items-center gap-2 px-3 py-2 rounded-xl border text-xs transition-colors ${
+                        emojiPickerFor === "post"
+                          ? "border-amber-400 text-amber-500 bg-amber-50"
+                          : "border-surface-200 text-surface-500 hover:border-amber-400 hover:text-amber-500"
+                      }`}
+                    >
+                      <span className="text-base leading-none">😊</span>
+                      Emoji
+                    </button>
                     {mediaFiles.length > 0 && (
                       <button onClick={clearAllMedia} className="text-xs text-red-400 hover:text-red-600 transition-colors">Clear all</button>
                     )}
@@ -938,11 +981,24 @@ export function PublicProfileClient({
                           value={commentTexts[post.id] || ""}
                           onChange={(e) => setCommentTexts((prev) => ({ ...prev, [post.id]: e.target.value }))}
                           onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); submitComment(post.id); } }}
-                          placeholder="Write a comment..."
+                          placeholder="💬 Write a comment..."
                           rows={1}
                           maxLength={500}
                           className="flex-1 resize-none text-xs text-surface-900 placeholder:text-surface-400 bg-surface-50 rounded-2xl px-3 py-2 focus:outline-none focus:ring-2 focus:ring-brand-400/30 border border-transparent focus:border-brand-300 transition-colors leading-relaxed"
                         />
+                        {/* Emoji picker for comment */}
+                        <button
+                          type="button"
+                          onClick={(e) => openEmojiPicker(`comment-${post.id}`, e)}
+                          className={`w-8 h-8 flex-shrink-0 rounded-full flex items-center justify-center transition-colors ${
+                            emojiPickerFor === `comment-${post.id}`
+                              ? "bg-amber-100 text-amber-600"
+                              : "bg-surface-100 text-surface-600 hover:bg-amber-100 hover:text-amber-600"
+                          }`}
+                          aria-label="Add emoji"
+                        >
+                          <span className="text-base leading-none">😊</span>
+                        </button>
                         <button
                           onClick={() => submitComment(post.id)}
                           disabled={submittingComment === post.id || !(commentTexts[post.id] || "").trim()}
@@ -983,6 +1039,28 @@ export function PublicProfileClient({
           postUserId={profile.id}
           onClose={() => setLikesModalPostId(null)}
         />
+      )}
+
+      {/* ─── Global Emoji Picker (fixed, escapes overflow-hidden) ─── */}
+      {emojiPickerFor && (
+        <>
+          <div className="fixed inset-0 z-40" onClick={() => setEmojiPickerFor(null)} />
+          <div
+            className="fixed z-50 bg-white border border-surface-200 rounded-2xl shadow-2xl p-3 w-64 grid grid-cols-8 gap-1"
+            style={{ top: emojiPickerPos.top, left: emojiPickerPos.left }}
+          >
+            {EMOJIS.map((em) => (
+              <button
+                key={em}
+                type="button"
+                onClick={() => insertEmoji(em)}
+                className="text-xl hover:bg-amber-50 rounded-lg aspect-square flex items-center justify-center transition-colors"
+              >
+                {em}
+              </button>
+            ))}
+          </div>
+        </>
       )}
 
       {/* ─── Pet Entry Picker (multi-contest pets) ─── */}

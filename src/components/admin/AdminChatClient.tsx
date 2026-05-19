@@ -2,6 +2,13 @@
 
 import { useState, useEffect, useRef } from "react";
 
+// Detect and parse email messages stored as "📧 Email reply (subject: X)\n\nbody"
+function parseEmailContent(content: string): { isEmail: true; subject: string; body: string } | null {
+  const match = content.match(/^📧 (?:Email reply|New email) \(subject: (.*?)\)\n\n([\s\S]*)$/);
+  if (!match) return null;
+  return { isEmail: true, subject: match[1].trim(), body: match[2].trim() };
+}
+
 type Conversation = {
   id: string;
   sessionId: string;
@@ -366,17 +373,42 @@ export function AdminChatClient() {
                 {msg.role === "ASSISTANT" && (
                   <div className="text-[9px] text-surface-400 font-medium mb-px ml-1">AI</div>
                 )}
-                <div
-                  className={`rounded-2xl px-3 py-1.5 text-[13px] leading-snug whitespace-pre-wrap ${
-                    msg.role === "USER"
-                      ? "bg-brand-500 text-white rounded-br-md"
-                      : msg.role === "ADMIN"
-                      ? "bg-blue-50 text-surface-800 rounded-bl-md border border-blue-200"
-                      : "bg-surface-100 text-surface-800 rounded-bl-md"
-                  }`}
-                >
-                  {msg.content}
-                </div>
+                {(() => {
+                  const email = parseEmailContent(msg.content);
+                  if (email) {
+                    return (
+                      <div className="rounded-2xl border border-amber-200 bg-amber-50 overflow-hidden max-w-sm">
+                        <div className="flex items-center gap-1.5 px-3 py-1.5 bg-amber-100 border-b border-amber-200">
+                          <span className="text-sm">📧</span>
+                          <span className="text-[11px] font-bold text-amber-800 uppercase tracking-wide">Email</span>
+                        </div>
+                        <div className="px-3 pt-2 pb-0.5">
+                          <div className="text-[10px] font-semibold text-amber-700 uppercase tracking-wide mb-0.5">Subject</div>
+                          <div className="text-[12px] font-medium text-surface-800 leading-snug mb-2">{email.subject}</div>
+                          {email.body && (
+                            <>
+                              <div className="text-[10px] font-semibold text-amber-700 uppercase tracking-wide mb-0.5">Message</div>
+                              <div className="text-[12px] text-surface-700 leading-snug whitespace-pre-wrap pb-2">{email.body}</div>
+                            </>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  }
+                  return (
+                    <div
+                      className={`rounded-2xl px-3 py-1.5 text-[13px] leading-snug whitespace-pre-wrap ${
+                        msg.role === "USER"
+                          ? "bg-brand-500 text-white rounded-br-md"
+                          : msg.role === "ADMIN"
+                          ? "bg-blue-50 text-surface-800 rounded-bl-md border border-blue-200"
+                          : "bg-surface-100 text-surface-800 rounded-bl-md"
+                      }`}
+                    >
+                      {msg.content}
+                    </div>
+                  );
+                })()}
                 <div
                   className={`text-[9px] text-surface-300 mt-px ${
                     msg.role === "USER" ? "text-right" : "text-left"
@@ -613,7 +645,13 @@ export function AdminChatClient() {
                       <p className="text-xs text-surface-500 truncate">
                         {c.ticketProblem
                           ? `🎫 ${c.ticketProblem}`
-                          : c.lastMessage?.replace("[⚡ NEEDS HUMAN SUPPORT] ", "") || "No messages"}
+                          : (() => {
+                              const raw = c.lastMessage?.replace("[⚡ NEEDS HUMAN SUPPORT] ", "") || "No messages";
+                              // Format email lastMessage: "📧 actual body" → "📧 actual body"
+                              // Strip "(empty reply)" fallback text
+                              if (raw === "(empty reply)" || raw === "📧 (empty reply)") return "📧 Email received";
+                              return raw;
+                            })()}
                       </p>
                       <div className="flex items-center justify-between mt-1.5">
                         <span className="text-[10px] text-surface-400">{formatDate(c.updatedAt)}</span>

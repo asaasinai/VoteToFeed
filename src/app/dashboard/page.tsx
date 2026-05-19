@@ -86,10 +86,15 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
   const userId = (session.user as { id: string }).id;
   const weekId = getCurrentWeekId();
 
-  // Background: complete any stuck PENDING purchases for this user.
-  // Fire-and-forget so the dashboard renders immediately. Pending
-  // purchases are rare and will be reconciled on the next visit.
-  void completePendingPurchasesInBackground(userId);
+  // If the user just returned from Stripe Checkout (?purchase=success),
+  // AWAIT reconciliation so the updated balance is visible on first paint —
+  // no refresh needed even if Stripe's webhook hasn't fired yet.
+  // Otherwise, fire-and-forget for instant dashboard load.
+  if (searchParams?.purchase === "success") {
+    await completePendingPurchasesInBackground(userId);
+  } else {
+    void completePendingPurchasesInBackground(userId);
+  }
 
   const sourcePetId = searchParams?.pet;
   const [user, mealRate, animalType, lifetimeAgg, totalVotesCast, purchasePet] = await Promise.all([

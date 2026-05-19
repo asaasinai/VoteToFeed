@@ -90,6 +90,7 @@ export function AdminSupportTab() {
   const [draftOpen, setDraftOpen] = useState(false);
   const [draftIsFallback, setDraftIsFallback] = useState(false);
   const [draftFallbackReason, setDraftFallbackReason] = useState<string | null>(null);
+  const [draftAiContext, setDraftAiContext] = useState<{ ticketProblem: string; emailCount: number; messageCount: number } | null>(null);
   const [generating, setGenerating] = useState(false);
   const [sending, setSending] = useState(false);
   const [feedback, setFeedback] = useState<string | null>(null);
@@ -102,6 +103,9 @@ export function AdminSupportTab() {
   const [pasteSubject, setPasteSubject] = useState("");
   const [pasteBody, setPasteBody] = useState("");
   const [pasting, setPasting] = useState(false);
+  const [suggestingSubject, setSuggestingSubject] = useState(false);
+  const [suggestingBody, setSuggestingBody] = useState(false);
+  const [suggestError, setSuggestError] = useState<string | null>(null);
 
   const fetchList = useCallback(async () => {
     setLoadingList(true);
@@ -191,6 +195,11 @@ export function AdminSupportTab() {
       setDraftBody(json.body || "");
       setDraftIsFallback(!!json.fallback);
       setDraftFallbackReason(json.fallbackReason || null);
+      setDraftAiContext({
+        ticketProblem: detail.ticketProblem || detail.messages.find((m) => m.role === "USER")?.content || "(no description)",
+        emailCount: detail.messages.filter((m) => m.kind === "email_sent" || m.kind === "email_received").length,
+        messageCount: detail.messages.length,
+      });
       setDraftOpen(true);
       if (json.fallback) {
         setFeedback(`AI unavailable — showing a starter draft. See details inside the modal.`);
@@ -287,6 +296,56 @@ export function AdminSupportTab() {
     } finally {
       setPasting(false);
       setTimeout(() => setFeedback(null), 4000);
+    }
+  }
+
+  async function suggestSubject() {
+    if (!pasteBody.trim() || suggestingSubject) return;
+    setSuggestingSubject(true);
+    setSuggestError(null);
+    try {
+      const res = await fetch("/api/admin/emails/ai-suggest", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text: pasteBody.trim() }),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok || !json.subject) {
+        setSuggestError(json.error || "AI unavailable — write the subject manually.");
+        return;
+      }
+      setPasteSubject(json.subject);
+    } catch {
+      setSuggestError("Failed to generate — check your connection.");
+    } finally {
+      setSuggestingSubject(false);
+    }
+  }
+
+  async function suggestBody() {
+    if (!pasteBody.trim() || suggestingBody) return;
+    setSuggestingBody(true);
+    setSuggestError(null);
+    try {
+      const res = await fetch("/api/admin/emails/ai-suggest", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          text: pasteBody.trim(),
+          mode: "body",
+          ticketIssue: detail?.ticketProblem ?? undefined,
+        }),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok || !json.body) {
+        setSuggestError(json.error || "AI unavailable — write the body manually.");
+        return;
+      }
+      setPasteBody(json.body);
+    } catch {
+      setSuggestError("Failed to generate — check your connection.");
+    } finally {
+      setSuggestingBody(false);
     }
   }
 
@@ -488,55 +547,31 @@ export function AdminSupportTab() {
                 )}
               </div>
 
-              {/* Thread */}
+              {/* Thread — show only email messages */}
               <div className="flex-1 overflow-y-auto px-4 py-3 space-y-2 bg-surface-50">
-                {detail.messages.map((m) => {
+                {detail.messages.filter((m) => m.kind === "email_sent" || m.kind === "email_received").length === 0 && (
+                  <div className="flex items-center justify-center h-full text-sm text-surface-400">No emails in this thread yet.</div>
+                )}
+                {detail.messages.filter((m) => m.kind === "email_sent" || m.kind === "email_received").map((m) => {
                   const isEmailSent = m.kind === "email_sent";
                   const isEmailRecv = m.kind === "email_received";
-                  const align = m.role === "USER" ? "justify-end" : "justify-start";
-
-                  if (isEmailSent || isEmailRecv) {
-                    return (
-                      <div key={m.id} className="flex justify-start">
-                        <div className={`max-w-[90%] w-full rounded-xl border px-3 py-2 text-[12px] ${
-                          isEmailSent
-                            ? "bg-blue-50 border-blue-200"
-                            : "bg-amber-50 border-amber-200"
-                        }`}>
-                          <div className="flex items-center gap-1.5 mb-1">
-                            <span className={`text-[9px] font-bold uppercase tracking-wider ${
-                              isEmailSent ? "text-blue-700" : "text-amber-700"
-                            }`}>
-                              {isEmailSent ? "📤 Email Sent" : "📥 Email Received"}
-                            </span>
-                            <span className="text-[9px] text-surface-400">{formatDate(m.createdAt)}</span>
-                          </div>
-                          <div className="text-[12px] whitespace-pre-wrap text-surface-800">{m.content}</div>
-                        </div>
-                      </div>
-                    );
-                  }
 
                   return (
-                    <div key={m.id} className={`flex ${align}`}>
-                      <div className="max-w-[80%]">
-                        <div className={`text-[9px] font-medium mb-px ml-1 ${
-                          m.role === "ADMIN" ? "text-blue-600" : m.role === "ASSISTANT" ? "text-surface-400" : "text-surface-400"
-                        }`}>
-                          {m.role === "ADMIN" ? "Admin" : m.role === "ASSISTANT" ? "AI" : "User"}
+                    <div key={m.id} className="flex justify-start">
+                      <div className={`max-w-[90%] w-full rounded-xl border px-3 py-2 text-[12px] ${
+                        isEmailSent
+                          ? "bg-blue-50 border-blue-200"
+                          : "bg-amber-50 border-amber-200"
+                      }`}>
+                        <div className="flex items-center gap-1.5 mb-1">
+                          <span className={`text-[9px] font-bold uppercase tracking-wider ${
+                            isEmailSent ? "text-blue-700" : "text-amber-700"
+                          }`}>
+                            {isEmailSent ? "📤 Email Sent" : "📥 Email Received"}
+                          </span>
+                          <span className="text-[9px] text-surface-400">{formatDate(m.createdAt)}</span>
                         </div>
-                        <div className={`rounded-xl px-3 py-1.5 text-[12px] whitespace-pre-wrap ${
-                          m.role === "USER"
-                            ? "bg-red-500 text-white"
-                            : m.role === "ADMIN"
-                            ? "bg-blue-50 text-surface-800 border border-blue-100"
-                            : "bg-white text-surface-800 border border-surface-200"
-                        }`}>
-                          {m.content}
-                        </div>
-                        <div className={`text-[9px] text-surface-400 mt-px ${m.role === "USER" ? "text-right" : "text-left"}`}>
-                          {formatDate(m.createdAt)}
-                        </div>
+                        <div className="text-[12px] whitespace-pre-wrap text-surface-800">{m.content}</div>
                       </div>
                     </div>
                   );
@@ -603,6 +638,22 @@ export function AdminSupportTab() {
                 ✕ Close
               </button>
             </div>
+
+            {!draftIsFallback && draftAiContext && (
+              <div className="px-6 py-3 bg-blue-50 border-b border-blue-100 text-[12px] text-blue-900">
+                <div className="flex items-start gap-2">
+                  <span className="text-base mt-0.5">🤖</span>
+                  <div className="flex-1 min-w-0">
+                    <span className="font-bold text-blue-800">AI drafted this reply based on the ticket context:</span>
+                    <p className="mt-0.5 text-[12px] text-blue-700 line-clamp-2">{draftAiContext.ticketProblem}</p>
+                    <div className="flex gap-3 mt-1 text-[10px] text-blue-500">
+                      <span>📨 {draftAiContext.messageCount} messages read</span>
+                      <span>📧 {draftAiContext.emailCount} emails in thread</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
 
             {draftIsFallback && draftFallbackReason && (
               <div className="px-6 py-3 bg-amber-50 border-b border-amber-200 text-[12px] text-amber-900">
@@ -753,10 +804,49 @@ export function AdminSupportTab() {
                 />
               </div>
               <div>
-                <label className="block text-xs font-semibold text-surface-600 mb-1">Body — paste exactly what the customer wrote</label>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="block text-xs font-semibold text-surface-600">Body — paste customer message, or let AI draft a reply</label>
+                  <div className="flex gap-1.5">
+                    <button
+                      type="button"
+                      onClick={suggestSubject}
+                      disabled={suggestingSubject || suggestingBody || !pasteBody.trim()}
+                      className="flex items-center gap-1 px-2 py-1 rounded-lg bg-purple-100 hover:bg-purple-200 text-purple-700 text-[11px] font-bold disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                      title="AI reads this message and suggests a Subject"
+                    >
+                      {suggestingSubject ? (
+                        <>
+                          <span className="inline-block w-3 h-3 border-2 border-purple-400 border-t-transparent rounded-full animate-spin" />
+                          Subject…
+                        </>
+                      ) : (
+                        "📌 Suggest Subject"
+                      )}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={suggestBody}
+                      disabled={suggestingBody || suggestingSubject || !pasteBody.trim()}
+                      className="flex items-center gap-1 px-2 py-1 rounded-lg bg-blue-100 hover:bg-blue-200 text-blue-700 text-[11px] font-bold disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                      title="AI drafts a reply body based on the pasted customer message"
+                    >
+                      {suggestingBody ? (
+                        <>
+                          <span className="inline-block w-3 h-3 border-2 border-blue-400 border-t-transparent rounded-full animate-spin" />
+                          Drafting…
+                        </>
+                      ) : (
+                        "🤖 Draft Reply Body"
+                      )}
+                    </button>
+                  </div>
+                </div>
+                {suggestError && (
+                  <p className="mb-1 text-[11px] text-red-600 font-semibold">{suggestError}</p>
+                )}
                 <textarea
                   value={pasteBody}
-                  onChange={(e) => setPasteBody(e.target.value)}
+                  onChange={(e) => { setPasteBody(e.target.value); setSuggestError(null); }}
                   rows={10}
                   placeholder="Paste the full message the customer sent…"
                   className="w-full resize-none rounded-lg border border-surface-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400 font-mono"
