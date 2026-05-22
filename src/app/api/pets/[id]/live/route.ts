@@ -40,7 +40,7 @@ export async function GET(
             name: true,
             startDate: true,
             endDate: true,
-            entries: { where: { pet: { isActive: true } }, select: { petId: true, pet: { select: { name: true } } } },
+            entries: { where: { pet: { isActive: true }, isEliminated: false }, select: { petId: true, pet: { select: { name: true } } } },
           },
         },
       },

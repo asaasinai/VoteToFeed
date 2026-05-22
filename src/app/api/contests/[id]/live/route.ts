@@ -18,7 +18,7 @@ export async function GET(
       startDate: true,
       endDate: true,
       entries: {
-        where: { pet: { isActive: true } },
+        where: { pet: { isActive: true }, isEliminated: false },
         select: { petId: true, pet: { select: { id: true, name: true, photos: true, type: true } } },
       },
     },

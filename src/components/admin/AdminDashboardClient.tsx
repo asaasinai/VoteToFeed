@@ -2728,9 +2728,10 @@ function ContestManager() {
           {cf.type === "FLAGSHIP" && (
             <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 space-y-3">
               <p className="text-xs font-bold text-amber-800 uppercase tracking-wider">👑 Round Configuration</p>
+              <p className="text-[11px] text-amber-700 -mt-1">⚠️ <strong>Entry Deadline = Round 2 Start date.</strong> After that date the cron advances the phase to TOP100 and new pets can no longer be enrolled.</p>
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
                 <div>
-                  <label className="block text-[10px] font-medium text-surface-600 mb-1">Round 2 Start (Top 100)</label>
+                  <label className="block text-[10px] font-medium text-surface-600 mb-1">Entry Deadline / Round 2 Start (Top 100)</label>
                   <input type="date" value={cf.round2StartDate || ""} onChange={(e) => setCf((f) => ({ ...f, round2StartDate: e.target.value }))} className="input-field text-xs" />
                 </div>
                 <div>

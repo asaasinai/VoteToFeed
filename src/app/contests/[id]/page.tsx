@@ -66,6 +66,7 @@ export default async function ContestDetailPage({
     include: {
       prizes: { orderBy: { placement: "asc" } },
       entries: {
+        where: { isEliminated: false },
         include: {
           pet: {
             include: {
@@ -170,13 +171,28 @@ export default async function ContestDetailPage({
   });
 
   function typeLabel(type: string) {
-    const map: Record<string, string> = { NATIONAL: "Weekly", SEASONAL: "Seasonal", CHARITY: "Charity", CALENDAR: "Calendar", BREED: "Breed", STATE: "Regional" };
+    const map: Record<string, string> = { NATIONAL: "Weekly", SEASONAL: "Seasonal", CHARITY: "Charity", CALENDAR: "Calendar", BREED: "Breed", STATE: "Regional", FLAGSHIP: "Flagship" };
     return map[type] || type;
   }
   function typeBadge(type: string) {
-    const map: Record<string, string> = { NATIONAL: "bg-brand-100 text-brand-700", SEASONAL: "bg-amber-100 text-amber-700", CHARITY: "bg-emerald-100 text-emerald-700", CALENDAR: "bg-violet-100 text-violet-700", BREED: "bg-sky-100 text-sky-700", STATE: "bg-orange-100 text-orange-700" };
+    const map: Record<string, string> = { NATIONAL: "bg-brand-100 text-brand-700", SEASONAL: "bg-amber-100 text-amber-700", CHARITY: "bg-emerald-100 text-emerald-700", CALENDAR: "bg-violet-100 text-violet-700", BREED: "bg-sky-100 text-sky-700", STATE: "bg-orange-100 text-orange-700", FLAGSHIP: "bg-yellow-400 text-yellow-900" };
     return map[type] || "bg-surface-100 text-surface-600";
   }
+
+  const FLAGSHIP_PHASES = [
+    { key: "OPEN",   label: "Open Entry", icon: "📋" },
+    { key: "TOP100", label: "Top 100",     icon: "💯" },
+    { key: "TOP25",  label: "Top 25",      icon: "🔥" },
+    { key: "TOP5",   label: "Top 5",       icon: "⭐" },
+    { key: "ENDED",  label: "Winner",      icon: "🏆" },
+  ];
+  const currentPhaseIdx = FLAGSHIP_PHASES.findIndex((p) => p.key === contest.currentPhase);
+  const phaseDescriptions: Record<string, string> = {
+    TOP100: `${sortedEntries.length} pets remain after the open round — only the top 100 advance.`,
+    TOP25:  `${sortedEntries.length} pets remain — the field is cut to the top 25.`,
+    TOP5:   `${sortedEntries.length} finalists remain — only the top 5 compete for the championship.`,
+    ENDED:  "The championship has concluded. See the final results below.",
+  };
 
   return (
     <div className="min-h-screen">
@@ -217,6 +233,42 @@ export default async function ContestDetailPage({
         {searchParams?.reentry === "success" && (
           <div className="mb-6 rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-medium text-emerald-800">
             ✅ Your pet is entered! Share to get more votes.
+          </div>
+        )}
+
+        {contest.type === "FLAGSHIP" && contest.currentPhase !== "OPEN" && (
+          <div className="mb-6 rounded-2xl border border-amber-300 bg-gradient-to-r from-amber-50 via-yellow-50 to-amber-50 p-4 shadow-sm">
+            <div className="flex items-center gap-2 mb-3">
+              <span className="text-lg">👑</span>
+              <p className="text-sm font-extrabold text-amber-800 uppercase tracking-wider">Championship Progress</p>
+            </div>
+            <div className="flex items-center gap-1 sm:gap-2 mb-3 overflow-x-auto pb-1">
+              {FLAGSHIP_PHASES.map((phase, idx) => {
+                const isActive = idx === currentPhaseIdx;
+                const isPast   = idx < currentPhaseIdx;
+                return (
+                  <div key={phase.key} className="flex items-center gap-1 sm:gap-2 shrink-0">
+                    <div className={`flex flex-col items-center gap-0.5 px-2 py-1.5 rounded-xl text-center min-w-[60px] transition-all ${
+                      isActive ? "bg-amber-400 text-amber-900 shadow font-bold ring-2 ring-amber-300" :
+                      isPast   ? "bg-amber-200 text-amber-700" :
+                                 "bg-white/60 text-surface-400"
+                    }`}>
+                      <span className="text-base leading-none">{phase.icon}</span>
+                      <span className="text-[10px] font-semibold whitespace-nowrap">{phase.label}</span>
+                      {isActive && <span className="text-[8px] font-bold uppercase tracking-wider">NOW</span>}
+                    </div>
+                    {idx < FLAGSHIP_PHASES.length - 1 && (
+                      <div className={`h-0.5 w-3 sm:w-5 rounded-full shrink-0 ${
+                        idx < currentPhaseIdx ? "bg-amber-400" : "bg-surface-200"
+                      }`} />
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+            {phaseDescriptions[contest.currentPhase] && (
+              <p className="text-xs text-amber-700 font-medium">{phaseDescriptions[contest.currentPhase]}</p>
+            )}
           </div>
         )}
 
