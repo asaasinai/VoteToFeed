@@ -109,7 +109,7 @@ export default async function ContestDetailPage({
   const prizeTotal = contest.prizes.reduce((s, p) => s + p.value, 0);
 
   const sortedEntries = contest.entries
-    .filter((e) => e.pet.isActive && !e.isEliminated)
+    .filter((e) => e.pet.isActive)
     .sort((a, b) => {
       const aVotes = votesByPet.get(a.petId) ?? 0;
       const bVotes = votesByPet.get(b.petId) ?? 0;
