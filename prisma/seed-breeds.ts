@@ -59,6 +59,7 @@ const DOG_BREEDS = [
   "Cairn Terrier",
   "Canaan Dog",
   "Cane Corso",
+  "Catahoula Leopard Dog",
   "Cardigan Welsh Corgi",
   "Cavalier King Charles Spaniel",
   "Chesapeake Bay Retriever",

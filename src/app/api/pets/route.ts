@@ -174,6 +174,11 @@ export async function POST(req: NextRequest) {
               isActive: true,
               petType: { in: [type, "ALL"] },
               endDate: { gte: new Date() },
+              // FLAGSHIP contests only accept entries while the phase is OPEN
+              OR: [
+                { type: { not: "FLAGSHIP" } },
+                { type: "FLAGSHIP", currentPhase: "OPEN" },
+              ],
             },
             select: { id: true },
           }).then((contests) => contests.map((contest) => contest.id))

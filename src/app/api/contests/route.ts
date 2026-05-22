@@ -23,6 +23,12 @@ export async function GET(req: NextRequest) {
       if (!includeNotStarted) {
         where.startDate = { lte: now };
       }
+      // FLAGSHIP contests: only show them while the entry phase is still OPEN.
+      // Once they advance to TOP100/TOP25/TOP5/ENDED, no new pets can enter.
+      where.OR = [
+        { type: { not: "FLAGSHIP" } },
+        { type: "FLAGSHIP", currentPhase: "OPEN" },
+      ];
     }
     if (petType) {
       // Contests marked ALL accept any pet type — include them when filtering by a specific type
