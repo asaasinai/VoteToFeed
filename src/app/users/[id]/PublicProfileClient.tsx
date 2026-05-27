@@ -1,12 +1,14 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
+import { createPortal } from "react-dom";
 import Link from "next/link";
 import { FollowButton } from "@/components/shared/FollowButton";
 import { BadgeGrid } from "@/components/shared/BadgeGrid";
 import { FollowersList } from "@/components/shared/FollowersList";
-import { formatUserName } from "@/lib/utils";
+import { formatUserName, timeAgo as timeAgoUtil } from "@/lib/utils";
 import { MediaCarousel } from "@/components/shared/MediaCarousel";
+import { CreateStoryModal } from "@/components/shared/CreateStoryModal";
 
 type Badge = {
   id: string;
@@ -71,6 +73,15 @@ type Profile = {
 
 type Tab = "pets" | "badges" | "posts";
 
+type ProfileStory = {
+  id: string;
+  mediaUrl: string;
+  mediaType: string;
+  caption: string | null;
+  createdAt: string;
+  expiresAt: string;
+};
+
 type PostComment = {
   id: string;
   content: string;
@@ -88,6 +99,8 @@ type UserPost = {
   likeCount: number;
   commentCount: number;
   isLiked: boolean;
+  myReaction: string | null;
+  reactions: { HEART: number; HAHA: number; WOW: number };
   comments: PostComment[];
 };
 
@@ -149,6 +162,199 @@ function groupPets(pets: Pet[]): PetGroup[] {
   });
 }
 
+/* ─── Profile Story Viewer ─── */
+function ProfileStoryViewer({
+  stories,
+  user,
+  initialIdx,
+  isOwn,
+  onClose,
+  onDeleted,
+  onAddStory,
+}: {
+  stories: ProfileStory[];
+  user: { id: string; name: string; image: string | null };
+  initialIdx: number;
+  isOwn: boolean;
+  onClose: () => void;
+  onDeleted: (id: string) => void;
+  onAddStory: () => void;
+}) {
+  const [idx, setIdx] = useState(initialIdx);
+  const [progress, setProgress] = useState(0);
+  const progressRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const [viewersOpen, setViewersOpen] = useState(false);
+  const [viewers, setViewers] = useState<{ id: string; name: string | null; image: string | null; viewedAt: string }[]>([]);
+  const [viewersLoading, setViewersLoading] = useState(false);
+  const DURATION = 5000;
+  const TICK = 50;
+
+  const story = stories[idx];
+
+  // Record view
+  useEffect(() => {
+    if (!story) return;
+    fetch(`/api/stories/${story.id}/view`, { method: "POST" }).catch(() => {});
+  }, [story?.id]);
+
+  // Fetch viewers for own stories
+  useEffect(() => {
+    if (!story || !isOwn) { setViewers([]); return; }
+    setViewersLoading(true);
+    fetch(`/api/stories/${story.id}/views`)
+      .then((r) => r.json())
+      .then((d) => setViewers(d.viewers || []))
+      .catch(() => {})
+      .finally(() => setViewersLoading(false));
+  }, [story?.id, isOwn]);
+
+  // Auto-advance
+  useEffect(() => {
+    if (viewersOpen) return;
+    setProgress(0);
+    if (progressRef.current) clearInterval(progressRef.current);
+    progressRef.current = setInterval(() => {
+      setProgress((p) => {
+        const next = p + (TICK / DURATION) * 100;
+        if (next >= 100) {
+          if (idx < stories.length - 1) setIdx((i) => i + 1);
+          else onClose();
+          return 0;
+        }
+        return next;
+      });
+    }, TICK);
+    return () => { if (progressRef.current) clearInterval(progressRef.current); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [idx, viewersOpen]);
+
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => { setMounted(true); }, []);
+
+  if (!story || !mounted) return null;
+
+  async function deleteStory() {
+    if (!confirm("Delete this story?")) return;
+    await fetch(`/api/stories/${story.id}`, { method: "DELETE" }).catch(() => {});
+    onDeleted(story.id);
+  }
+
+  return createPortal(
+    <div className="fixed inset-0 z-[60] bg-black flex flex-col select-none">
+      {/* Progress bars */}
+      <div className="absolute top-0 left-0 right-0 z-20 flex gap-1 px-3" style={{ paddingTop: "max(env(safe-area-inset-top), 12px)" }}>
+        {stories.map((s, i) => (
+          <div key={s.id} className="flex-1 h-[3px] rounded-full bg-white/30 overflow-hidden">
+            <div
+              className="h-full bg-white rounded-full"
+              style={{ width: i < idx ? "100%" : i === idx ? `${Math.min(progress, 100)}%` : "0%" }}
+            />
+          </div>
+        ))}
+      </div>
+
+      {/* Header */}
+      <div
+        className="absolute top-0 left-0 right-0 z-30 flex items-center gap-3 px-4 pb-4 bg-gradient-to-b from-black/60 to-transparent pointer-events-none"
+        style={{ paddingTop: "max(env(safe-area-inset-top), 44px)" }}
+      >
+        <div className="flex items-center gap-2 flex-1 min-w-0">
+          <div className="w-9 h-9 rounded-full overflow-hidden ring-2 ring-white/60 flex-shrink-0">
+            {user.image ? (
+              <img src={user.image} alt="" className="w-full h-full object-cover" />
+            ) : (
+              <div className="w-full h-full bg-brand-500 flex items-center justify-center">
+                <span className="text-sm font-bold text-white">{(user.name || "?")[0].toUpperCase()}</span>
+              </div>
+            )}
+          </div>
+          <div>
+            <p className="text-sm font-bold text-white leading-tight">{user.name || "User"}</p>
+            <p className="text-[11px] text-white/70">{timeAgoUtil(new Date(story.createdAt))}</p>
+          </div>
+        </div>
+        {isOwn && (
+          <>
+            <button onClick={onAddStory} className="pointer-events-auto w-8 h-8 rounded-full bg-white/20 flex items-center justify-center text-white hover:bg-white/30 transition-colors" title="Add story">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+            </button>
+            <button onClick={deleteStory} className="pointer-events-auto w-8 h-8 rounded-full bg-white/10 flex items-center justify-center text-white/80 hover:bg-white/20 transition-colors" title="Delete story">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4a1 1 0 011-1h4a1 1 0 011 1v2"/></svg>
+            </button>
+          </>
+        )}
+        <button onClick={onClose} className="pointer-events-auto w-8 h-8 rounded-full bg-white/10 flex items-center justify-center text-white hover:bg-white/20 transition-colors">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+        </button>
+      </div>
+
+      {/* Media */}
+      <div className="flex-1 relative overflow-hidden">
+        <button className="absolute left-0 top-0 w-1/3 h-full z-10" onClick={() => idx > 0 && setIdx((i) => i - 1)} aria-label="Previous" />
+        <button className="absolute right-0 top-0 w-1/3 h-full z-10" onClick={() => { if (idx < stories.length - 1) setIdx((i) => i + 1); else onClose(); }} aria-label="Next" />
+        {story.mediaType === "video" ? (
+          <video key={story.id} src={story.mediaUrl} className="absolute inset-0 w-full h-full object-contain" style={{ height: "100%" }} autoPlay playsInline />
+        ) : (
+          <img key={story.id} src={story.mediaUrl} alt="" className="absolute inset-0 w-full object-contain" style={{ height: "100%" }} />
+        )}
+      </div>
+
+      {/* Caption */}
+      {story.caption && !viewersOpen && (
+        <div className="absolute bottom-16 left-0 right-0 px-5 pb-4 pt-12 bg-gradient-to-t from-black/70 to-transparent pointer-events-none">
+          <p className="text-white text-sm text-center font-medium leading-relaxed">{story.caption}</p>
+        </div>
+      )}
+
+      {/* Views bar (own story) */}
+      {isOwn && (
+        <div className="absolute bottom-0 left-0 right-0 z-20" style={{ paddingBottom: "max(env(safe-area-inset-bottom), 12px)" }}>
+          {viewersOpen && (
+            <div className="bg-white/10 backdrop-blur-md mx-3 mb-2 rounded-2xl overflow-hidden">
+              <div className="flex items-center justify-between px-4 py-3 border-b border-white/10">
+                <p className="text-white font-semibold text-sm">Viewers · {viewers.length}</p>
+                <button onClick={() => setViewersOpen(false)} className="text-white/70 hover:text-white">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                </button>
+              </div>
+              <div className="max-h-48 overflow-y-auto">
+                {viewersLoading ? (
+                  <div className="flex justify-center py-4"><div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" /></div>
+                ) : viewers.length === 0 ? (
+                  <p className="text-white/50 text-sm text-center py-4">No views yet</p>
+                ) : viewers.map((v) => (
+                  <div key={v.id} className="flex items-center gap-3 px-4 py-2.5">
+                    <div className="w-8 h-8 rounded-full overflow-hidden flex-shrink-0 bg-white/20">
+                      {v.image ? <img src={v.image} alt="" className="w-full h-full object-cover" /> : (
+                        <div className="w-full h-full flex items-center justify-center">
+                          <span className="text-white text-xs font-bold">{(v.name || "?")[0].toUpperCase()}</span>
+                        </div>
+                      )}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-white text-sm font-medium truncate">{v.name || "User"}</p>
+                      <p className="text-white/50 text-[11px]">{timeAgoUtil(new Date(v.viewedAt))}</p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+          <button
+            onClick={() => setViewersOpen((o) => !o)}
+            className="mx-auto flex items-center gap-2 bg-white/15 backdrop-blur-sm rounded-full px-4 py-2 hover:bg-white/25 transition-colors"
+          >
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+            <span className="text-white text-sm font-semibold">{viewersLoading ? "…" : viewers.length} view{viewers.length !== 1 ? "s" : ""}</span>
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.5" strokeLinecap="round" style={{ transform: viewersOpen ? "rotate(180deg)" : undefined, transition: "transform 0.2s" }}><polyline points="6 9 12 15 18 9"/></svg>
+          </button>
+        </div>
+      )}
+    </div>,
+    document.body
+  );
+}
+
 export function PublicProfileClient({
   profile,
   isLoggedIn,
@@ -168,6 +374,13 @@ export function PublicProfileClient({
   // opens this picker so the user chooses which contest entry to view.
   const [pickerGroup, setPickerGroup] = useState<PetGroup | null>(null);
 
+  // Stories state
+  const [profileStories, setProfileStories] = useState<ProfileStory[]>([]);
+  const [storiesLoaded, setStoriesLoaded] = useState(false);
+  const [storyViewerOpen, setStoryViewerOpen] = useState(false);
+  const [viewingStoryIdx, setViewingStoryIdx] = useState(0);
+  const [createStoryOpen, setCreateStoryOpen] = useState(false);
+
   // Posts state
   const [posts, setPosts] = useState<UserPost[]>([]);
   const [postsLoaded, setPostsLoaded] = useState(false);
@@ -180,6 +393,9 @@ export function PublicProfileClient({
   const MAX_POST_MEDIA = 3;
   // Likes & comments state
   const [likingPost, setLikingPost] = useState<string | null>(null);
+  const [reactionPickerPostId, setReactionPickerPostId] = useState<string | null>(null);
+  const reactionHoverTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const longPressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [likingComment, setLikingComment] = useState<string | null>(null);
   const [expandedComments, setExpandedComments] = useState<Set<string>>(new Set());
   const [commentTexts, setCommentTexts] = useState<Record<string, string>>({});
@@ -215,6 +431,19 @@ export function PublicProfileClient({
       setCommentTexts((prev) => ({ ...prev, [pid]: (prev[pid] || "") + emoji }));
     }
   }
+
+  // Load stories for this profile user
+  useEffect(() => {
+    fetch(`/api/stories?userId=${profile.id}`)
+      .then((r) => r.json())
+      .then((data: Array<{ user: { id: string }; stories: ProfileStory[] }>) => {
+        const entry = data.find((u) => u.user.id === profile.id);
+        setProfileStories(entry?.stories || []);
+      })
+      .catch(() => {})
+      .finally(() => setStoriesLoaded(true));
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [profile.id]);
 
   // Scroll to post from URL hash (notification deep-link)
   useEffect(() => {
@@ -304,7 +533,7 @@ export function PublicProfileClient({
       });
       if (res.ok) {
         const newPost = await res.json();
-        setPosts((prev) => [{ ...newPost, likeCount: 0, isLiked: false, comments: [], commentCount: 0 }, ...prev]);
+        setPosts((prev) => [{ ...newPost, likeCount: 0, isLiked: false, myReaction: null, reactions: { HEART: 0, HAHA: 0, WOW: 0 }, comments: [], commentCount: 0 }, ...prev]);
         setPostText("");
         clearAllMedia();
         setShowCompose(false);
@@ -325,14 +554,22 @@ export function PublicProfileClient({
     }
   }
 
-  async function toggleLike(postId: string) {
+  async function toggleLike(postId: string, reaction = "HEART") {
     if (likingPost) return;
     setLikingPost(postId);
     try {
-      const res = await fetch(`/api/users/${profile.id}/posts/${postId}/like`, { method: "POST" });
+      const res = await fetch(`/api/users/${profile.id}/posts/${postId}/like`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ reaction }),
+      });
       if (res.ok) {
-        const { liked, likeCount } = await res.json();
-        setPosts((prev) => prev.map((p) => p.id === postId ? { ...p, isLiked: liked, likeCount } : p));
+        const { liked, reaction: newReaction, likeCount, reactions } = await res.json();
+        setPosts((prev) => prev.map((p) =>
+          p.id === postId
+            ? { ...p, isLiked: liked, myReaction: newReaction, likeCount, reactions: reactions ?? p.reactions }
+            : p
+        ));
       }
     } finally {
       setLikingPost(null);
@@ -405,13 +642,13 @@ export function PublicProfileClient({
     <div className="max-w-3xl mx-auto px-4 py-8 sm:py-12 animate-profile-fade-in">
       {/* Back */}
       <Link
-        href="/pets"
+        href="/feed"
         className="inline-flex items-center gap-2 text-sm text-surface-400 hover:text-surface-700 transition-all mb-6 group"
       >
         <span className="w-8 h-8 rounded-full bg-white border border-surface-200 shadow-sm flex items-center justify-center group-hover:-translate-x-1 transition-transform">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M19 12H5M12 19l-7-7 7-7"/></svg>
         </span>
-        Back to pets
+        Back to feed
       </Link>
 
       {/* ─── Profile Header Card ─── */}
@@ -567,6 +804,83 @@ export function PublicProfileClient({
           </div>
         </div>
       </div>
+
+      {/* ─── Stories Bar ─── */}
+      {storiesLoaded && (profileStories.length > 0 || profile.isOwnProfile) && (
+        <div className="bg-white rounded-2xl border border-surface-200/60 shadow-sm px-5 py-4 mb-4 flex items-center gap-4">
+          {/* Story circle */}
+          <button
+            onClick={() => {
+              if (profileStories.length > 0) {
+                setViewingStoryIdx(0);
+                setStoryViewerOpen(true);
+              } else if (profile.isOwnProfile) {
+                setCreateStoryOpen(true);
+              }
+            }}
+            className="flex flex-col items-center gap-1.5 flex-shrink-0"
+          >
+            <div
+              className={`w-16 h-16 rounded-full p-[3px] ${
+                profileStories.length > 0
+                  ? "bg-gradient-to-br from-brand-500 via-purple-500 to-rose-500"
+                  : "bg-surface-200"
+              }`}
+            >
+              <div className="w-full h-full rounded-full border-2 border-white overflow-hidden bg-surface-100 flex items-center justify-center relative">
+                {profile.image ? (
+                  <img src={profile.image} alt="" className="w-full h-full object-cover" />
+                ) : (
+                  <span className="text-xl font-bold text-surface-500">{(profile.name || "?")[0].toUpperCase()}</span>
+                )}
+                {profile.isOwnProfile && profileStories.length === 0 && (
+                  <div className="absolute inset-0 flex items-center justify-center bg-black/30">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="white" stroke="white" strokeWidth="2.5" strokeLinecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                  </div>
+                )}
+              </div>
+            </div>
+            <span className="text-[11px] font-semibold text-surface-600 leading-tight text-center">
+              {profile.isOwnProfile
+                ? profileStories.length > 0
+                  ? "Your Story"
+                  : "Add Story"
+                : profile.name?.split(" ")[0] || "Story"}
+            </span>
+          </button>
+
+          {/* Story info / timestamps */}
+          <div className="flex-1 min-w-0">
+            {profileStories.length > 0 ? (
+              <div>
+                <p className="text-sm font-semibold text-surface-800">
+                  {profileStories.length} stor{profileStories.length !== 1 ? "ies" : "y"}
+                </p>
+                <p className="text-xs text-surface-400 mt-0.5">
+                  Latest {timeAgoUtil(new Date(profileStories[0].createdAt))} · expires in{" "}
+                  {Math.max(0, Math.ceil((new Date(profileStories[0].expiresAt).getTime() - Date.now()) / (1000 * 60 * 60)))}h
+                </p>
+              </div>
+            ) : (
+              <div>
+                <p className="text-sm font-semibold text-surface-800">Share a Story</p>
+                <p className="text-xs text-surface-400 mt-0.5">Stories disappear after 24 hours</p>
+              </div>
+            )}
+          </div>
+
+          {/* Action button */}
+          {profile.isOwnProfile && (
+            <button
+              onClick={() => setCreateStoryOpen(true)}
+              className="flex-shrink-0 flex items-center gap-1.5 px-3 py-2 rounded-xl bg-brand-50 text-brand-600 text-xs font-bold hover:bg-brand-100 transition-colors"
+            >
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+              Add
+            </button>
+          )}
+        </div>
+      )}
 
       {/* ─── Tabs ─── */}
       <div className="flex gap-1.5 p-1.5 bg-surface-100/80 backdrop-blur-sm rounded-2xl mb-8 border border-surface-200/50">
@@ -898,35 +1212,108 @@ export function PublicProfileClient({
                     <MediaCarousel media={media} />
                   );
                 })()}
-                {/* Actions: like + comment */}
-                <div className="px-5 pb-4 flex items-center gap-4 border-t border-surface-100 pt-3">
-                  <button
-                    onClick={() => isLoggedIn ? toggleLike(post.id) : undefined}
-                    disabled={likingPost === post.id || !isLoggedIn}
-                    className={`inline-flex items-center gap-1.5 text-sm font-semibold transition-all active:scale-95 ${
-                      post.isLiked
-                        ? "text-red-500"
-                        : "text-surface-400 hover:text-red-400"
-                    } disabled:opacity-50`}
-                  >
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill={post.isLiked ? "currentColor" : "none"} stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                      <path d="M20.84 4.61a5.5 5.5 0 00-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 00-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 000-7.78z"/>
-                    </svg>
-                  </button>
-                  {post.likeCount > 0 && (
+                {/* Engagement Stats Bar */}
+                {(post.likeCount > 0 || post.commentCount > 0) && (
+                  <div className="flex items-center justify-between px-5 py-2 text-xs text-surface-400">
+                    {post.likeCount > 0 && (
+                      <button
+                        onClick={() => setLikesModalPostId(post.id)}
+                        className="flex items-center gap-1 hover:text-surface-600 transition-colors"
+                      >
+                        <span className="flex -space-x-0.5">
+                          {post.reactions.HEART > 0 && <span className="w-4 h-4 rounded-full bg-red-500 flex items-center justify-center text-[9px]">❤️</span>}
+                          {post.reactions.HAHA > 0 && <span className="w-4 h-4 rounded-full bg-yellow-400 flex items-center justify-center text-[9px]">😂</span>}
+                          {post.reactions.WOW > 0 && <span className="w-4 h-4 rounded-full bg-blue-400 flex items-center justify-center text-[9px]">😮</span>}
+                          {post.reactions.HEART === 0 && post.reactions.HAHA === 0 && post.reactions.WOW === 0 && (
+                            <span className="w-4 h-4 rounded-full bg-red-500 flex items-center justify-center">
+                              <svg width="8" height="8" viewBox="0 0 24 24" fill="white"><path d="M20.84 4.61a5.5 5.5 0 00-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 00-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 000-7.78z"/></svg>
+                            </span>
+                          )}
+                        </span>
+                        {post.likeCount} {post.likeCount === 1 ? "like" : "likes"}
+                      </button>
+                    )}
+                    {post.commentCount > 0 && (
+                      <button
+                        onClick={() => setExpandedComments((s) => { const n = new Set(s); n.has(post.id) ? n.delete(post.id) : n.add(post.id); return n; })}
+                        className="hover:text-surface-600 transition-colors ml-auto"
+                      >
+                        {post.commentCount} {post.commentCount === 1 ? "comment" : "comments"}
+                      </button>
+                    )}
+                  </div>
+                )}
+                {/* Action Buttons */}
+                <div className="grid grid-cols-2 border-t border-surface-100">
+                  {/* Reaction Button with picker */}
+                  <div className="relative">
+                    {reactionPickerPostId === post.id && isLoggedIn && (
+                      <div
+                        className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 flex items-center gap-1 px-2 py-1.5 bg-white rounded-full shadow-xl border border-surface-200 z-20 animate-[heart-pop_0.2s_ease-out]"
+                        onMouseEnter={() => { if (reactionHoverTimerRef.current) clearTimeout(reactionHoverTimerRef.current); }}
+                        onMouseLeave={() => { reactionHoverTimerRef.current = setTimeout(() => setReactionPickerPostId(null), 200); }}
+                      >
+                        {(["HEART", "HAHA", "WOW"] as const).map((r) => (
+                          <button
+                            key={r}
+                            onClick={() => { setReactionPickerPostId(null); toggleLike(post.id, r); }}
+                            className={`w-9 h-9 rounded-full flex items-center justify-center text-xl transition-transform hover:scale-125 active:scale-95 ${post.myReaction === r ? "bg-surface-100 ring-2 ring-brand-400" : "hover:bg-surface-50"}`}
+                            title={r === "HEART" ? "Love" : r === "HAHA" ? "Haha" : "Wow"}
+                          >
+                            {r === "HEART" ? "❤️" : r === "HAHA" ? "😂" : "😮"}
+                          </button>
+                        ))}
+                      </div>
+                    )}
                     <button
-                      onClick={() => setLikesModalPostId(post.id)}
-                      className="text-sm font-semibold text-surface-500 hover:text-red-500 transition-colors -ml-1"
+                      onClick={() => isLoggedIn ? toggleLike(post.id, post.myReaction || "HEART") : undefined}
+                      onMouseEnter={() => {
+                        if (!isLoggedIn) return;
+                        if (reactionHoverTimerRef.current) clearTimeout(reactionHoverTimerRef.current);
+                        reactionHoverTimerRef.current = setTimeout(() => setReactionPickerPostId(post.id), 400);
+                      }}
+                      onMouseLeave={() => {
+                        if (reactionHoverTimerRef.current) clearTimeout(reactionHoverTimerRef.current);
+                        reactionHoverTimerRef.current = setTimeout(() => setReactionPickerPostId(null), 300);
+                      }}
+                      onTouchStart={() => {
+                        if (!isLoggedIn) return;
+                        longPressTimerRef.current = setTimeout(() => setReactionPickerPostId(post.id), 500);
+                      }}
+                      onTouchEnd={() => { if (longPressTimerRef.current) clearTimeout(longPressTimerRef.current); }}
+                      disabled={likingPost === post.id || !isLoggedIn}
+                      className={`w-full flex items-center justify-center gap-2 py-3 text-sm font-semibold transition-all active:scale-95 ${
+                        post.isLiked
+                          ? post.myReaction === "HAHA" ? "text-yellow-500"
+                          : post.myReaction === "WOW" ? "text-blue-500"
+                          : "text-red-500"
+                          : "text-surface-500 hover:text-red-400 hover:bg-red-50/50"
+                      } disabled:opacity-60`}
                     >
-                      {post.likeCount}
+                      {post.isLiked ? (
+                        <span className="text-base leading-none">
+                          {post.myReaction === "HAHA" ? "😂" : post.myReaction === "WOW" ? "😮" : "❤️"}
+                        </span>
+                      ) : (
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                          <path d="M20.84 4.61a5.5 5.5 0 00-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 00-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 000-7.78z"/>
+                        </svg>
+                      )}
+                      {post.isLiked
+                        ? post.myReaction === "HAHA" ? "Haha"
+                        : post.myReaction === "WOW" ? "Wow"
+                        : "Liked"
+                        : "Like"}
                     </button>
-                  )}
+                  </div>
                   <button
                     onClick={() => setExpandedComments((s) => { const n = new Set(s); n.has(post.id) ? n.delete(post.id) : n.add(post.id); return n; })}
-                    className="inline-flex items-center gap-1.5 text-sm font-semibold text-surface-400 hover:text-brand-500 transition-colors"
+                    className="flex items-center justify-center gap-2 py-3 text-sm font-semibold text-surface-500 hover:text-brand-500 hover:bg-brand-50/50 transition-all"
                   >
-                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/></svg>
-                    {post.commentCount > 0 && <span>{post.commentCount}</span>}
+                    <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/>
+                    </svg>
+                    Comment
                   </button>
                 </div>
                 {/* Comments section */}
@@ -1063,6 +1450,40 @@ export function PublicProfileClient({
         </>
       )}
 
+      {/* ─── Profile Story Viewer ─── */}
+      {storyViewerOpen && profileStories.length > 0 && (
+        <ProfileStoryViewer
+          stories={profileStories}
+          user={profile}
+          initialIdx={viewingStoryIdx}
+          isOwn={profile.isOwnProfile}
+          onClose={() => setStoryViewerOpen(false)}
+          onAddStory={() => setCreateStoryOpen(true)}
+          onDeleted={(id) => {
+            setProfileStories((prev) => prev.filter((s) => s.id !== id));
+            setStoryViewerOpen(false);
+          }}
+        />
+      )}
+
+      {/* ─── Create Story Modal ─── */}
+      {createStoryOpen && (
+        <CreateStoryModal
+          onClose={() => setCreateStoryOpen(false)}
+          onCreated={() => {
+            setCreateStoryOpen(false);
+            // Reload stories
+            fetch(`/api/stories?userId=${profile.id}`)
+              .then((r) => r.json())
+              .then((data: Array<{ user: { id: string }; stories: ProfileStory[] }>) => {
+                const entry = data.find((u) => u.user.id === profile.id);
+                setProfileStories(entry?.stories || []);
+              })
+              .catch(() => {});
+          }}
+        />
+      )}
+
       {/* ─── Pet Entry Picker (multi-contest pets) ─── */}
       {pickerGroup && (
         <div
@@ -1149,33 +1570,29 @@ export function PublicProfileClient({
   );
 }
 
-/* ─── Who Liked Modal ─── */
+/* ─── Reactions Modal ─── */
 function LikesModal({ postId, postUserId, onClose }: { postId: string; postUserId: string; onClose: () => void }) {
-  const [users, setUsers] = useState<{ id: string; name: string | null; image: string | null }[]>([]);
+  const [users, setUsers] = useState<{ id: string; name: string | null; image: string | null; reaction: string }[]>([]);
   const [loading, setLoading] = useState(true);
+  const REACTION_EMOJI: Record<string, string> = { HEART: "❤️", HAHA: "😂", WOW: "😮" };
 
   useEffect(() => {
     fetch(`/api/users/${postUserId}/posts/${postId}/like`)
       .then((r) => r.json())
-      .then((data) => setUsers(Array.isArray(data) ? data : []))
+      .then((data) => { const raw = Array.isArray(data?.users) ? data.users : []; setUsers(raw); })
       .catch(() => {})
       .finally(() => setLoading(false));
   }, [postId, postUserId]);
 
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4" onClick={onClose}>
+  return createPortal(
+    <div className="fixed inset-0 z-[70] flex items-center justify-center p-4 animate-modal-backdrop" onClick={onClose}>
       <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" />
       <div
-        className="relative bg-white rounded-3xl shadow-2xl w-full max-w-xs overflow-hidden"
+        className="relative bg-white rounded-3xl shadow-2xl w-full max-w-xs overflow-hidden animate-modal-slide-up"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center justify-between px-5 py-4 border-b border-surface-100">
-          <h3 className="text-base font-bold text-surface-900 flex items-center gap-2">
-            <span className="w-5 h-5 rounded-full bg-red-500 flex items-center justify-center">
-              <svg width="10" height="10" viewBox="0 0 24 24" fill="white"><path d="M20.84 4.61a5.5 5.5 0 00-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 00-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 000-7.78z"/></svg>
-            </span>
-            Liked by
-          </h3>
+          <h3 className="text-base font-bold text-surface-900">Reactions</h3>
           <button onClick={onClose} className="w-8 h-8 rounded-full hover:bg-surface-100 flex items-center justify-center transition-colors">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
           </button>
@@ -1186,7 +1603,7 @@ function LikesModal({ postId, postUserId, onClose }: { postId: string; postUserI
               <div className="w-7 h-7 border-2 border-brand-500 border-t-transparent rounded-full animate-spin" />
             </div>
           ) : users.length === 0 ? (
-            <p className="text-center text-sm text-surface-500 py-8">No likes yet.</p>
+            <p className="text-center text-sm text-surface-500 py-8">No reactions yet.</p>
           ) : (
             users.map((u) => (
               <Link
@@ -1195,12 +1612,15 @@ function LikesModal({ postId, postUserId, onClose }: { postId: string; postUserI
                 onClick={onClose}
                 className="flex items-center gap-3 px-5 py-3 hover:bg-surface-50 transition-colors"
               >
-                <div className="w-9 h-9 rounded-full overflow-hidden bg-brand-50 flex-shrink-0 flex items-center justify-center">
-                  {u.image ? (
-                    <img src={u.image} alt="" className="w-full h-full object-cover" />
-                  ) : (
-                    <span className="text-sm font-bold text-brand-600">{(u.name || "?")[0].toUpperCase()}</span>
-                  )}
+                <div className="relative flex-shrink-0">
+                  <div className="w-9 h-9 rounded-full overflow-hidden bg-brand-50 flex items-center justify-center">
+                    {u.image ? (
+                      <img src={u.image} alt="" className="w-full h-full object-cover" />
+                    ) : (
+                      <span className="text-sm font-bold text-brand-600">{(u.name || "?")[0].toUpperCase()}</span>
+                    )}
+                  </div>
+                  <span className="absolute -bottom-0.5 -right-0.5 text-base leading-none">{REACTION_EMOJI[u.reaction] ?? "❤️"}</span>
                 </div>
                 <span className="text-sm font-semibold text-surface-800">{u.name || "User"}</span>
               </Link>
@@ -1208,6 +1628,7 @@ function LikesModal({ postId, postUserId, onClose }: { postId: string; postUserI
           )}
         </div>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }

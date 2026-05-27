@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { createPortal } from "react-dom";
 import Link from "next/link";
 
 type FollowUser = {
@@ -22,6 +23,9 @@ export function FollowersList({
   const [users, setUsers] = useState<FollowUser[]>([]);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
+  const [mounted, setMounted] = useState(false);
+
+  useEffect(() => { setMounted(true); }, []);
 
   useEffect(() => {
     fetch(`/api/users/${userId}/followers?type=${type}&limit=50`)
@@ -33,9 +37,11 @@ export function FollowersList({
       .finally(() => setLoading(false));
   }, [userId, type]);
 
-  return (
-    <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-modal-backdrop">
-      <div className="bg-white rounded-3xl shadow-2xl max-w-md w-full max-h-[80vh] flex flex-col border border-surface-200/60 animate-modal-slide-up">
+  if (!mounted) return null;
+
+  return createPortal(
+    <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-end sm:items-center sm:justify-center sm:p-4 animate-modal-backdrop">
+      <div className="bg-white rounded-t-3xl sm:rounded-3xl shadow-2xl w-full sm:max-w-md max-h-[85dvh] sm:max-h-[80vh] flex flex-col border border-surface-200/60 animate-modal-slide-up">
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-5 border-b border-surface-100">
           <div>
@@ -102,6 +108,7 @@ export function FollowersList({
           )}
         </div>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }

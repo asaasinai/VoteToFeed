@@ -14,6 +14,7 @@ import {
 } from "@/lib/anonymous-votes";
 import { sendBatchedVoteAlert } from "@/lib/email";
 import { checkAndAwardBadges } from "@/lib/badges";
+import { createNotification } from "@/lib/notifications";
 
 // How long (ms) before we send another vote alert for the same pet
 const VOTE_ALERT_COOLDOWN_MS = 6 * 60 * 60 * 1000; // 6 hours
@@ -158,6 +159,8 @@ export async function POST(req: NextRequest) {
           lastFreeVoteReset: true,
           votingStreak: true,
           lastVotedWeek: true,
+          votingStreakDays: true,
+          lastVoteDateStr: true,
         },
       });
 
@@ -187,6 +190,17 @@ export async function POST(req: NextRequest) {
         );
       }
 
+      const todayStr = new Date().toISOString().slice(0, 10); // "YYYY-MM-DD"
+      const lastVotedYesterdayStr = (() => {
+        const d = new Date(); d.setDate(d.getDate() - 1); return d.toISOString().slice(0, 10);
+      })();
+      const newStreakDays =
+        user.lastVoteDateStr === todayStr
+          ? user.votingStreakDays // already voted today, keep streak
+          : user.lastVoteDateStr === lastVotedYesterdayStr
+          ? (user.votingStreakDays || 0) + 1 // consecutive day
+          : 1; // streak broken
+
       const vote = await prisma.$transaction(async (tx) => {
         if (voteType === "FREE") {
           await tx.user.update({
@@ -198,6 +212,8 @@ export async function POST(req: NextRequest) {
                 user.lastVotedWeek && user.lastVotedWeek !== weekId
                   ? { increment: 1 }
                   : user.votingStreak || 1,
+              votingStreakDays: newStreakDays,
+              lastVoteDateStr: todayStr,
             },
           });
         } else {
@@ -206,6 +222,8 @@ export async function POST(req: NextRequest) {
             data: {
               paidVoteBalance: { decrement: votesToCast },
               lastVotedWeek: weekId,
+              votingStreakDays: newStreakDays,
+              lastVoteDateStr: todayStr,
             },
           });
         }
@@ -244,12 +262,35 @@ export async function POST(req: NextRequest) {
 
       const updatedUser = await prisma.user.findUnique({
         where: { id: userId },
-        select: { freeVotesRemaining: true, paidVoteBalance: true, votingStreak: true },
+        select: { freeVotesRemaining: true, paidVoteBalance: true, votingStreak: true, votingStreakDays: true },
       });
 
       const updatedStats = await prisma.petWeeklyStats.findUnique({
         where: { petId_weekId: { petId, weekId } },
       });
+
+      // ── Rank climb notification (fire-and-forget) ──
+      if (pet.userId !== userId) {
+        (async () => {
+          try {
+            const allStats = await prisma.petWeeklyStats.findMany({
+              where: { weekId },
+              orderBy: { totalVotes: "desc" },
+              select: { petId: true },
+            });
+            const newRank = allStats.findIndex((s) => s.petId === petId) + 1;
+            if (newRank > 0 && newRank <= 20) {
+              await createNotification({
+                userId: pet.userId,
+                type: "RANK_CLIMB",
+                title: "Your pet climbed the leaderboard! 🏆",
+                message: `${pet.name} is now #${newRank} this week!`,
+                linkUrl: "/leaderboard/weekly",
+              });
+            }
+          } catch { /* non-critical */ }
+        })();
+      }
 
       // ── Follower vote bonus: +1 bonus vote if voter follows the pet owner ──
       let followerBonus = 0;
@@ -312,6 +353,7 @@ export async function POST(req: NextRequest) {
           freeVotesRemaining: updatedUser?.freeVotesRemaining || 0,
           paidVoteBalance: updatedUser?.paidVoteBalance || 0,
           votingStreak: updatedUser?.votingStreak || 0,
+          votingStreakDays: updatedUser?.votingStreakDays || 0,
         },
         followerBonus,
         impact: {
