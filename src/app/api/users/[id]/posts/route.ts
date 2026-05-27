@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import prisma from "@/lib/prisma";
+import { createNotification } from "@/lib/notifications";
+import { sendNewPostNotification } from "@/lib/email";
 
 export const dynamic = "force-dynamic";
 
@@ -19,7 +21,7 @@ export async function GET(
     take: 50,
     include: {
       _count: { select: { likes: true, comments: true } },
-      likes: viewerId ? { where: { userId: viewerId }, select: { id: true } } : false,
+      likes: { select: { userId: true, reaction: true } },
       comments: {
         orderBy: { createdAt: "asc" },
         include: {
@@ -31,14 +33,24 @@ export async function GET(
     },
   });
 
-  const result = posts.map((p) => ({
+  const result = posts.map((p) => {
+    const allLikes = p.likes as { userId: string; reaction: string }[];
+    const myLike = viewerId ? allLikes.find((l) => l.userId === viewerId) : null;
+    const reactions = {
+      HEART: allLikes.filter((l) => l.reaction === "HEART").length,
+      HAHA: allLikes.filter((l) => l.reaction === "HAHA").length,
+      WOW: allLikes.filter((l) => l.reaction === "WOW").length,
+    };
+    return {
     id: p.id,
     content: p.content,
     imageUrl: p.imageUrl,
     createdAt: p.createdAt,
     likeCount: p._count.likes,
     commentCount: p._count.comments,
-    isLiked: viewerId ? (p.likes as { id: string }[]).length > 0 : false,
+    isLiked: !!myLike,
+    myReaction: myLike?.reaction ?? null,
+    reactions,
     comments: p.comments.map((c) => ({
       id: c.id,
       content: c.content,
@@ -47,7 +59,8 @@ export async function GET(
       likeCount: c._count.likes,
       isLiked: viewerId ? (c.likes as { id: string }[]).length > 0 : false,
     })),
-  }));
+    };
+  });
 
   return NextResponse.json({ posts: result });
 }
@@ -114,6 +127,43 @@ export async function POST(
     },
     select: { id: true, content: true, imageUrl: true, createdAt: true },
   });
+
+  // Fire-and-forget: notify followers of this new post (in-app + email)
+  void (async () => {
+    try {
+      const [author, followers] = await Promise.all([
+        prisma.user.findUnique({ where: { id: currentUserId }, select: { name: true } }),
+        prisma.follow.findMany({
+          where: { followingId: currentUserId },
+          select: { follower: { select: { id: true, email: true, name: true } } },
+          take: 200,
+        }),
+      ]);
+      const authorName = author?.name || "Someone";
+      const preview = content.length > 80 ? content.slice(0, 80) + "\u2026" : content;
+      const appUrl = process.env.NEXT_PUBLIC_APP_URL || "https://www.votetofeed.com";
+      const postUrl = `${appUrl}/feed#post-${post.id}`;
+
+      await Promise.allSettled(
+        followers.map(async (f) => {
+          const u = f.follower;
+          await createNotification({
+            userId: u.id,
+            type: "SYSTEM",
+            title: `${authorName} posted something new`,
+            message: preview,
+            linkUrl: postUrl,
+            sourceUserId: currentUserId,
+          });
+          if (u.email) {
+            await sendNewPostNotification(u.email, u.name || "there", authorName, preview, postUrl);
+          }
+        }),
+      );
+    } catch (e) {
+      console.error("[new-post] follower notifications failed:", e);
+    }
+  })();
 
   return NextResponse.json(post, { status: 201 });
 }

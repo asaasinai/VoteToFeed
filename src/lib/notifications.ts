@@ -2,7 +2,7 @@ import prisma from "@/lib/prisma";
 
 export async function createNotification(data: {
   userId: string;
-  type: "CONTEST" | "LIKE" | "COMMENT" | "FOLLOW" | "SYSTEM";
+  type: "CONTEST" | "LIKE" | "COMMENT" | "FOLLOW" | "SYSTEM" | "RANK_CLIMB" | "RANK_DROP";
   title: string;
   message: string;
   linkUrl?: string;

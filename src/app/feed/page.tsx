@@ -6,6 +6,7 @@ import { useSession } from "next-auth/react";
 import { formatUserName } from "@/lib/utils";
 import { MediaCarousel } from "@/components/shared/MediaCarousel";
 import { BuyVotesLink } from "@/components/voting/BuyVotesLink";
+import { CreateStoryModal } from "@/components/shared/CreateStoryModal";
 
 /* ─── Types ─── */
 type FeedUser = {
@@ -35,6 +36,8 @@ type FeedPost = {
   likeCount: number;
   commentCount: number;
   isLiked: boolean;
+  myReaction: string | null;
+  reactions: { HEART: number; HAHA: number; WOW: number };
   isFollowing: boolean;
   isOwnPost: boolean;
   comments: FeedComment[];
@@ -57,6 +60,47 @@ type FeedPet = {
   weeklyRank: number | null;
   isNew: boolean;
 };
+
+type StoryItem = {
+  id: string;
+  mediaUrl: string;
+  mediaType: string;
+  caption: string | null;
+  createdAt: string;
+  expiresAt: string;
+  viewed: boolean;
+};
+
+type StoryUser = {
+  user: { id: string; name: string | null; image: string | null };
+  stories: StoryItem[];
+  hasUnseen: boolean;
+};
+
+/* ─── Feed ranking algorithm ─── */
+// Score posts so that: followed users appear first, recent posts rank higher,
+// and posts with low engagement get a small boost to encourage interaction.
+function rankPosts(posts: FeedPost[]): FeedPost[] {
+  const now = Date.now();
+  return [...posts].sort((a, b) => {
+    const score = (p: FeedPost) => {
+      const hoursAgo = (now - new Date(p.createdAt).getTime()) / 3_600_000;
+      let s = 0;
+      // Followed users always rank highest
+      if (p.isFollowing) s += 30;
+      // Recency bonus
+      if (hoursAgo < 1) s += 20;
+      else if (hoursAgo < 6) s += 15;
+      else if (hoursAgo < 24) s += 10;
+      else if (hoursAgo < 72) s += 5;
+      // Underdog boost: fresh posts that still need love
+      const totalReactions = p.reactions.HEART + p.reactions.HAHA + p.reactions.WOW;
+      if (totalReactions < 3 && p.commentCount < 2 && hoursAgo < 48) s += 6;
+      return s;
+    };
+    return score(b) - score(a);
+  });
+}
 
 /* ─── Helpers ─── */
 function timeAgo(dateStr: string) {
@@ -274,6 +318,8 @@ function CreatePostModal({ onClose, onCreated }: { onClose: () => void; onCreate
           likeCount: 0,
           commentCount: 0,
           isLiked: false,
+          myReaction: null,
+          reactions: { HEART: 0, HAHA: 0, WOW: 0 },
           isFollowing: false,
           isOwnPost: true,
           comments: [],
@@ -337,7 +383,8 @@ function CreatePostModal({ onClose, onCreated }: { onClose: () => void; onCreate
                 placeholder="Share a fun moment, a new photo, or what your pet is up to today! 🐶🐱✨"
                 rows={3}
                 maxLength={1000}
-                className="w-full resize-none text-sm text-surface-800 placeholder:text-surface-400 focus:outline-none leading-relaxed"
+                className="w-full resize-none text-surface-800 placeholder:text-surface-400 focus:outline-none leading-relaxed"
+                style={{ fontSize: '16px' }}
               />
             </div>
           </div>
@@ -487,41 +534,22 @@ function PetCard({ pet }: { pet: FeedPet }) {
       {photos.length > 0 && (
         <div className="relative group/photo">
           <Link href={`/pets/${pet.id}`} className="block">
-            <img
-              src={photos[photoIdx]}
-              alt={pet.name}
-              className="w-full object-cover max-h-80 bg-surface-100 transition-opacity"
-            />
+            <img src={photos[photoIdx]} alt={pet.name} className="w-full object-cover max-h-80 bg-surface-100 transition-opacity" />
           </Link>
           {hasMultiple && (
             <>
-              {/* Counter pill */}
               <div className="absolute top-3 right-3 px-2 py-0.5 rounded-full bg-black/55 text-white text-[11px] font-semibold backdrop-blur-sm">
                 {photoIdx + 1} / {photos.length}
               </div>
-              {/* Prev */}
-              <button
-                onClick={prevPhoto}
-                aria-label="Previous photo"
-                className="absolute left-2 top-1/2 -translate-y-1/2 w-9 h-9 rounded-full bg-white/85 hover:bg-white shadow-md flex items-center justify-center text-surface-700 opacity-0 group-hover/photo:opacity-100 transition-opacity active:scale-95"
-              >
+              <button onClick={prevPhoto} aria-label="Previous photo" className="absolute left-2 top-1/2 -translate-y-1/2 w-9 h-9 rounded-full bg-white/85 hover:bg-white shadow-md flex items-center justify-center text-surface-700 opacity-0 group-hover/photo:opacity-100 transition-opacity active:scale-95">
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
               </button>
-              {/* Next */}
-              <button
-                onClick={nextPhoto}
-                aria-label="Next photo"
-                className="absolute right-2 top-1/2 -translate-y-1/2 w-9 h-9 rounded-full bg-white/85 hover:bg-white shadow-md flex items-center justify-center text-surface-700 opacity-0 group-hover/photo:opacity-100 transition-opacity active:scale-95"
-              >
+              <button onClick={nextPhoto} aria-label="Next photo" className="absolute right-2 top-1/2 -translate-y-1/2 w-9 h-9 rounded-full bg-white/85 hover:bg-white shadow-md flex items-center justify-center text-surface-700 opacity-0 group-hover/photo:opacity-100 transition-opacity active:scale-95">
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
               </button>
-              {/* Dots */}
               <div className="absolute bottom-2.5 left-0 right-0 flex justify-center gap-1.5 pointer-events-none">
                 {photos.map((_, idx) => (
-                  <span
-                    key={idx}
-                    className={`h-1.5 rounded-full transition-all ${idx === photoIdx ? "w-5 bg-white" : "w-1.5 bg-white/55"}`}
-                  />
+                  <span key={idx} className={`h-1.5 rounded-full transition-all ${idx === photoIdx ? "w-5 bg-white" : "w-1.5 bg-white/55"}`} />
                 ))}
               </div>
             </>
@@ -537,9 +565,7 @@ function PetCard({ pet }: { pet: FeedPet }) {
             <span className="text-surface-700">{pet.totalVotes.toLocaleString()} votes</span>
           </span>
           {pet.weeklyRank && pet.weeklyRank <= 10 && (
-            <span className="flex items-center gap-1 text-amber-600 font-bold text-xs">
-              🏆 #{pet.weeklyRank} this week
-            </span>
+            <span className="flex items-center gap-1 text-amber-600 font-bold text-xs">🏆 #{pet.weeklyRank} this week</span>
           )}
         </div>
         <div className="flex items-center gap-2">
@@ -554,15 +580,34 @@ function PetCard({ pet }: { pet: FeedPet }) {
           >
             ⚡ Buy Votes
           </BuyVotesLink>
-          <Link
-            href={`/pets/${pet.id}`}
-            className="px-4 py-1.5 rounded-full text-xs font-bold bg-brand-500 text-white hover:bg-brand-600 transition-colors active:scale-95"
-          >
+          <Link href={`/pets/${pet.id}`} className="px-4 py-1.5 rounded-full text-xs font-bold bg-brand-500 text-white hover:bg-brand-600 transition-colors active:scale-95">
             View &amp; Vote
           </Link>
         </div>
       </div>
     </article>
+  );
+}
+
+/* ─── Expandable post text with "Read more / Show less" ─── */
+const CHAR_LIMIT = 300;
+function ExpandableText({ text }: { text: string }) {
+  const [expanded, setExpanded] = useState(false);
+  if (text.length <= CHAR_LIMIT) {
+    return <p className="text-sm text-surface-800 leading-relaxed whitespace-pre-wrap">{text}</p>;
+  }
+  return (
+    <div>
+      <p className="text-sm text-surface-800 leading-relaxed whitespace-pre-wrap">
+        {expanded ? text : text.slice(0, CHAR_LIMIT).trimEnd() + "…"}
+      </p>
+      <button
+        onClick={() => setExpanded((v) => !v)}
+        className="mt-1 text-xs font-semibold text-brand-600 hover:text-brand-700 transition-colors"
+      >
+        {expanded ? "Show less" : "Read more"}
+      </button>
+    </div>
   );
 }
 
@@ -630,16 +675,21 @@ function SuggestedUsers() {
 
 /* ─── Who Liked Modal ─── */
 function LikesModal({ postId, postUserId, onClose }: { postId: string; postUserId: string; onClose: () => void }) {
-  const [users, setUsers] = useState<{ id: string; name: string | null; image: string | null }[]>([]);
+  const [users, setUsers] = useState<{ id: string; name: string | null; image: string | null; reaction: string }[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     fetch(`/api/users/${postUserId}/posts/${postId}/like`)
       .then((r) => r.json())
-      .then((data) => setUsers(Array.isArray(data) ? data : []))
+      .then((data) => {
+        const raw = Array.isArray(data?.users) ? data.users : [];
+        setUsers(raw);
+      })
       .catch(() => {})
       .finally(() => setLoading(false));
   }, [postId, postUserId]);
+
+  const REACTION_EMOJI: Record<string, string> = { HEART: "❤️", HAHA: "😂", WOW: "😮" };
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 animate-modal-backdrop" onClick={onClose}>
@@ -649,12 +699,7 @@ function LikesModal({ postId, postUserId, onClose }: { postId: string; postUserI
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center justify-between px-5 py-4 border-b border-surface-100">
-          <h3 className="text-base font-bold text-surface-900 flex items-center gap-2">
-            <span className="w-5 h-5 rounded-full bg-red-500 flex items-center justify-center">
-              <svg width="10" height="10" viewBox="0 0 24 24" fill="white"><path d="M20.84 4.61a5.5 5.5 0 00-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 00-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 000-7.78z"/></svg>
-            </span>
-            Liked by
-          </h3>
+          <h3 className="text-base font-bold text-surface-900">Reactions</h3>
           <button onClick={onClose} className="w-8 h-8 rounded-full hover:bg-surface-100 flex items-center justify-center transition-colors">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
           </button>
@@ -665,7 +710,7 @@ function LikesModal({ postId, postUserId, onClose }: { postId: string; postUserI
               <div className="w-7 h-7 border-2 border-brand-500 border-t-transparent rounded-full animate-spin" />
             </div>
           ) : users.length === 0 ? (
-            <p className="text-center text-sm text-surface-500 py-8">No likes yet.</p>
+            <p className="text-center text-sm text-surface-500 py-8">No reactions yet.</p>
           ) : (
             users.map((u) => (
               <Link
@@ -674,12 +719,15 @@ function LikesModal({ postId, postUserId, onClose }: { postId: string; postUserI
                 onClick={onClose}
                 className="flex items-center gap-3 px-5 py-3 hover:bg-surface-50 transition-colors"
               >
-                <div className="w-9 h-9 rounded-full overflow-hidden bg-brand-50 flex-shrink-0 flex items-center justify-center">
-                  {u.image ? (
-                    <img src={u.image} alt="" className="w-full h-full object-cover" />
-                  ) : (
-                    <span className="text-sm font-bold text-brand-600">{(u.name || "?")[0].toUpperCase()}</span>
-                  )}
+                <div className="relative flex-shrink-0">
+                  <div className="w-9 h-9 rounded-full overflow-hidden bg-brand-50 flex items-center justify-center">
+                    {u.image ? (
+                      <img src={u.image} alt="" className="w-full h-full object-cover" />
+                    ) : (
+                      <span className="text-sm font-bold text-brand-600">{(u.name || "?")[0].toUpperCase()}</span>
+                    )}
+                  </div>
+                  <span className="absolute -bottom-0.5 -right-0.5 text-base leading-none">{REACTION_EMOJI[u.reaction] ?? "❤️"}</span>
                 </div>
                 <span className="text-sm font-semibold text-surface-800">{u.name || "User"}</span>
               </Link>
@@ -690,6 +738,328 @@ function LikesModal({ postId, postUserId, onClose }: { postId: string; postUserI
     </div>
   );
 }
+
+/* ─── Stories Bar ─── */
+function StoriesBar({
+  storyUsers,
+  ownId,
+  ownImage,
+  ownName,
+  onOpenViewer,
+  onOpenCreate,
+}: {
+  storyUsers: StoryUser[];
+  ownId: string | null;
+  ownImage?: string | null;
+  ownName?: string | null;
+  onOpenViewer: (userIdx: number) => void;
+  onOpenCreate: () => void;
+}) {
+  const myEntry = storyUsers.find((s) => s.user.id === ownId);
+  const others = storyUsers.filter((s) => s.user.id !== ownId);
+
+  return (
+    <div className="bg-white rounded-2xl border border-surface-200/60 shadow-sm mb-4 overflow-hidden">
+      <div className="flex gap-4 overflow-x-auto px-4 py-3 scroll-smooth" style={{ scrollbarWidth: "none", msOverflowStyle: "none" }}>
+        {/* My story circle */}
+        {ownId && (
+          <button
+            onClick={() => {
+              const idx = storyUsers.findIndex((s) => s.user.id === ownId);
+              if (idx >= 0 && storyUsers[idx].stories.length > 0) onOpenViewer(idx);
+              else onOpenCreate();
+            }}
+            className="flex flex-col items-center gap-1.5 flex-shrink-0 group"
+          >
+            <div className="relative">
+              <div className={`w-16 h-16 rounded-full p-[2px] ${myEntry?.hasUnseen ? "bg-gradient-to-tr from-yellow-400 via-brand-500 to-purple-500" : myEntry ? "bg-surface-300" : "bg-surface-100"}`}>
+                <div className="w-full h-full rounded-full overflow-hidden bg-white p-[2px]">
+                  {(myEntry?.user.image || ownImage) ? (
+                    <img src={myEntry?.user.image || ownImage!} alt="" className="w-full h-full rounded-full object-cover" />
+                  ) : (
+                    <div className="w-full h-full rounded-full bg-brand-50 flex items-center justify-center">
+                      <span className="text-xl font-bold text-brand-500">{(myEntry?.user.name || ownName || "Y")[0].toUpperCase()}</span>
+                    </div>
+                  )}
+                </div>
+              </div>
+              <div className="absolute -bottom-0.5 -right-0.5 w-5 h-5 rounded-full bg-brand-500 border-2 border-white flex items-center justify-center">
+                <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="3.5" strokeLinecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+              </div>
+            </div>
+            <span className="text-[11px] font-semibold text-surface-600 w-16 text-center truncate">Your Story</span>
+          </button>
+        )}
+
+        {/* Other users' stories */}
+        {others.map((su) => {
+          const realIdx = storyUsers.findIndex((s) => s.user.id === su.user.id);
+          return (
+            <button
+              key={su.user.id}
+              onClick={() => onOpenViewer(realIdx)}
+              className="flex flex-col items-center gap-1.5 flex-shrink-0 group"
+            >
+              <div className={`w-16 h-16 rounded-full p-[2px] ${su.hasUnseen ? "bg-gradient-to-tr from-yellow-400 via-brand-500 to-purple-500" : "bg-surface-200"}`}>
+                <div className="w-full h-full rounded-full overflow-hidden bg-white p-[2px]">
+                  {su.user.image ? (
+                    <img src={su.user.image} alt="" className="w-full h-full rounded-full object-cover" />
+                  ) : (
+                    <div className="w-full h-full rounded-full bg-brand-50 flex items-center justify-center">
+                      <span className="text-lg font-bold text-brand-500">{(su.user.name || "?")[0].toUpperCase()}</span>
+                    </div>
+                  )}
+                </div>
+              </div>
+              <span className="text-[11px] font-semibold text-surface-600 w-16 text-center truncate">
+                {su.user.name?.split(" ")[0] || "User"}
+              </span>
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+/* ─── Story Viewer ─── */
+function StoryViewer({
+  storyUsers,
+  initialUserIdx,
+  ownId,
+  onClose,
+  onStoriesReload,
+  onAddStory,
+}: {
+  storyUsers: StoryUser[];
+  initialUserIdx: number;
+  ownId: string | null;
+  onClose: () => void;
+  onStoriesReload: () => void;
+  onAddStory: () => void;
+}) {
+  const [userIdx, setUserIdx] = useState(initialUserIdx);
+  const [storyIdx, setStoryIdx] = useState(0);
+  const [progress, setProgress] = useState(0);
+  const progressRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const DURATION = 5000;
+  const TICK = 50;
+
+  // Viewers state (own stories only)
+  type Viewer = { id: string; name: string | null; image: string | null; viewedAt: string };
+  const [viewers, setViewers] = useState<Viewer[]>([]);
+  const [viewersOpen, setViewersOpen] = useState(false);
+  const [viewersLoading, setViewersLoading] = useState(false);
+
+  const currentUser = storyUsers[userIdx];
+  const currentStory = currentUser?.stories[storyIdx];
+
+  const isOwn = currentUser?.user.id === ownId;
+
+  // Fetch viewers when switching to an own story
+  useEffect(() => {
+    if (!currentStory || !isOwn) { setViewers([]); return; }
+    setViewersLoading(true);
+    fetch(`/api/stories/${currentStory.id}/views`)
+      .then((r) => r.json())
+      .then((d) => setViewers(d.viewers || []))
+      .catch(() => {})
+      .finally(() => setViewersLoading(false));
+  }, [currentStory?.id, isOwn]);
+
+  // Mark as viewed
+  useEffect(() => {
+    if (!currentStory) return;
+    fetch(`/api/stories/${currentStory.id}/view`, { method: "POST" }).catch(() => {});
+  }, [currentStory?.id]);
+
+  // Auto-advance with progress bar — pause when viewers panel is open
+  useEffect(() => {
+    if (viewersOpen) return;
+    setProgress(0);
+    if (progressRef.current) clearInterval(progressRef.current);
+    progressRef.current = setInterval(() => {
+      setProgress((p) => {
+        const next = p + (TICK / DURATION) * 100;
+        if (next >= 100) {
+          advance();
+          return 0;
+        }
+        return next;
+      });
+    }, TICK);
+    return () => { if (progressRef.current) clearInterval(progressRef.current); };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [userIdx, storyIdx, viewersOpen]);
+
+  function advance() {
+    if (progressRef.current) clearInterval(progressRef.current);
+    const stories = storyUsers[userIdx]?.stories ?? [];
+    if (storyIdx < stories.length - 1) {
+      setStoryIdx((i) => i + 1);
+    } else if (userIdx < storyUsers.length - 1) {
+      setUserIdx((u) => u + 1);
+      setStoryIdx(0);
+    } else {
+      onClose();
+      onStoriesReload();
+    }
+  }
+
+  function retreat() {
+    if (progressRef.current) clearInterval(progressRef.current);
+    if (storyIdx > 0) {
+      setStoryIdx((i) => i - 1);
+    } else if (userIdx > 0) {
+      const prevUser = storyUsers[userIdx - 1];
+      setUserIdx((u) => u - 1);
+      setStoryIdx(prevUser.stories.length - 1);
+    }
+  }
+
+  if (!currentStory || !currentUser) return null;
+
+  async function deleteStory() {
+    if (!confirm("Delete this story?")) return;
+    await fetch(`/api/stories/${currentStory.id}`, { method: "DELETE" }).catch(() => {});
+    onClose();
+    onStoriesReload();
+  }
+
+  return (
+    <div className="fixed inset-0 z-[60] bg-black flex flex-col select-none">
+      {/* Progress bars */}
+      <div className="absolute top-0 left-0 right-0 z-20 flex gap-1 px-3" style={{ paddingTop: "max(env(safe-area-inset-top), 12px)" }}>
+        {currentUser.stories.map((s, i) => (
+          <div key={s.id} className="flex-1 h-[3px] rounded-full bg-white/30 overflow-hidden">
+            <div
+              className="h-full bg-white rounded-full"
+              style={{ width: i < storyIdx ? "100%" : i === storyIdx ? `${Math.min(progress, 100)}%` : "0%", transition: i === storyIdx ? "none" : undefined }}
+            />
+          </div>
+        ))}
+      </div>
+
+      {/* Header */}
+      <div className="absolute top-0 left-0 right-0 z-30 flex items-center gap-3 px-4 pb-4 bg-gradient-to-b from-black/60 to-transparent pointer-events-none"
+        style={{ paddingTop: "max(env(safe-area-inset-top), 44px)" }}>
+        <Link href={`/users/${currentUser.user.id}`} onClick={onClose} className="flex items-center gap-2 flex-1 min-w-0 pointer-events-auto">
+          <div className="w-9 h-9 rounded-full overflow-hidden ring-2 ring-white/60 flex-shrink-0">
+            {currentUser.user.image ? (
+              <img src={currentUser.user.image} alt="" className="w-full h-full object-cover" />
+            ) : (
+              <div className="w-full h-full bg-brand-500 flex items-center justify-center">
+                <span className="text-sm font-bold text-white">{(currentUser.user.name || "?")[0].toUpperCase()}</span>
+              </div>
+            )}
+          </div>
+          <div>
+            <p className="text-sm font-bold text-white leading-tight">{currentUser.user.name || "User"}</p>
+            <p className="text-[11px] text-white/70">{timeAgo(currentStory.createdAt)}</p>
+          </div>
+        </Link>
+        {isOwn && (
+          <>
+            <button onClick={onAddStory} className="pointer-events-auto w-8 h-8 rounded-full bg-white/20 flex items-center justify-center text-white hover:bg-white/30 transition-colors" title="Add story">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+            </button>
+            <button onClick={deleteStory} className="pointer-events-auto w-8 h-8 rounded-full bg-white/10 flex items-center justify-center text-white/80 hover:bg-white/20 transition-colors" title="Delete story">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4a1 1 0 011-1h4a1 1 0 011 1v2"/></svg>
+            </button>
+          </>
+        )}
+        <button onClick={onClose} className="pointer-events-auto w-8 h-8 rounded-full bg-white/10 flex items-center justify-center text-white hover:bg-white/20 transition-colors">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+        </button>
+      </div>
+
+      {/* Media */}
+      <div className="flex-1 relative overflow-hidden">
+        <button className="absolute left-0 top-0 w-1/3 h-full z-10" onClick={retreat} aria-label="Previous" />
+        <button className="absolute right-0 top-0 w-1/3 h-full z-10" onClick={advance} aria-label="Next" />
+        {currentStory.mediaType === "video" ? (
+          <video
+            key={currentStory.id}
+            src={currentStory.mediaUrl}
+            className="w-full h-full object-contain"
+            autoPlay
+            playsInline
+          />
+        ) : (
+          <img
+            key={currentStory.id}
+            src={currentStory.mediaUrl}
+            alt=""
+            className="w-full h-full object-contain"
+          />
+        )}
+      </div>
+
+      {/* Caption */}
+      {currentStory.caption && !viewersOpen && (
+        <div className="absolute bottom-16 left-0 right-0 px-5 pb-4 pt-12 bg-gradient-to-t from-black/70 to-transparent pointer-events-none">
+          <p className="text-white text-sm text-center font-medium leading-relaxed">{currentStory.caption}</p>
+        </div>
+      )}
+
+      {/* Views bar (own story) */}
+      {isOwn && (
+        <div className="absolute bottom-0 left-0 right-0 z-20" style={{ paddingBottom: "max(env(safe-area-inset-bottom), 12px)" }}>
+          {/* Viewers drawer */}
+          {viewersOpen && (
+            <div className="bg-white/10 backdrop-blur-md mx-3 mb-2 rounded-2xl overflow-hidden">
+              <div className="flex items-center justify-between px-4 py-3 border-b border-white/10">
+                <p className="text-white font-semibold text-sm">Viewers · {viewers.length}</p>
+                <button onClick={() => setViewersOpen(false)} className="text-white/70 hover:text-white">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                </button>
+              </div>
+              <div className="max-h-48 overflow-y-auto">
+                {viewersLoading ? (
+                  <div className="flex justify-center py-4">
+                    <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                  </div>
+                ) : viewers.length === 0 ? (
+                  <p className="text-white/50 text-sm text-center py-4">No views yet</p>
+                ) : (
+                  viewers.map((v) => (
+                    <div key={v.id} className="flex items-center gap-3 px-4 py-2.5">
+                      <div className="w-8 h-8 rounded-full overflow-hidden flex-shrink-0 bg-white/20">
+                        {v.image ? (
+                          <img src={v.image} alt="" className="w-full h-full object-cover" />
+                        ) : (
+                          <div className="w-full h-full flex items-center justify-center">
+                            <span className="text-white text-xs font-bold">{(v.name || "?")[0].toUpperCase()}</span>
+                          </div>
+                        )}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-white text-sm font-medium truncate">{v.name || "User"}</p>
+                        <p className="text-white/50 text-[11px]">{timeAgo(v.viewedAt)}</p>
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
+            </div>
+          )}
+          {/* View count pill */}
+          <button
+            onClick={() => setViewersOpen((o) => !o)}
+            className="mx-auto flex items-center gap-2 bg-white/15 backdrop-blur-sm rounded-full px-4 py-2 hover:bg-white/25 transition-colors"
+          >
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+            <span className="text-white text-sm font-semibold">{viewersLoading ? "…" : viewers.length} view{viewers.length !== 1 ? "s" : ""}</span>
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.5" strokeLinecap="round" style={{ transform: viewersOpen ? "rotate(180deg)" : undefined, transition: "transform 0.2s" }}><polyline points="6 9 12 15 18 9"/></svg>
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ─── Create Story Modal ─── */
+// Imported from @/components/shared/CreateStoryModal
 
 /* ─── Image Lightbox ─── */
 function ImageLightbox({ src, onClose }: { src: string; onClose: () => void }) {
@@ -744,23 +1114,31 @@ export default function FeedPage() {
   const [lightboxUrl, setLightboxUrl] = useState<string | null>(null);
   const [doubleTapHeart, setDoubleTapHeart] = useState<string | null>(null);
   const [likesModalPostId, setLikesModalPostId] = useState<string | null>(null);
+  const [reactionPickerPostId, setReactionPickerPostId] = useState<string | null>(null);
+  const reactionHoverTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const longPressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [voteBalance, setVoteBalance] = useState<{ free: number; paid: number } | null>(null);
+  const [votingStreakDays, setVotingStreakDays] = useState(0);
   const lastTapRef = useRef<Record<string, number>>({});
   const observerRef = useRef<HTMLDivElement>(null);
+
+  // Stories state
+  const [storyUsers, setStoryUsers] = useState<StoryUser[]>([]);
+  const [viewerUserIdx, setViewerUserIdx] = useState<number | null>(null);
+  const [showCreateStory, setShowCreateStory] = useState(false);
 
   const loadFeed = useCallback(async (cursor?: string) => {
     if (cursor) setLoadingMore(true); else setLoading(true);
     try {
-      const url = `/api/feed?limit=15${cursor ? `&cursor=${cursor}` : ""}`;
+      const url = `/api/feed?limit=30${cursor ? `&cursor=${cursor}` : ""}`;
       const res = await fetch(url);
       const data = await res.json();
       if (cursor) {
-        setPosts((prev) => [...prev, ...(data.posts || [])]);
+        const more: FeedPost[] = data.posts || [];
+        setPosts((prev) => [...prev, ...more]);
       } else {
-        // Shuffle first page so feed feels fresh on every visit
         const fresh: FeedPost[] = data.posts || [];
-        const shuffled = [...fresh].sort(() => Math.random() - 0.5);
-        setPosts(shuffled);
+        setPosts(rankPosts(fresh));
       }
       setNextCursor(data.nextCursor || null);
     } catch (e) {
@@ -775,13 +1153,27 @@ export default function FeedPage() {
     loadFeed();
   }, [loadFeed]);
 
+  const loadStories = useCallback(async () => {
+    try {
+      const res = await fetch("/api/stories");
+      if (res.ok) setStoryUsers(await res.json());
+    } catch {}
+  }, []);
+
+  useEffect(() => {
+    loadStories();
+  }, [loadStories]);
+
   // Fetch user's vote balance to show low-votes nudge in feed header
   useEffect(() => {
     if (status !== "authenticated") return;
     fetch("/api/votes/remaining", { cache: "no-store" })
       .then((r) => r.ok ? r.json() : null)
       .then((data) => {
-        if (data) setVoteBalance({ free: data.freeVotesRemaining ?? 0, paid: data.paidVoteBalance ?? 0 });
+        if (data) {
+          setVoteBalance({ free: data.freeVotesRemaining ?? 0, paid: data.paidVoteBalance ?? 0 });
+          setVotingStreakDays(data.votingStreakDays ?? 0);
+        }
       })
       .catch(() => {});
   }, [status]);
@@ -792,7 +1184,6 @@ export default function FeedPage() {
       .then((r) => r.json())
       .then((data) => {
         if (Array.isArray(data.pets)) {
-          // Shuffle so different pets show on each visit
           const shuffled = [...data.pets].sort(() => Math.random() - 0.5);
           setFeedPets(shuffled);
         }
@@ -832,14 +1223,22 @@ export default function FeedPage() {
     return () => { if (el) observer.unobserve(el); };
   }, [nextCursor, loadingMore, loadFeed]);
 
-  async function toggleLike(post: FeedPost) {
+  async function toggleLike(post: FeedPost, reaction = "HEART") {
     if (likingPost || !session?.user) return;
     setLikingPost(post.id);
     try {
-      const res = await fetch(`/api/users/${post.user.id}/posts/${post.id}/like`, { method: "POST" });
+      const res = await fetch(`/api/users/${post.user.id}/posts/${post.id}/like`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ reaction }),
+      });
       if (res.ok) {
-        const { liked, likeCount } = await res.json();
-        setPosts((prev) => prev.map((p) => p.id === post.id ? { ...p, isLiked: liked, likeCount } : p));
+        const { liked, reaction: newReaction, likeCount, reactions } = await res.json();
+        setPosts((prev) => prev.map((p) =>
+          p.id === post.id
+            ? { ...p, isLiked: liked, myReaction: newReaction, likeCount, reactions: reactions ?? p.reactions }
+            : p
+        ));
       }
     } finally {
       setLikingPost(null);
@@ -1050,6 +1449,17 @@ export default function FeedPage() {
             </div>
           )}
 
+          {/* Voting streak badge */}
+          {isLoggedIn && votingStreakDays >= 2 && (
+            <div className="mt-3 flex items-center gap-2 px-4 py-2.5 bg-gradient-to-r from-orange-50 to-amber-50 border border-orange-200/60 rounded-xl">
+              <span className="text-lg leading-none">🔥</span>
+              <span className="text-sm font-bold text-orange-700">
+                {votingStreakDays}-day voting streak!
+              </span>
+              <span className="text-xs text-orange-500 ml-auto">Keep it up!</span>
+            </div>
+          )}
+
           {/* Vote balance nudge — only when running low */}
           {isLoggedIn && voteBalance !== null && (voteBalance.free + voteBalance.paid) <= 3 && (
             <div className={`flex items-center justify-between gap-3 px-4 py-3 rounded-2xl animate-slide-up ${voteBalance.free + voteBalance.paid === 0 ? "bg-red-50 border border-red-200" : "bg-amber-50 border border-amber-200"}`}>
@@ -1076,6 +1486,18 @@ export default function FeedPage() {
           <SuggestedUsers />
         )}
 
+        {/* Stories bar — show if there are stories or user is logged in */}
+        {(storyUsers.length > 0 || isLoggedIn) && (
+          <StoriesBar
+            storyUsers={storyUsers}
+            ownId={userId}
+            ownImage={session?.user?.image}
+            ownName={session?.user?.name}
+            onOpenViewer={(idx) => setViewerUserIdx(idx)}
+            onOpenCreate={() => setShowCreateStory(true)}
+          />
+        )}
+
         {/* Feed Posts */}
         {loading ? (
           <div className="space-y-4">
@@ -1098,7 +1520,6 @@ export default function FeedPage() {
           </div>
         ) : posts.length === 0 ? (
           feedPets.length > 0 ? (
-            // No posts yet — but we have pets! Show pet cards instead of an empty state.
             <div className="space-y-4">
               <div className="rounded-xl border border-brand-100 bg-brand-50/40 px-4 py-3 text-sm text-surface-600">
                 <span className="font-semibold text-brand-700">No posts yet.</span> Meanwhile, here are some pets from the community 👇
@@ -1160,6 +1581,9 @@ export default function FeedPage() {
                       </p>
                       <div className="flex items-center gap-2">
                         <span className="text-[11px] text-surface-400">{timeAgo(post.createdAt)}</span>
+                        {post.isFollowing && (
+                          <span className="text-[10px] font-bold text-brand-500 bg-brand-50 px-1.5 py-0.5 rounded-full border border-brand-100">Following</span>
+                        )}
                         {post.user.city && (
                           <span className="text-[11px] text-surface-400 flex items-center gap-0.5">
                             · 📍 {post.user.city}{post.user.state ? `, ${post.user.state}` : ""}
@@ -1187,7 +1611,7 @@ export default function FeedPage() {
 
                 {/* Post Content */}
                 <div className="px-5 pb-3">
-                  <p className="text-sm text-surface-800 leading-relaxed whitespace-pre-wrap">{post.content}</p>
+                  <ExpandableText text={post.content} />
                 </div>
 
                 {/* Post Media — single image/video or multi-item carousel */}
@@ -1255,8 +1679,15 @@ export default function FeedPage() {
                         onClick={() => setLikesModalPostId(post.id)}
                         className="flex items-center gap-1 hover:text-surface-600 transition-colors"
                       >
-                        <span className="w-4 h-4 rounded-full bg-red-500 flex items-center justify-center">
-                          <svg width="8" height="8" viewBox="0 0 24 24" fill="white"><path d="M20.84 4.61a5.5 5.5 0 00-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 00-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 000-7.78z"/></svg>
+                        <span className="flex -space-x-0.5">
+                          {post.reactions.HEART > 0 && <span className="w-4 h-4 rounded-full bg-red-500 flex items-center justify-center text-[9px]">❤️</span>}
+                          {post.reactions.HAHA > 0 && <span className="w-4 h-4 rounded-full bg-yellow-400 flex items-center justify-center text-[9px]">😂</span>}
+                          {post.reactions.WOW > 0 && <span className="w-4 h-4 rounded-full bg-blue-400 flex items-center justify-center text-[9px]">😮</span>}
+                          {post.reactions.HEART === 0 && post.reactions.HAHA === 0 && post.reactions.WOW === 0 && (
+                            <span className="w-4 h-4 rounded-full bg-red-500 flex items-center justify-center">
+                              <svg width="8" height="8" viewBox="0 0 24 24" fill="white"><path d="M20.84 4.61a5.5 5.5 0 00-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 00-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 000-7.78z"/></svg>
+                            </span>
+                          )}
                         </span>
                         {post.likeCount} {post.likeCount === 1 ? "like" : "likes"}
                       </button>
@@ -1274,20 +1705,78 @@ export default function FeedPage() {
 
                 {/* Action Buttons */}
                 <div className="grid grid-cols-3 border-t border-surface-100">
-                  <button
-                    onClick={() => isLoggedIn ? toggleLike(post) : undefined}
-                    disabled={likingPost === post.id || !isLoggedIn}
-                    className={`flex items-center justify-center gap-2 py-3 text-sm font-semibold transition-all active:scale-95 ${
-                      post.isLiked
-                        ? "text-red-500"
-                        : "text-surface-500 hover:text-red-400 hover:bg-red-50/50"
-                    } disabled:opacity-60`}
-                  >
-                    <svg width="18" height="18" viewBox="0 0 24 24" fill={post.isLiked ? "currentColor" : "none"} stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={post.isLiked ? "animate-[heart-pop_0.3s_ease-out]" : ""}>
-                      <path d="M20.84 4.61a5.5 5.5 0 00-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 00-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 000-7.78z"/>
-                    </svg>
-                    Like
-                  </button>
+                  {/* Reaction Button with picker */}
+                  <div className="relative">
+                    {/* Reaction picker popup */}
+                    {reactionPickerPostId === post.id && isLoggedIn && (
+                      <div
+                        className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 flex items-center gap-1 px-2 py-1.5 bg-white rounded-full shadow-xl border border-surface-200 z-20 animate-[heart-pop_0.2s_ease-out]"
+                        onMouseEnter={() => {
+                          if (reactionHoverTimerRef.current) clearTimeout(reactionHoverTimerRef.current);
+                        }}
+                        onMouseLeave={() => {
+                          reactionHoverTimerRef.current = setTimeout(() => setReactionPickerPostId(null), 200);
+                        }}
+                      >
+                        {(["HEART", "HAHA", "WOW"] as const).map((r) => (
+                          <button
+                            key={r}
+                            onClick={() => { setReactionPickerPostId(null); toggleLike(post, r); }}
+                            className={`w-9 h-9 rounded-full flex items-center justify-center text-xl transition-transform hover:scale-125 active:scale-95 ${post.myReaction === r ? "bg-surface-100 ring-2 ring-brand-400" : "hover:bg-surface-50"}`}
+                            title={r === "HEART" ? "Love" : r === "HAHA" ? "Haha" : "Wow"}
+                          >
+                            {r === "HEART" ? "❤️" : r === "HAHA" ? "😂" : "😮"}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                    <button
+                      onClick={() => isLoggedIn ? toggleLike(post, post.myReaction || "HEART") : undefined}
+                      onMouseEnter={() => {
+                        if (!isLoggedIn) return;
+                        if (reactionHoverTimerRef.current) clearTimeout(reactionHoverTimerRef.current);
+                        reactionHoverTimerRef.current = setTimeout(() => setReactionPickerPostId(post.id), 400);
+                      }}
+                      onMouseLeave={() => {
+                        if (reactionHoverTimerRef.current) clearTimeout(reactionHoverTimerRef.current);
+                        reactionHoverTimerRef.current = setTimeout(() => setReactionPickerPostId(null), 300);
+                      }}
+                      onTouchStart={() => {
+                        if (!isLoggedIn) return;
+                        longPressTimerRef.current = setTimeout(() => setReactionPickerPostId(post.id), 500);
+                      }}
+                      onTouchEnd={() => {
+                        if (longPressTimerRef.current) clearTimeout(longPressTimerRef.current);
+                      }}
+                      disabled={likingPost === post.id || !isLoggedIn}
+                      className={`w-full flex items-center justify-center gap-2 py-3 text-sm font-semibold transition-all active:scale-95 ${
+                        post.isLiked
+                          ? post.myReaction === "HAHA"
+                            ? "text-yellow-500"
+                            : post.myReaction === "WOW"
+                            ? "text-blue-500"
+                            : "text-red-500"
+                          : "text-surface-500 hover:text-red-400 hover:bg-red-50/50"
+                      } disabled:opacity-60`}
+                    >
+                      {post.isLiked ? (
+                        <span className="text-base leading-none">
+                          {post.myReaction === "HAHA" ? "😂" : post.myReaction === "WOW" ? "😮" : "❤️"}
+                        </span>
+                      ) : (
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                          <path d="M20.84 4.61a5.5 5.5 0 00-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 00-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 000-7.78z"/>
+                        </svg>
+                      )}
+                      {post.isLiked
+                        ? post.myReaction === "HAHA"
+                          ? "Haha"
+                          : post.myReaction === "WOW"
+                          ? "Wow"
+                          : "Liked"
+                        : "Like"}
+                    </button>
+                  </div>
                   <button
                     onClick={() => setExpandedComments((s) => { const n = new Set(s); n.has(post.id) ? n.delete(post.id) : n.add(post.id); return n; })}
                     className="flex items-center justify-center gap-2 py-3 text-sm font-semibold text-surface-500 hover:text-brand-500 hover:bg-brand-50/50 transition-all"
@@ -1401,7 +1890,8 @@ export default function FeedPage() {
                               onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); submitComment(post); setEmojiPickerPostId(null); } }}
                               placeholder="Write a comment..."
                               maxLength={500}
-                              className="flex-1 text-xs text-surface-900 placeholder:text-surface-400 focus:outline-none bg-transparent py-1"
+                              className="flex-1 text-surface-900 placeholder:text-surface-400 focus:outline-none bg-transparent py-1"
+                              style={{ fontSize: '16px' }}
                             />
                             <button
                               onClick={() => { submitComment(post); setEmojiPickerPostId(null); }}
@@ -1491,6 +1981,22 @@ export default function FeedPage() {
         const p = posts.find((x) => x.id === likesModalPostId);
         return p ? <LikesModal postId={p.id} postUserId={p.user.id} onClose={() => setLikesModalPostId(null)} /> : null;
       })()}
+      {viewerUserIdx !== null && storyUsers.length > 0 && (
+        <StoryViewer
+          storyUsers={storyUsers}
+          initialUserIdx={viewerUserIdx}
+          ownId={userId}
+          onClose={() => setViewerUserIdx(null)}
+          onStoriesReload={loadStories}
+          onAddStory={() => setShowCreateStory(true)}
+        />
+      )}
+      {showCreateStory && (
+        <CreateStoryModal
+          onClose={() => setShowCreateStory(false)}
+          onCreated={loadStories}
+        />
+      )}
     </div>
   );
 }

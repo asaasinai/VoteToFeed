@@ -52,9 +52,9 @@ export async function GET(req: NextRequest) {
         },
       },
       _count: { select: { likes: true, comments: true } },
-      likes: viewerId
-        ? { where: { userId: viewerId }, select: { id: true } }
-        : false,
+      likes: {
+        select: { userId: true, reaction: true },
+      },
       comments: {
         take: 3,
         orderBy: { createdAt: "desc" },
@@ -80,7 +80,15 @@ export async function GET(req: NextRequest) {
   const followedSet = new Set(followingIds);
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const result = posts.map((p: any) => ({
+  const result = posts.map((p: any) => {
+    const allLikes = p.likes as { userId: string; reaction: string }[];
+    const myLike = viewerId ? allLikes.find((l) => l.userId === viewerId) : null;
+    const reactions = {
+      HEART: allLikes.filter((l) => l.reaction === "HEART").length,
+      HAHA: allLikes.filter((l) => l.reaction === "HAHA").length,
+      WOW: allLikes.filter((l) => l.reaction === "WOW").length,
+    };
+    return {
     id: p.id,
     content: p.content,
     imageUrl: p.imageUrl,
@@ -95,7 +103,9 @@ export async function GET(req: NextRequest) {
     },
     likeCount: p._count.likes,
     commentCount: p._count.comments,
-    isLiked: viewerId ? (p.likes as { id: string }[]).length > 0 : false,
+    isLiked: !!myLike,
+    myReaction: myLike?.reaction ?? null,
+    reactions,
     isFollowing: followedSet.has(p.user.id),
     isOwnPost: viewerId === p.user.id,
     comments: (p.comments as FeedComment[])
@@ -108,7 +118,8 @@ export async function GET(req: NextRequest) {
         isLiked: viewerId ? (c.likes as { id: string }[]).length > 0 : false,
       }))
       .reverse(), // Show oldest first for the preview
-  }));
+    };
+  });
 
   const nextCursor = posts.length === limit ? posts[posts.length - 1].id : null;
 

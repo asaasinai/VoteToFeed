@@ -81,6 +81,10 @@ model User {
   votingStreak       Int      @default(0)
   lastVotedWeek      String?
 
+  // Daily streak (fire badge)
+  votingStreakDays  Int     @default(0)
+  lastVoteDateStr  String? // e.g. "2026-05-27"
+
   // Paid votes
   paidVoteBalance Int @default(0)
 
@@ -116,6 +120,8 @@ model User {
   nominationSendJobs  NominationSendJob[] @relation("NominationSendJobs")
   inAppNotifications  Notification[]    @relation("NotificationTarget")
   sentNotifications   Notification[]    @relation("NotificationSource")
+  stories             Story[]
+  storyViews          StoryView[]
 }
 
 enum UserRole {
@@ -719,6 +725,7 @@ model PostLike {
   post      UserPost @relation(fields: [postId], references: [id], onDelete: Cascade)
   userId    String
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  reaction  String   @default("HEART") // "HEART" | "HAHA" | "WOW"
   createdAt DateTime @default(now())
 
   @@unique([postId, userId])
@@ -748,6 +755,35 @@ model PostCommentLike {
 
   @@unique([commentId, userId])
   @@index([commentId])
+}
+
+// ─── STORIES ─────────────────────────────────────────
+
+model Story {
+  id        String      @id @default(cuid())
+  userId    String
+  mediaUrl  String
+  mediaType String      @default("image") // "image" | "video"
+  caption   String?     @db.VarChar(200)
+  createdAt DateTime    @default(now())
+  expiresAt DateTime
+  user      User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  views     StoryView[]
+
+  @@index([userId, expiresAt])
+  @@index([expiresAt])
+}
+
+model StoryView {
+  id       String   @id @default(cuid())
+  storyId  String
+  userId   String
+  viewedAt DateTime @default(now())
+  story    Story    @relation(fields: [storyId], references: [id], onDelete: Cascade)
+  user     User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([storyId, userId])
+  @@index([storyId])
 }
 
 // ─── API KEYS ────────────────────────────────────────────
@@ -1021,4 +1057,6 @@ enum NotificationType {
   COMMENT     // Someone commented
   FOLLOW      // Someone followed
   SYSTEM      // Admin warnings, badges earned, etc.
+  RANK_CLIMB  // Your pet climbed in leaderboard
+  RANK_DROP   // Your pet was overtaken
 }

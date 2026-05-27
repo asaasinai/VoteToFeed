@@ -362,7 +362,7 @@ export default async function ContestDetailPage({
                       >
                         {/* Top row: photo + name + rank */}
                         <Link href={`/pets/${entry.pet.id}`} className="flex items-center gap-3 sm:gap-4 p-3 sm:p-4 group">
-                          <div className="relative w-16 h-16 sm:w-20 sm:h-20 rounded-2xl overflow-hidden bg-surface-100 flex-shrink-0 ring-2 ring-white shadow-md">
+                          <div className="relative w-12 h-12 sm:w-16 sm:h-16 rounded-2xl overflow-hidden bg-surface-100 flex-shrink-0 ring-2 ring-white shadow-md">
                             {photo ? (
                               <img src={photo} alt={entry.pet.name} className="w-full h-full object-cover" />
                             ) : (

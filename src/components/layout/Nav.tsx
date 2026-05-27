@@ -272,11 +272,7 @@ export function Nav({
                   <span className="text-base">🐱</span>
                   Cat Leaderboard
                 </Link>
-                <div className="border-t border-surface-100 my-1" />
-                <Link href="/winners" className="flex items-center gap-2.5 px-4 py-2.5 text-sm text-surface-700 hover:bg-surface-50 transition-colors" onClick={closeLeaderboard}>
-                  <span className="text-base">🏆</span>
-                  Winners
-                </Link>
+
               </div>
             )}
           </div>
@@ -395,7 +391,9 @@ export function Nav({
                               ) : n.type === "CONTEST" ? (
                                 <span className="text-lg">🏆</span>
                               ) : n.type === "LIKE" ? (
-                                <span className="text-lg">❤️</span>
+                                <span className="text-lg">
+                                  {n.message.includes("😮") ? "😮" : n.message.includes("😂") ? "😂" : "❤️"}
+                                </span>
                               ) : n.type === "COMMENT" ? (
                                 <span className="text-lg">💬</span>
                               ) : n.type === "FOLLOW" ? (
@@ -565,9 +563,7 @@ export function Nav({
               <Link href="/leaderboard/CAT" className="flex items-center gap-2.5 px-3 py-3 text-base font-semibold text-surface-700 rounded-lg hover:bg-surface-50" onClick={() => setMobileOpen(false)}>
                 <span>🐱</span> Cat Leaderboard
               </Link>
-              <Link href="/winners" className="flex items-center gap-2.5 px-3 py-3 text-base font-semibold text-surface-700 rounded-lg hover:bg-surface-50" onClick={() => setMobileOpen(false)}>
-                <span>🏆</span> Winners
-              </Link>
+
             </div>
 
             <Link href="/feed" className="flex items-center gap-2 px-3 py-3 text-base font-semibold text-brand-600 rounded-lg hover:bg-brand-50" onClick={() => setMobileOpen(false)}>

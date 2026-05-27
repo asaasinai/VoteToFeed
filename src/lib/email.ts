@@ -936,6 +936,27 @@ export async function sendBatchedVoteAlert(
   });
 }
 
+export async function sendNewPostNotification(
+  to: string,
+  recipientName: string,
+  posterName: string,
+  postPreview: string,
+  feedUrl: string,
+) {
+  const preview = postPreview.length > 100 ? postPreview.slice(0, 100) + "\u2026" : postPreview;
+  await sendEmail({
+    from: FROM_EMAIL,
+    to: [to],
+    subject: `\uD83D\uDCF7 ${posterName} posted something new on VoteToFeed`,
+    html: emailShell(`
+      <p style="margin:0 0 6px;font-size:13px;font-weight:700;color:#ef4444;text-transform:uppercase;letter-spacing:1px;">New Post</p>
+      <h1 style="margin:0 0 20px;font-size:26px;font-weight:900;color:#18181b;line-height:1.2;">Someone you follow just posted \uD83D\uDCF7</h1>
+      ${infoBox(`Hi <strong>${recipientName}</strong>, <strong>${posterName}</strong> shared a new post:<br/><br/><em style="color:#52525b;">\u201C${preview}\u201D</em>`)}
+      ${ctaButton("See the Post", feedUrl)}
+    `, `${posterName} posted on VoteToFeed`),
+  });
+}
+
 export async function sendFollowNotification(
   to: string,
   recipientName: string,
