@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import Script from "next/script";
 import { Inter, Nunito } from "next/font/google";
 import { SessionProvider } from "@/components/providers/SessionProvider";
+import { GoogleSignupPixel } from "@/components/providers/GoogleSignupPixel";
 import prisma from "@/lib/prisma";
 import { getCurrentWeekId, getWeekDateRange } from "@/lib/utils";
 import { getAnimalType } from "@/lib/admin-settings";
@@ -117,6 +118,7 @@ export default async function RootLayout({
       </head>
       <body className={`${inter.variable} ${nunito.variable} font-sans antialiased min-h-screen flex flex-col`}>
         <SessionProvider>
+          <GoogleSignupPixel />
           <PostHogProvider>
             <AppChrome
               shelterCount={stats.count}
