@@ -2,6 +2,7 @@
 
 import { useState, useRef, useEffect } from "react";
 import { createPortal } from "react-dom";
+import { upload } from "@vercel/blob/client";
 
 interface CreateStoryModalProps {
   onClose: () => void;
@@ -13,6 +14,7 @@ export function CreateStoryModal({ onClose, onCreated }: CreateStoryModalProps) 
   const [preview, setPreview] = useState<string | null>(null);
   const [caption, setCaption] = useState("");
   const [uploading, setUploading] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const galleryInputRef = useRef<HTMLInputElement>(null);
   const cameraInputRef = useRef<HTMLInputElement>(null);
@@ -52,18 +54,55 @@ export function CreateStoryModal({ onClose, onCreated }: CreateStoryModalProps) 
   async function handlePost() {
     if (!file) return;
     setUploading(true);
+    setUploadProgress(0);
     setError(null);
     try {
-      const formData = new FormData();
-      formData.append("photos", file);
-      const uploadRes = await fetch("/api/upload", { method: "POST", body: formData });
-      if (!uploadRes.ok) {
-        const err = await uploadRes.json();
-        throw new Error(err.error || "Upload failed");
-      }
-      const uploadData = await uploadRes.json();
-      const mediaUrl: string = uploadData.urls?.[0] || uploadData.url;
       const isVideo = file.type.startsWith("video/");
+      let mediaUrl: string;
+
+      if (isVideo) {
+        // Videos can be 30-200MB — use client-side direct upload to Vercel Blob
+        // to bypass the 4.5MB Vercel serverless function body limit.
+        const ext = file.name.split(".").pop()?.toLowerCase() || "mp4";
+        const safeName = file.name.replace(/[^a-zA-Z0-9-_.]/g, "-") || `video.${ext}`;
+        const pathname = `videos/${safeName}`;
+
+        try {
+          const blob = await upload(pathname, file, {
+            access: "public",
+            handleUploadUrl: "/api/upload/token",
+            contentType: file.type || undefined,
+            multipart: true,
+            onUploadProgress: ({ percentage }) => setUploadProgress(Math.round(percentage)),
+          });
+          mediaUrl = blob.url;
+        } catch (blobErr) {
+          // On localhost (no BLOB_READ_WRITE_TOKEN), fall back to server-side upload
+          const formData = new FormData();
+          formData.append("photos", file);
+          const uploadRes = await fetch("/api/upload", { method: "POST", body: formData });
+          if (!uploadRes.ok) {
+            const err = await uploadRes.json().catch(() => ({}));
+            throw new Error(err.error || "Video upload failed — try a shorter clip");
+          }
+          const uploadData = await uploadRes.json();
+          mediaUrl = uploadData.urls?.[0] || uploadData.url;
+          if (!mediaUrl) throw new Error("Video upload failed — no URL returned");
+        }
+      } else {
+        // Images are small — server-side upload is fine
+        const formData = new FormData();
+        formData.append("photos", file);
+        const uploadRes = await fetch("/api/upload", { method: "POST", body: formData });
+        if (!uploadRes.ok) {
+          const err = await uploadRes.json().catch(() => ({}));
+          throw new Error(err.error || "Upload failed");
+        }
+        const uploadData = await uploadRes.json();
+        mediaUrl = uploadData.urls?.[0] || uploadData.url;
+        if (!mediaUrl) throw new Error("Upload failed — no URL returned");
+      }
+
       const storyRes = await fetch("/api/stories", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -80,6 +119,7 @@ export function CreateStoryModal({ onClose, onCreated }: CreateStoryModalProps) 
       setError(e instanceof Error ? e.message : "Something went wrong");
     } finally {
       setUploading(false);
+      setUploadProgress(0);
     }
   }
 
@@ -218,7 +258,11 @@ export function CreateStoryModal({ onClose, onCreated }: CreateStoryModalProps) 
             disabled={!file || uploading}
             className="w-full py-3.5 rounded-xl bg-gradient-to-r from-brand-500 to-purple-500 text-white font-bold text-sm shadow-md hover:shadow-lg disabled:opacity-50 disabled:cursor-not-allowed transition-all"
           >
-            {uploading ? "Posting…" : "Share Story ✨"}
+            {uploading
+              ? uploadProgress > 0 && uploadProgress < 100
+                ? `Uploading… ${uploadProgress}%`
+                : "Posting…"
+              : "Share Story ✨"}
           </button>
         </div>
       </div>

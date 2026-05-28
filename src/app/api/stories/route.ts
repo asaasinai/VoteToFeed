@@ -25,6 +25,10 @@ export async function GET(req: NextRequest) {
       views: session?.user?.id
         ? { where: { userId: session.user.id }, select: { id: true } }
         : false,
+      likes: session?.user?.id
+        ? { where: { userId: session.user.id }, select: { id: true } }
+        : false,
+      _count: { select: { likes: true } },
     },
   });
 
@@ -41,13 +45,19 @@ export async function GET(req: NextRequest) {
         createdAt: string;
         expiresAt: string;
         viewed: boolean;
+        isLiked: boolean;
+        likeCount: number;
       }[];
       hasUnseen: boolean;
     }
   >();
 
   for (const s of stories) {
-    const viewed = session?.user?.id ? s.views.length > 0 : false;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const story = s as any;
+    const viewed = session?.user?.id ? story.views.length > 0 : false;
+    const isLiked = session?.user?.id ? story.likes.length > 0 : false;
+    const likeCount: number = story._count?.likes ?? 0;
     if (!byUser.has(s.userId)) {
       byUser.set(s.userId, {
         user: s.user,
@@ -64,6 +74,8 @@ export async function GET(req: NextRequest) {
       createdAt: s.createdAt.toISOString(),
       expiresAt: s.expiresAt.toISOString(),
       viewed,
+      isLiked,
+      likeCount,
     });
     if (!viewed) entry.hasUnseen = true;
   }

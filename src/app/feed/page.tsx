@@ -7,6 +7,7 @@ import { formatUserName } from "@/lib/utils";
 import { MediaCarousel } from "@/components/shared/MediaCarousel";
 import { BuyVotesLink } from "@/components/voting/BuyVotesLink";
 import { CreateStoryModal } from "@/components/shared/CreateStoryModal";
+import { upload } from "@vercel/blob/client";
 
 /* ─── Types ─── */
 type FeedUser = {
@@ -69,6 +70,8 @@ type StoryItem = {
   createdAt: string;
   expiresAt: string;
   viewed: boolean;
+  isLiked: boolean;
+  likeCount: number;
 };
 
 type StoryUser = {
@@ -202,6 +205,7 @@ function CreatePostModal({ onClose, onCreated }: { onClose: () => void; onCreate
   const [mediaFiles, setMediaFiles] = useState<File[]>([]);
   const [mediaPreviews, setMediaPreviews] = useState<string[]>([]);
   const [posting, setPosting] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState(0);
   const [uploadError, setUploadError] = useState<string | null>(null);
   const MAX_MEDIA = 3;
   // vvBottom: how many px above the keyboard to push the modal
@@ -278,23 +282,66 @@ function CreatePostModal({ onClose, onCreated }: { onClose: () => void; onCreate
   async function handleSubmit() {
     if (!content.trim() || !session?.user) return;
     setPosting(true);
+    setUploadProgress(0);
     setUploadError(null);
     try {
       const userId = (session.user as { id: string }).id;
       const mediaUrls: string[] = [];
 
       if (mediaFiles.length > 0) {
-        const fd = new FormData();
-        mediaFiles.forEach((f) => fd.append("photos", f));
-        const up = await fetch("/api/upload", { method: "POST", body: fd });
-        if (up.ok) {
-          const { urls } = await up.json();
-          mediaUrls.push(...(urls || []));
-        } else {
-          const err = await up.json().catch(() => ({}));
-          setUploadError(err.error || "Upload failed.");
-          setPosting(false);
-          return;
+        const videoFiles = mediaFiles.filter((f) => f.type.startsWith("video/"));
+        const imageFiles = mediaFiles.filter((f) => !f.type.startsWith("video/"));
+
+        // Upload video files via client-side Blob upload (bypass 4.5 MB Vercel limit)
+        for (const f of videoFiles) {
+          const ext = f.name.split(".").pop()?.toLowerCase() || "mp4";
+          const pathname = `videos/${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`;
+          try {
+            const tokenRes = await fetch("/api/upload/token", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ pathname }),
+            }).catch(() => null);
+            if (tokenRes && tokenRes.ok) {
+              const blob = await upload(pathname, f, {
+                access: "public",
+                handleUploadUrl: "/api/upload/token",
+                contentType: f.type || undefined,
+                multipart: true,
+                onUploadProgress: ({ percentage }) => setUploadProgress(Math.round(percentage)),
+              });
+              mediaUrls.push(blob.url);
+            } else {
+              // Fallback for localhost without BLOB_READ_WRITE_TOKEN
+              const fd = new FormData();
+              fd.append("photos", f);
+              const up = await fetch("/api/upload", { method: "POST", body: fd });
+              if (up.ok) {
+                const { urls } = await up.json();
+                mediaUrls.push(...(urls || []));
+              }
+            }
+          } catch {
+            setUploadError("Video upload failed. Please try again.");
+            setPosting(false);
+            return;
+          }
+        }
+
+        // Upload image files via server route (images are well under 4.5 MB limit)
+        if (imageFiles.length > 0) {
+          const fd = new FormData();
+          imageFiles.forEach((f) => fd.append("photos", f));
+          const up = await fetch("/api/upload", { method: "POST", body: fd });
+          if (up.ok) {
+            const { urls } = await up.json();
+            mediaUrls.push(...(urls || []));
+          } else {
+            const err = await up.json().catch(() => ({}));
+            setUploadError(err.error || "Upload failed.");
+            setPosting(false);
+            return;
+          }
         }
       }
 
@@ -329,6 +376,7 @@ function CreatePostModal({ onClose, onCreated }: { onClose: () => void; onCreate
       }
     } finally {
       setPosting(false);
+      setUploadProgress(0);
     }
   }
 
@@ -358,7 +406,7 @@ function CreatePostModal({ onClose, onCreated }: { onClose: () => void; onCreate
             {posting ? (
               <span className="flex items-center gap-1.5">
                 <span className="w-3 h-3 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                Posting
+                {uploadProgress > 0 && uploadProgress < 100 ? `${uploadProgress}%` : "Posting"}
               </span>
             ) : "Post"}
           </button>
@@ -845,16 +893,74 @@ function StoryViewer({
   const DURATION = 5000;
   const TICK = 50;
 
+  // Like state
+  const [isLiked, setIsLiked] = useState(false);
+  const [likeCount, setLikeCount] = useState(0);
+  const [showHeartAnim, setShowHeartAnim] = useState(false);
+  const lastTapTimeRef = useRef(0);
+
   // Viewers state (own stories only)
   type Viewer = { id: string; name: string | null; image: string | null; viewedAt: string };
   const [viewers, setViewers] = useState<Viewer[]>([]);
   const [viewersOpen, setViewersOpen] = useState(false);
   const [viewersLoading, setViewersLoading] = useState(false);
 
+  // Likers state (own stories only)
+  type Liker = { id: string; name: string | null; image: string | null; likedAt: string };
+  const [likers, setLikers] = useState<Liker[]>([]);
+  const [likersOpen, setLikersOpen] = useState(false);
+  const [likersLoading, setLikersLoading] = useState(false);
+
   const currentUser = storyUsers[userIdx];
   const currentStory = currentUser?.stories[storyIdx];
 
   const isOwn = currentUser?.user.id === ownId;
+
+  // Sync like state when story changes
+  useEffect(() => {
+    setIsLiked(currentStory?.isLiked ?? false);
+    setLikeCount(currentStory?.likeCount ?? 0);
+    setLikersOpen(false);
+    setLikers([]);
+  }, [currentStory?.id]);
+
+  // Fetch likers when own story + likersOpen
+  useEffect(() => {
+    if (!currentStory || !isOwn || !likersOpen) return;
+    setLikersLoading(true);
+    fetch(`/api/stories/${currentStory.id}/likes`)
+      .then((r) => r.json())
+      .then((d) => { setLikers(d.likers || []); setLikeCount(d.count ?? 0); })
+      .catch(() => {})
+      .finally(() => setLikersLoading(false));
+  }, [currentStory?.id, isOwn, likersOpen]);
+
+  async function toggleLike() {
+    if (!currentStory) return;
+    const newLiked = !isLiked;
+    setIsLiked(newLiked);
+    setLikeCount((c) => newLiked ? c + 1 : Math.max(0, c - 1));
+    try {
+      await fetch(`/api/stories/${currentStory.id}/like`, { method: "POST" });
+    } catch {
+      // revert on error
+      setIsLiked(!newLiked);
+      setLikeCount((c) => newLiked ? Math.max(0, c - 1) : c + 1);
+    }
+  }
+
+  function handleDoubleTap() {
+    const now = Date.now();
+    if (now - lastTapTimeRef.current < 300) {
+      // double tap
+      if (!isLiked) {
+        toggleLike();
+        setShowHeartAnim(true);
+        setTimeout(() => setShowHeartAnim(false), 900);
+      }
+    }
+    lastTapTimeRef.current = now;
+  }
 
   // Fetch viewers when switching to an own story
   useEffect(() => {
@@ -875,7 +981,7 @@ function StoryViewer({
 
   // Auto-advance with progress bar — pause when viewers panel is open
   useEffect(() => {
-    if (viewersOpen) return;
+    if (viewersOpen || likersOpen) return;
     setProgress(0);
     if (progressRef.current) clearInterval(progressRef.current);
     progressRef.current = setInterval(() => {
@@ -890,7 +996,7 @@ function StoryViewer({
     }, TICK);
     return () => { if (progressRef.current) clearInterval(progressRef.current); };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [userIdx, storyIdx, viewersOpen]);
+  }, [userIdx, storyIdx, viewersOpen, likersOpen]);
 
   function advance() {
     if (progressRef.current) clearInterval(progressRef.current);
@@ -974,9 +1080,9 @@ function StoryViewer({
       </div>
 
       {/* Media */}
-      <div className="flex-1 relative overflow-hidden">
-        <button className="absolute left-0 top-0 w-1/3 h-full z-10" onClick={retreat} aria-label="Previous" />
-        <button className="absolute right-0 top-0 w-1/3 h-full z-10" onClick={advance} aria-label="Next" />
+      <div className="flex-1 relative overflow-hidden" onClick={handleDoubleTap}>
+        <button className="absolute left-0 top-0 w-1/3 h-full z-10" onClick={(e) => { e.stopPropagation(); retreat(); }} aria-label="Previous" />
+        <button className="absolute right-0 top-0 w-1/3 h-full z-10" onClick={(e) => { e.stopPropagation(); advance(); }} aria-label="Next" />
         {currentStory.mediaType === "video" ? (
           <video
             key={currentStory.id}
@@ -993,6 +1099,14 @@ function StoryViewer({
             className="w-full h-full object-contain"
           />
         )}
+        {/* Double-tap heart animation */}
+        {showHeartAnim && (
+          <div className="absolute inset-0 flex items-center justify-center pointer-events-none z-20">
+            <svg className="animate-ping" width="80" height="80" viewBox="0 0 24 24" fill="#ef4444" stroke="none">
+              <path d="M20.84 4.61a5.5 5.5 0 00-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 00-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 000-7.78z"/>
+            </svg>
+          </div>
+        )}
       </div>
 
       {/* Caption */}
@@ -1002,7 +1116,25 @@ function StoryViewer({
         </div>
       )}
 
-      {/* Views bar (own story) */}
+      {/* Like button (non-own stories) */}
+      {!isOwn && (
+        <div className="absolute bottom-6 right-5 z-20 flex flex-col items-center gap-1" style={{ paddingBottom: "max(env(safe-area-inset-bottom), 0px)" }}>
+          <button
+            onClick={(e) => { e.stopPropagation(); toggleLike(); }}
+            className="w-12 h-12 rounded-full flex items-center justify-center transition-all active:scale-90"
+            aria-label={isLiked ? "Unlike" : "Like"}
+          >
+            <svg width="28" height="28" viewBox="0 0 24 24" fill={isLiked ? "#ef4444" : "none"} stroke={isLiked ? "#ef4444" : "white"} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M20.84 4.61a5.5 5.5 0 00-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 00-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 000-7.78z"/>
+            </svg>
+          </button>
+          {likeCount > 0 && (
+            <span className="text-white text-xs font-bold drop-shadow-md">{likeCount}</span>
+          )}
+        </div>
+      )}
+
+      {/* Views + Likes bar (own story) */}
       {isOwn && (
         <div className="absolute bottom-0 left-0 right-0 z-20" style={{ paddingBottom: "max(env(safe-area-inset-bottom), 12px)" }}>
           {/* Viewers drawer */}
@@ -1043,15 +1175,66 @@ function StoryViewer({
               </div>
             </div>
           )}
-          {/* View count pill */}
-          <button
-            onClick={() => setViewersOpen((o) => !o)}
-            className="mx-auto flex items-center gap-2 bg-white/15 backdrop-blur-sm rounded-full px-4 py-2 hover:bg-white/25 transition-colors"
-          >
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
-            <span className="text-white text-sm font-semibold">{viewersLoading ? "…" : viewers.length} view{viewers.length !== 1 ? "s" : ""}</span>
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.5" strokeLinecap="round" style={{ transform: viewersOpen ? "rotate(180deg)" : undefined, transition: "transform 0.2s" }}><polyline points="6 9 12 15 18 9"/></svg>
-          </button>
+          {/* Likers drawer */}
+          {likersOpen && (
+            <div className="bg-white/10 backdrop-blur-md mx-3 mb-2 rounded-2xl overflow-hidden">
+              <div className="flex items-center justify-between px-4 py-3 border-b border-white/10">
+                <p className="text-white font-semibold text-sm">❤️ Likes · {likeCount}</p>
+                <button onClick={() => setLikersOpen(false)} className="text-white/70 hover:text-white">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                </button>
+              </div>
+              <div className="max-h-48 overflow-y-auto">
+                {likersLoading ? (
+                  <div className="flex justify-center py-4">
+                    <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                  </div>
+                ) : likers.length === 0 ? (
+                  <p className="text-white/50 text-sm text-center py-4">No likes yet</p>
+                ) : (
+                  likers.map((l) => (
+                    <div key={l.id} className="flex items-center gap-3 px-4 py-2.5">
+                      <div className="w-8 h-8 rounded-full overflow-hidden flex-shrink-0 bg-white/20">
+                        {l.image ? (
+                          <img src={l.image} alt="" className="w-full h-full object-cover" />
+                        ) : (
+                          <div className="w-full h-full flex items-center justify-center">
+                            <span className="text-white text-xs font-bold">{(l.name || "?")[0].toUpperCase()}</span>
+                          </div>
+                        )}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-white text-sm font-medium truncate">{l.name || "User"}</p>
+                        <p className="text-white/50 text-[11px]">{timeAgo(l.likedAt)}</p>
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* View count + like count pills */}
+          <div className="flex items-center justify-center gap-2">
+            <button
+              onClick={() => { setLikersOpen(false); setViewersOpen((o) => !o); }}
+              className="flex items-center gap-2 bg-white/15 backdrop-blur-sm rounded-full px-4 py-2 hover:bg-white/25 transition-colors"
+            >
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+              <span className="text-white text-sm font-semibold">{viewersLoading ? "…" : viewers.length} view{viewers.length !== 1 ? "s" : ""}</span>
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.5" strokeLinecap="round" style={{ transform: viewersOpen ? "rotate(180deg)" : undefined, transition: "transform 0.2s" }}><polyline points="6 9 12 15 18 9"/></svg>
+            </button>
+            <button
+              onClick={() => { setViewersOpen(false); setLikersOpen((o) => !o); }}
+              className="flex items-center gap-1.5 bg-white/15 backdrop-blur-sm rounded-full px-4 py-2 hover:bg-white/25 transition-colors"
+            >
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="#ef4444" stroke="#ef4444" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M20.84 4.61a5.5 5.5 0 00-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 00-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 000-7.78z"/>
+              </svg>
+              <span className="text-white text-sm font-semibold">{likeCount}</span>
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.5" strokeLinecap="round" style={{ transform: likersOpen ? "rotate(180deg)" : undefined, transition: "transform 0.2s" }}><polyline points="6 9 12 15 18 9"/></svg>
+            </button>
+          </div>
         </div>
       )}
     </div>
@@ -1121,6 +1304,7 @@ export default function FeedPage() {
   const [votingStreakDays, setVotingStreakDays] = useState(0);
   const lastTapRef = useRef<Record<string, number>>({});
   const observerRef = useRef<HTMLDivElement>(null);
+  const loadingMoreRef = useRef(false);
 
   // Stories state
   const [storyUsers, setStoryUsers] = useState<StoryUser[]>([]);
@@ -1128,14 +1312,23 @@ export default function FeedPage() {
   const [showCreateStory, setShowCreateStory] = useState(false);
 
   const loadFeed = useCallback(async (cursor?: string) => {
-    if (cursor) setLoadingMore(true); else setLoading(true);
+    if (cursor) {
+      if (loadingMoreRef.current) return; // guard against race condition
+      loadingMoreRef.current = true;
+      setLoadingMore(true);
+    } else {
+      setLoading(true);
+    }
     try {
       const url = `/api/feed?limit=30${cursor ? `&cursor=${cursor}` : ""}`;
       const res = await fetch(url);
       const data = await res.json();
       if (cursor) {
         const more: FeedPost[] = data.posts || [];
-        setPosts((prev) => [...prev, ...more]);
+        setPosts((prev) => {
+          const seenIds = new Set(prev.map((p) => p.id));
+          return [...prev, ...more.filter((p) => !seenIds.has(p.id))];
+        });
       } else {
         const fresh: FeedPost[] = data.posts || [];
         setPosts(rankPosts(fresh));
@@ -1146,6 +1339,7 @@ export default function FeedPage() {
     } finally {
       setLoading(false);
       setLoadingMore(false);
+      loadingMoreRef.current = false;
     }
   }, []);
 
