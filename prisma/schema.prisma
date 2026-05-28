@@ -122,6 +122,7 @@ model User {
   sentNotifications   Notification[]    @relation("NotificationSource")
   stories             Story[]
   storyViews          StoryView[]
+  storyLikes          StoryLike[]
 }
 
 enum UserRole {
@@ -760,18 +761,31 @@ model PostCommentLike {
 // ─── STORIES ─────────────────────────────────────────
 
 model Story {
-  id        String      @id @default(cuid())
+  id        String       @id @default(cuid())
   userId    String
   mediaUrl  String
-  mediaType String      @default("image") // "image" | "video"
-  caption   String?     @db.VarChar(200)
-  createdAt DateTime    @default(now())
+  mediaType String       @default("image") // "image" | "video"
+  caption   String?      @db.VarChar(200)
+  createdAt DateTime     @default(now())
   expiresAt DateTime
-  user      User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user      User         @relation(fields: [userId], references: [id], onDelete: Cascade)
   views     StoryView[]
+  likes     StoryLike[]
 
   @@index([userId, expiresAt])
   @@index([expiresAt])
+}
+
+model StoryLike {
+  id        String   @id @default(cuid())
+  storyId   String
+  userId    String
+  createdAt DateTime @default(now())
+  story     Story    @relation(fields: [storyId], references: [id], onDelete: Cascade)
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([storyId, userId])
+  @@index([storyId])
 }
 
 model StoryView {

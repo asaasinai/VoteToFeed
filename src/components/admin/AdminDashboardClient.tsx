@@ -1813,6 +1813,8 @@ type RevenuePurchase = {
 type RevenueSummary = { totalRevenue: number; totalVotesSold: number; totalMeals: number; totalPurchases: number; avgOrder: number };
 type TierBreakdown = { tier: string; revenue: number; votes: number; count: number };
 
+type FixPendingResult = { fixed: number; skipped: number; errors: number; message: string };
+
 function AdminRevenueTab({ animalType }: { animalType: string }) {
   const [purchases, setPurchases] = useState<RevenuePurchase[]>([]);
   const [loading, setLoading] = useState(true);
@@ -1824,6 +1826,9 @@ function AdminRevenueTab({ animalType }: { animalType: string }) {
   const [total, setTotal] = useState(0);
   const [summary, setSummary] = useState<RevenueSummary>({ totalRevenue: 0, totalVotesSold: 0, totalMeals: 0, totalPurchases: 0, avgOrder: 0 });
   const [byTier, setByTier] = useState<TierBreakdown[]>([]);
+  const [pendingCount, setPendingCount] = useState(0);
+  const [fixingPending, setFixingPending] = useState(false);
+  const [fixResult, setFixResult] = useState<FixPendingResult | null>(null);
 
   async function loadRevenue(p = page) {
     setLoading(true);
@@ -1839,12 +1844,25 @@ function AdminRevenueTab({ animalType }: { animalType: string }) {
       setPage(data.page || 1);
       setSummary(data.summary || summary);
       setByTier(data.byTier || []);
+      setPendingCount(data.pendingCount ?? 0);
     } catch { /* */ }
     setLoading(false);
   }
 
+  async function fixPending() {
+    setFixingPending(true);
+    setFixResult(null);
+    try {
+      const res = await fetch("/api/admin/fix-pending-purchases", { method: "POST" });
+      const data = await res.json();
+      setFixResult(data);
+      if (data.fixed > 0) loadRevenue(1);
+    } catch { setFixResult({ fixed: 0, skipped: 0, errors: 1, message: "Request failed" }); }
+    setFixingPending(false);
+  }
+
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  useState(() => { loadRevenue(1); });
+  useEffect(() => { loadRevenue(1); }, [range, tier]);
 
   const rangeLabels: Record<string, string> = { all: "All Time", today: "Today", "7d": "Last 7 Days", "30d": "Last 30 Days", "90d": "Last 90 Days" };
 
@@ -1856,6 +1874,44 @@ function AdminRevenueTab({ animalType }: { animalType: string }) {
           <p className="text-sm text-surface-500">{rangeLabels[range]} — {total.toLocaleString()} purchases</p>
         </div>
       </div>
+
+      {/* Pending purchases recovery banner */}
+      {pendingCount > 0 && !fixResult && (
+        <div className="flex items-center justify-between gap-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3">
+          <div className="flex items-center gap-3">
+            <span className="flex h-8 w-8 items-center justify-center rounded-full bg-amber-100 text-amber-600 text-lg">⚠️</span>
+            <div>
+              <p className="text-sm font-semibold text-amber-900">{pendingCount} stuck PENDING {pendingCount === 1 ? "purchase" : "purchases"} detected</p>
+              <p className="text-xs text-amber-700">These may be completed Stripe payments that never got the webhook. Run the fix to recover them.</p>
+            </div>
+          </div>
+          <button
+            onClick={fixPending}
+            disabled={fixingPending}
+            className="shrink-0 rounded-lg bg-amber-500 px-4 py-2 text-xs font-bold text-white shadow-sm hover:bg-amber-600 disabled:opacity-60 transition-colors"
+          >
+            {fixingPending ? "Fixing…" : "Fix Now"}
+          </button>
+        </div>
+      )}
+
+      {/* Fix result */}
+      {fixResult && (
+        <div className={`flex items-center justify-between gap-4 rounded-xl border px-4 py-3 ${fixResult.fixed > 0 ? "border-green-200 bg-green-50" : "border-surface-200 bg-surface-50"}`}>
+          <div className="flex items-center gap-3">
+            <span className="text-lg">{fixResult.fixed > 0 ? "✅" : "ℹ️"}</span>
+            <div>
+              <p className="text-sm font-semibold text-surface-900">{fixResult.message}</p>
+              <p className="text-xs text-surface-500">
+                Fixed: <span className="font-bold text-green-600">{fixResult.fixed}</span>
+                {" · "}Skipped: <span className="font-medium">{fixResult.skipped}</span>
+                {fixResult.errors > 0 && <>{" · "}Errors: <span className="font-bold text-red-500">{fixResult.errors}</span></>}
+              </p>
+            </div>
+          </div>
+          <button onClick={() => setFixResult(null)} className="text-xs text-surface-400 hover:text-surface-600">Dismiss</button>
+        </div>
+      )}
 
       {/* Summary stats */}
       <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">
@@ -1889,7 +1945,7 @@ function AdminRevenueTab({ animalType }: { animalType: string }) {
             {byTier.map((t) => (
               <button
                 key={t.tier}
-                onClick={() => { setTier(tier === t.tier ? "" : t.tier); setTimeout(() => loadRevenue(1), 0); }}
+                onClick={() => { setTier(tier === t.tier ? "" : t.tier); }}
                 className={`p-3 rounded-xl text-center transition-all ${
                   tier === t.tier ? "bg-brand-50 border-2 border-brand-300 shadow-sm" : "bg-surface-50 border-2 border-transparent hover:border-surface-200"
                 }`}
@@ -1909,7 +1965,7 @@ function AdminRevenueTab({ animalType }: { animalType: string }) {
           {(["all", "today", "7d", "30d", "90d"] as const).map((r) => (
             <button
               key={r}
-              onClick={() => { setRange(r); setPage(1); setTimeout(() => loadRevenue(1), 0); }}
+              onClick={() => { setRange(r); setPage(1); }}
               className={`px-3 py-1.5 rounded-lg text-xs font-medium whitespace-nowrap transition-all ${
                 range === r
                   ? "bg-brand-500 text-white shadow-sm"

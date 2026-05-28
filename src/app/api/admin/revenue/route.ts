@@ -40,7 +40,7 @@ export async function GET(req: NextRequest) {
       };
     }
 
-    const [purchases, total, aggregate, byTier] = await Promise.all([
+    const [purchases, total, aggregate, byTier, pendingCount] = await Promise.all([
       prisma.purchase.findMany({
         where,
         include: { user: { select: { name: true, email: true } } },
@@ -61,6 +61,7 @@ export async function GET(req: NextRequest) {
         _count: true,
         orderBy: { _sum: { amount: "desc" } },
       }),
+      prisma.purchase.count({ where: { status: "PENDING" } }),
     ]);
 
     return NextResponse.json({
@@ -80,6 +81,7 @@ export async function GET(req: NextRequest) {
       total,
       page,
       totalPages: Math.ceil(total / limit),
+      pendingCount,
       summary: {
         totalRevenue: aggregate._sum.amount ?? 0,
         totalVotesSold: aggregate._sum.votes ?? 0,
