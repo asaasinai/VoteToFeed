@@ -55,10 +55,10 @@ export function SocialProofToast() {
 
     const now = Date.now();
     const elapsed = now - stored.current.lastShown;
-    const MIN_INTERVAL = 60000; // 60s minimum between toasts
+    const MIN_INTERVAL = 240000; // 4 min minimum between toasts
 
     // If shown recently, wait the remaining time + buffer
-    const initialWait = elapsed < MIN_INTERVAL ? (MIN_INTERVAL - elapsed + 5000) : 20000;
+    const initialWait = elapsed < MIN_INTERVAL ? (MIN_INTERVAL - elapsed + 10000) : 90000;
 
     const initialDelay = setTimeout(() => {
       setVisible(true);
@@ -67,7 +67,7 @@ export function SocialProofToast() {
       setTimeout(() => setVisible(false), 4000);
     }, initialWait);
 
-    // Then cycle every 60-90 seconds
+    // Then cycle every 4-7 minutes
     const interval = setInterval(() => {
       if (dismissed) return;
       setCurrentIndex((prev) => {
@@ -79,7 +79,7 @@ export function SocialProofToast() {
       });
       setVisible(true);
       setTimeout(() => setVisible(false), 4000);
-    }, 60000 + Math.random() * 30000);
+    }, 240000 + Math.random() * 180000);
 
     return () => {
       clearTimeout(initialDelay);
