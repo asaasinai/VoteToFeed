@@ -48,7 +48,7 @@ type ScheduledVoteCounts = {
 // ─── MAIN COMPONENT ─────────────────────────────────────
 
 export function AdminEngagementManagement() {
-  const [tab, setTab] = useState<"accounts" | "auto-vote" | "queue">("accounts");
+  const [tab, setTab] = useState<"accounts" | "auto-vote" | "queue" | "reactions">("accounts");
 
   return (
     <div className="space-y-6">
@@ -63,6 +63,7 @@ export function AdminEngagementManagement() {
             { id: "accounts", label: "👤 Demo Accounts", desc: "View & manage" },
             { id: "auto-vote", label: "🗳️ Auto-Vote", desc: "Schedule campaigns" },
             { id: "queue", label: "📋 Vote Queue", desc: "Monitor scheduled" },
+            { id: "reactions", label: "😍 Reactions", desc: "Human-like reactions" },
           ] as const
         ).map((t) => (
           <button
@@ -80,6 +81,7 @@ export function AdminEngagementManagement() {
       {tab === "accounts" && <AccountsTab />}
       {tab === "auto-vote" && <AutoVoteTab />}
       {tab === "queue" && <VoteQueueTab />}
+      {tab === "reactions" && <ReactionsTab />}
     </div>
   );
 }
@@ -955,6 +957,288 @@ function VoteQueueTab() {
       {batches.length === 0 && counts.pending === 0 && (
         <div className="rounded-xl border border-surface-200 bg-white p-8 text-center text-surface-400">
           No scheduled votes in the queue. Go to Auto-Vote tab to create a campaign.
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── REACTIONS TAB ───────────────────────────────────────
+
+type ReactResult = {
+  postsTargeted: number;
+  reactionsCreated: number;
+  skipped: number;
+};
+
+function ReactionsTab() {
+  const [demoCount, setDemoCount] = useState(0);
+  const [totalPosts, setTotalPosts] = useState(0);
+  const [loading, setLoading] = useState(true);
+  const [targetCount, setTargetCount] = useState(20);
+  const [heartWeight, setHeartWeight] = useState(70);
+  const [hahaWeight, setHahaWeight] = useState(20);
+  const [wowWeight, setWowWeight] = useState(10);
+  const [minPerPost, setMinPerPost] = useState(3);
+  const [maxPerPost, setMaxPerPost] = useState(8);
+  const [firing, setFiring] = useState(false);
+  const [result, setResult] = useState<ReactResult | null>(null);
+  const [msg, setMsg] = useState("");
+
+  useEffect(() => {
+    fetch("/api/admin/engagement/auto-react?limit=50")
+      .then((r) => r.json())
+      .then((d) => {
+        setDemoCount(d.demoCount || 0);
+        setTotalPosts(d.posts?.length || 0);
+      })
+      .catch(() => {})
+      .finally(() => setLoading(false));
+  }, []);
+
+  // Normalised display percentages (weights don't need to sum to 100)
+  const totalW = heartWeight + hahaWeight + wowWeight;
+  const heartPct = totalW > 0 ? Math.round((heartWeight / totalW) * 100) : 0;
+  const hahaPct = totalW > 0 ? Math.round((hahaWeight / totalW) * 100) : 0;
+  const wowPct = totalW > 0 ? 100 - heartPct - hahaPct : 0;
+
+  const avgPerPost = (minPerPost + maxPerPost) / 2;
+  const estimatedTotal = Math.round(Math.min(targetCount, totalPosts) * avgPerPost);
+
+  const presets = [
+    { label: "🎲 Natural", h: 70, ha: 20, w: 10 },
+    { label: "❤️ Hearts", h: 90, ha: 7, w: 3 },
+    { label: "😂 Funny", h: 25, ha: 60, w: 15 },
+    { label: "😮 Wow Mix", h: 35, ha: 20, w: 45 },
+  ];
+
+  const coveragePresets = [
+    { min: 2, max: 5 },
+    { min: 3, max: 8 },
+    { min: 5, max: 12 },
+    { min: 8, max: 15 },
+  ];
+
+  const fireReactions = async () => {
+    setFiring(true);
+    setResult(null);
+    setMsg("");
+    try {
+      const res = await fetch("/api/admin/engagement/auto-react", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          targetCount,
+          reactions: { HEART: heartWeight, HAHA: hahaWeight, WOW: wowWeight },
+          minPerPost,
+          maxPerPost,
+        }),
+      });
+      const data = await res.json();
+      if (res.ok) {
+        setResult(data);
+        setMsg(`✅ ${data.reactionsCreated} reactions fired on ${data.postsTargeted} posts!`);
+      } else {
+        setMsg(data.error || "Failed");
+      }
+    } catch {
+      setMsg("Request failed");
+    }
+    setFiring(false);
+    setTimeout(() => setMsg(""), 6000);
+  };
+
+  if (loading) {
+    return <div className="py-12 text-center text-surface-500">Loading...</div>;
+  }
+
+  return (
+    <div className="space-y-6">
+      {msg && (
+        <div
+          className={`rounded-lg px-4 py-2 text-sm ${
+            msg.startsWith("✅") ? "bg-emerald-50 text-emerald-700" : "bg-red-50 text-red-700"
+          }`}
+        >
+          {msg}
+        </div>
+      )}
+
+      {/* Stats row */}
+      <div className="grid grid-cols-3 gap-3">
+        <div className="rounded-xl border border-surface-200 bg-white p-4">
+          <div className="text-2xl font-bold text-surface-900">{demoCount}</div>
+          <div className="text-xs text-surface-500">Demo Accounts</div>
+        </div>
+        <div className="rounded-xl border border-surface-200 bg-white p-4">
+          <div className="text-2xl font-bold text-surface-900">{totalPosts}</div>
+          <div className="text-xs text-surface-500">Recent Posts</div>
+        </div>
+        <div className="rounded-xl border border-surface-200 bg-white p-4">
+          <div className="text-2xl font-bold text-brand-600">~{estimatedTotal}</div>
+          <div className="text-xs text-surface-500">Est. Reactions</div>
+        </div>
+      </div>
+
+      <div className="rounded-xl border border-surface-200 bg-white p-6 space-y-5">
+        <div>
+          <h3 className="text-lg font-bold text-surface-900">Fire Demo Reactions</h3>
+          <p className="text-sm text-surface-500 mt-1">
+            Demo accounts will react to recent posts with randomised variation. Existing reactions are preserved (skipped).
+          </p>
+        </div>
+
+        {/* Target count */}
+        <div>
+          <label className="block text-xs font-semibold text-surface-700 mb-2">Target Posts (most recent)</label>
+          <div className="flex gap-2 flex-wrap">
+            {[10, 20, 30, 50].map((n) => (
+              <button
+                key={n}
+                onClick={() => setTargetCount(n)}
+                className={`rounded-lg px-3 py-1.5 text-sm font-medium transition-colors ${
+                  targetCount === n ? "bg-brand-600 text-white" : "bg-surface-100 text-surface-600 hover:bg-surface-200"
+                }`}
+              >
+                {n} posts
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* Reaction mix */}
+        <div>
+          <div className="flex items-center justify-between mb-2">
+            <label className="text-xs font-semibold text-surface-700">Reaction Mix</label>
+            <div className="flex gap-1.5 flex-wrap justify-end">
+              {presets.map((p) => (
+                <button
+                  key={p.label}
+                  onClick={() => {
+                    setHeartWeight(p.h);
+                    setHahaWeight(p.ha);
+                    setWowWeight(p.w);
+                  }}
+                  className="rounded-lg px-2 py-1 text-xs bg-surface-100 text-surface-600 hover:bg-surface-200 transition-colors"
+                >
+                  {p.label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Distribution bar */}
+          <div className="h-3 rounded-full overflow-hidden flex mb-4">
+            <div style={{ width: `${heartPct}%` }} className="bg-rose-400 transition-all" />
+            <div style={{ width: `${hahaPct}%` }} className="bg-yellow-400 transition-all" />
+            <div style={{ width: `${wowPct}%` }} className="bg-blue-400 transition-all" />
+          </div>
+
+          <div className="grid grid-cols-3 gap-3">
+            {(
+              [
+                { emoji: "❤️", label: "HEART", val: heartWeight, set: setHeartWeight, pct: heartPct },
+                { emoji: "😂", label: "HAHA", val: hahaWeight, set: setHahaWeight, pct: hahaPct },
+                { emoji: "😮", label: "WOW", val: wowWeight, set: setWowWeight, pct: wowPct },
+              ] as const
+            ).map(({ emoji, label, val, set, pct }) => (
+              <div key={label} className="text-center">
+                <div className="text-2xl mb-1.5">{emoji}</div>
+                <input
+                  type="number"
+                  min={0}
+                  max={100}
+                  value={val}
+                  onChange={(e) => set(Math.max(0, parseInt(e.target.value) || 0))}
+                  className="w-full rounded-lg border border-surface-300 px-2 py-1.5 text-sm text-center focus:outline-none focus:ring-2 focus:ring-brand-500"
+                />
+                <div className="text-xs text-surface-400 mt-1">{pct}%</div>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* Coverage */}
+        <div>
+          <label className="block text-xs font-semibold text-surface-700 mb-2">Demo Accounts Per Post</label>
+          <div className="grid grid-cols-2 gap-3 mb-2">
+            <div>
+              <div className="text-xs text-surface-500 mb-1">Min</div>
+              <input
+                type="number"
+                min={1}
+                max={maxPerPost}
+                value={minPerPost}
+                onChange={(e) => setMinPerPost(Math.max(1, parseInt(e.target.value) || 1))}
+                className="w-full rounded-lg border border-surface-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
+              />
+            </div>
+            <div>
+              <div className="text-xs text-surface-500 mb-1">Max</div>
+              <input
+                type="number"
+                min={minPerPost}
+                max={demoCount || 50}
+                value={maxPerPost}
+                onChange={(e) => setMaxPerPost(Math.max(minPerPost, parseInt(e.target.value) || minPerPost))}
+                className="w-full rounded-lg border border-surface-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
+              />
+            </div>
+          </div>
+          <div className="flex gap-2 flex-wrap">
+            {coveragePresets.map((p) => (
+              <button
+                key={`${p.min}-${p.max}`}
+                onClick={() => {
+                  setMinPerPost(p.min);
+                  setMaxPerPost(p.max);
+                }}
+                className={`rounded-lg px-2.5 py-1 text-xs font-medium transition-colors ${
+                  minPerPost === p.min && maxPerPost === p.max
+                    ? "bg-brand-600 text-white"
+                    : "bg-surface-100 text-surface-600 hover:bg-surface-200"
+                }`}
+              >
+                {p.min}–{p.max}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* Summary preview */}
+        <div className="rounded-lg bg-amber-50 border border-amber-200 p-3 text-sm text-amber-800">
+          <strong>Preview:</strong> ~{estimatedTotal} reactions on {Math.min(targetCount, totalPosts)} posts —{" "}
+          {heartPct}% ❤️ · {hahaPct}% 😂 · {wowPct}% 😮 — {minPerPost}–{maxPerPost} accounts per post. Existing
+          reactions are skipped.
+        </div>
+
+        <button
+          onClick={fireReactions}
+          disabled={firing || demoCount === 0 || totalPosts === 0}
+          className="rounded-lg bg-brand-600 px-6 py-2.5 text-sm font-semibold text-white hover:bg-brand-700 disabled:opacity-50 transition-colors"
+        >
+          {firing ? "Firing reactions..." : "🔥 Fire Reactions"}
+        </button>
+      </div>
+
+      {/* Result */}
+      {result && (
+        <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-5">
+          <div className="text-base font-bold text-emerald-800 mb-3">✅ Done!</div>
+          <div className="grid grid-cols-3 gap-4 text-center">
+            <div>
+              <div className="text-2xl font-bold text-emerald-700">{result.reactionsCreated}</div>
+              <div className="text-xs text-emerald-600">Reactions Created</div>
+            </div>
+            <div>
+              <div className="text-2xl font-bold text-emerald-700">{result.postsTargeted}</div>
+              <div className="text-xs text-emerald-600">Posts Targeted</div>
+            </div>
+            <div>
+              <div className="text-2xl font-bold text-surface-500">{result.skipped}</div>
+              <div className="text-xs text-surface-400">Already Existed</div>
+            </div>
+          </div>
         </div>
       )}
     </div>
