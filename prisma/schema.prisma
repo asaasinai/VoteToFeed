@@ -1073,4 +1073,5 @@ enum NotificationType {
   SYSTEM      // Admin warnings, badges earned, etc.
   RANK_CLIMB  // Your pet climbed in leaderboard
   RANK_DROP   // Your pet was overtaken
+  STORY       // Someone you follow posted a story
 }
