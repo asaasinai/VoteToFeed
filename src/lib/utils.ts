@@ -18,26 +18,15 @@ export function formatDisplayName(
   return "Anonymous";
 }
 
-/**
- * Format a user's account name as "First L." for public display.
- * e.g. "Krenar Mahmuti" → "Krenar M."
- *      "Krenar" → "Krenar"
- *      null/empty → "Anonymous"
- */
-export function formatUserName(name: string | null | undefined): string {
-  if (!name?.trim()) return "Anonymous";
-  const parts = name.trim().split(/\s+/);
-  if (parts.length >= 2) {
-    return `${parts[0]} ${parts[parts.length - 1][0].toUpperCase()}.`;
-  }
-  return parts[0];
+// Format a single full name string as "First L."
+export function formatUserName(name?: string | null): string {
+  return formatDisplayName(undefined, undefined, name);
 }
 
 // Simple class name merger
 export function cn(...inputs: (string | undefined | null | false)[]): string {
   return inputs.filter(Boolean).join(" ");
 }
-
 
 // Format vote count with commas
 export function formatVotes(count: number): string {
