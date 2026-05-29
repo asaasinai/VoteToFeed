@@ -8,33 +8,792 @@ datasource db {
   directUrl = env("DIRECT_URL")
 }
 
-// ─── AUTH ────────────────────────────────────────────────
-
 model Account {
-  id                String  @id @default(cuid())
+  id                String  @id
   userId            String
   type              String
   provider          String
   providerAccountId String
-  refresh_token     String? @db.Text
-  access_token      String? @db.Text
+  refresh_token     String?
+  access_token      String?
   expires_at        Int?
   token_type        String?
   scope             String?
-  id_token          String? @db.Text
+  id_token          String?
   session_state     String?
-
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  User              User    @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([provider, providerAccountId])
 }
 
+model AdminSetting {
+  id              String            @id
+  key             String            @unique
+  value           String
+  updatedBy       String?
+  updatedAt       DateTime
+  createdAt       DateTime          @default(now())
+  AdminSettingLog AdminSettingLog[]
+}
+
+model AdminSettingLog {
+  id           String       @id
+  settingId    String
+  oldValue     String
+  newValue     String
+  changedBy    String
+  createdAt    DateTime     @default(now())
+  AdminSetting AdminSetting @relation(fields: [settingId], references: [id], onDelete: Cascade)
+
+  @@index([settingId, createdAt])
+}
+
+model AnonymousVote {
+  id          String   @id
+  petId       String
+  ipAddress   String
+  userAgent   String?
+  contestWeek String
+  createdAt   DateTime @default(now())
+  Pet         Pet      @relation(fields: [petId], references: [id], onDelete: Cascade)
+
+  @@index([contestWeek])
+  @@index([ipAddress, createdAt])
+  @@index([petId, contestWeek])
+}
+
+model ApiKey {
+  id         String    @id
+  name       String
+  key        String    @unique
+  prefix     String
+  isActive   Boolean   @default(true)
+  lastUsedAt DateTime?
+  usageCount Int       @default(0)
+  createdBy  String
+  createdAt  DateTime  @default(now())
+  revokedAt  DateTime?
+
+  @@index([isActive])
+  @@index([key])
+}
+
+model Badge {
+  id          String        @id
+  slug        String        @unique
+  name        String
+  description String
+  icon        String
+  category    BadgeCategory
+  threshold   Int           @default(0)
+  createdAt   DateTime      @default(now())
+  UserBadge   UserBadge[]
+}
+
+model Booking {
+  id            String        @id
+  name          String
+  email         String
+  phone         String?
+  purpose       String?
+  notes         String?
+  startTime     DateTime
+  endTime       DateTime
+  status        BookingStatus @default(CONFIRMED)
+  googleEventId String?
+  createdAt     DateTime      @default(now())
+
+  @@index([email])
+  @@index([startTime])
+}
+
+model Breed {
+  id          String   @id
+  name        String
+  slug        String   @unique
+  petType     PetType
+  origin      String?
+  description String?
+  temperament String?
+  size        String?
+  lifespan    String?
+  imageUrl    String?
+  createdAt   DateTime @default(now())
+
+  @@index([petType])
+}
+
+model ChatConversation {
+  id              String        @id
+  sessionId       String        @unique
+  userId          String?
+  userName        String?
+  userEmail       String?
+  status          ChatStatus    @default(OPEN)
+  lastMessage     String?
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime
+  aiPaused        Boolean       @default(false)
+  isTicket        Boolean       @default(false)
+  ticketCreatedAt DateTime?
+  ticketProblem   String?
+  ticketStage     String?
+  User            User?         @relation(fields: [userId], references: [id])
+  ChatMessage     ChatMessage[]
+
+  @@index([isTicket, ticketStage])
+  @@index([status, updatedAt])
+  @@index([userId])
+}
+
+model ChatMessage {
+  id               String           @id
+  conversationId   String
+  role             ChatRole
+  content          String
+  createdAt        DateTime         @default(now())
+  ChatConversation ChatConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+
+  @@index([conversationId, createdAt])
+}
+
+model Comment {
+  id             String           @id
+  text           String           @db.VarChar(255)
+  petId          String
+  userId         String
+  parentId       String?
+  createdAt      DateTime         @default(now())
+  Comment        Comment?         @relation("CommentToComment", fields: [parentId], references: [id])
+  other_Comment  Comment[]        @relation("CommentToComment")
+  Pet            Pet              @relation(fields: [petId], references: [id], onDelete: Cascade)
+  User           User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  CommentLike    CommentLike[]
+  FlaggedComment FlaggedComment[]
+
+  @@index([petId, createdAt])
+}
+
+model CommentLike {
+  id        String   @id
+  commentId String
+  userId    String
+  createdAt DateTime @default(now())
+  Comment   Comment  @relation(fields: [commentId], references: [id], onDelete: Cascade)
+  User      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([commentId, userId])
+  @@index([commentId])
+}
+
+model Contest {
+  id                String              @id
+  name              String
+  type              ContestType
+  petType           PetType
+  state             String?
+  weekId            String?
+  startDate         DateTime
+  endDate           DateTime
+  isActive          Boolean             @default(true)
+  isFeatured        Boolean             @default(false)
+  description       String?
+  rules             String?
+  coverImage        String?
+  entryFee          Int                 @default(0)
+  maxEntries        Int?
+  prizeDescription  String?
+  sponsorName       String?
+  sponsorLogo       String?
+  sponsorUrl        String?
+  isRecurring       Boolean             @default(false)
+  recurringInterval String?
+  recurringCounter  Int                 @default(0)
+  createdAt         DateTime            @default(now())
+  updatedAt         DateTime            @default(now())
+  isStoryteller     Boolean             @default(false)
+  currentPhase      String              @default("OPEN")
+  finaleStartDate   DateTime?
+  round2StartDate   DateTime?
+  round3StartDate   DateTime?
+  top100CutSize     Int                 @default(100)
+  top25CutSize      Int                 @default(25)
+  top5CutSize       Int                 @default(5)
+  ContestEmailLog   ContestEmailLog[]
+  ContestEntry      ContestEntry[]
+  Nomination        Nomination[]
+  NominationSendJob NominationSendJob[]
+  Prize             Prize[]
+  ShelterPost       ShelterPost[]
+
+  @@index([isActive, endDate])
+  @@index([isActive, petType])
+  @@index([isRecurring, endDate])
+  @@index([weekId])
+}
+
+model ContestEmailLog {
+  id        String   @id
+  contestId String
+  userId    String
+  emailType String
+  sentAt    DateTime @default(now())
+  Contest   Contest  @relation(fields: [contestId], references: [id], onDelete: Cascade)
+  User      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([contestId, userId, emailType])
+  @@index([contestId])
+  @@index([userId])
+}
+
+model ContestEntry {
+  id                String   @id
+  contestId         String
+  petId             String
+  createdAt         DateTime @default(now())
+  story             String?
+  eliminatedAtRound Int?
+  isEliminated      Boolean  @default(false)
+  Contest           Contest  @relation(fields: [contestId], references: [id], onDelete: Cascade)
+  Pet               Pet      @relation(fields: [petId], references: [id], onDelete: Cascade)
+
+  @@unique([contestId, petId])
+  @@index([contestId, isEliminated])
+}
+
+model CustomEmailTemplate {
+  id        String   @id
+  name      String
+  subject   String
+  html      String
+  prompt    String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @default(now())
+}
+
+model EngagementLog {
+  id            String   @id
+  targetUserId  String
+  seedAccountId String
+  petId         String
+  action        String
+  commentText   String?
+  createdAt     DateTime @default(now())
+
+  @@index([seedAccountId])
+  @@index([targetUserId, createdAt])
+}
+
+model FlaggedComment {
+  id           String     @id
+  commentId    String
+  reason       String
+  matchedWords String[]
+  status       FlagStatus @default(PENDING)
+  reviewedBy   String?
+  reviewedAt   DateTime?
+  createdAt    DateTime   @default(now())
+  Comment      Comment    @relation(fields: [commentId], references: [id], onDelete: Cascade)
+
+  @@index([createdAt])
+  @@index([status])
+}
+
+model Follow {
+  id                            String   @id
+  followerId                    String
+  followingId                   String
+  createdAt                     DateTime @default(now())
+  User_Follow_followerIdToUser  User     @relation("Follow_followerIdToUser", fields: [followerId], references: [id], onDelete: Cascade)
+  User_Follow_followingIdToUser User     @relation("Follow_followingIdToUser", fields: [followingId], references: [id], onDelete: Cascade)
+
+  @@unique([followerId, followingId])
+  @@index([followerId])
+  @@index([followingId])
+}
+
+model FollowBonusLog {
+  id          String   @id
+  followerId  String
+  followingId String
+  createdAt   DateTime @default(now())
+  User        User     @relation(fields: [followerId], references: [id], onDelete: Cascade)
+
+  @@unique([followerId, followingId])
+}
+
+model Nomination {
+  id        String           @id
+  email     String
+  name      String
+  petName   String?
+  contestId String
+  status    NominationStatus @default(PENDING)
+  sentAt    DateTime?
+  createdAt DateTime         @default(now())
+  sentById  String
+  Contest   Contest          @relation(fields: [contestId], references: [id], onDelete: Cascade)
+  User      User             @relation(fields: [sentById], references: [id], onDelete: Cascade)
+
+  @@unique([email, contestId])
+  @@index([contestId])
+  @@index([email])
+  @@index([status])
+}
+
+model NominationSendJob {
+  id          String   @id
+  contestId   String
+  contestName String
+  recipients  Json
+  total       Int
+  sent        Int      @default(0)
+  failed      Int      @default(0)
+  status      String   @default("running")
+  startedAt   DateTime @default(now())
+  updatedAt   DateTime @default(now())
+  startedById String
+  Contest     Contest  @relation(fields: [contestId], references: [id], onDelete: Cascade)
+  User        User     @relation(fields: [startedById], references: [id], onDelete: Cascade)
+
+  @@index([startedById])
+  @@index([status])
+}
+
+model Notification {
+  id                                   String           @id
+  userId                               String
+  type                                 NotificationType
+  title                                String
+  message                              String
+  isRead                               Boolean          @default(false)
+  linkUrl                              String?
+  sourceUserId                         String?
+  createdAt                            DateTime         @default(now())
+  User_Notification_sourceUserIdToUser User?            @relation("Notification_sourceUserIdToUser", fields: [sourceUserId], references: [id])
+  User_Notification_userIdToUser       User             @relation("Notification_userIdToUser", fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([createdAt])
+  @@index([userId, isRead])
+}
+
+model PasswordResetToken {
+  id        String   @id
+  token     String   @unique
+  userId    String
+  expiresAt DateTime
+  used      Boolean  @default(false)
+  createdAt DateTime @default(now())
+  User      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([expiresAt])
+  @@index([userId])
+}
+
+model Pet {
+  id               String             @id
+  name             String             @db.VarChar(60)
+  type             PetType
+  breed            String?
+  bio              String?            @db.VarChar(255)
+  ownerName        String
+  ownerFirstName   String?
+  ownerLastName    String?
+  address          String?
+  city             String?
+  state            String?
+  zipCode          String?
+  country          String?            @default("US")
+  photos           String[]
+  tags             String[]
+  isActive         Boolean            @default(true)
+  optInDesigns     Boolean            @default(true)
+  createdAt        DateTime           @default(now())
+  updatedAt        DateTime
+  userId           String
+  AnonymousVote    AnonymousVote[]
+  Comment          Comment[]
+  ContestEntry     ContestEntry[]
+  User             User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  PetWeeklyStats   PetWeeklyStats[]
+  ProductDesign    ProductDesign[]
+  ScheduledComment ScheduledComment[]
+  ScheduledVote    ScheduledVote[]
+  Vote             Vote[]
+
+  @@index([breed])
+  @@index([createdAt])
+  @@index([state])
+  @@index([type, isActive])
+}
+
+model PetWeeklyStats {
+  id         String   @id
+  petId      String
+  weekId     String
+  totalVotes Int      @default(0)
+  freeVotes  Int      @default(0)
+  paidVotes  Int      @default(0)
+  rank       Int?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime
+  Pet        Pet      @relation(fields: [petId], references: [id], onDelete: Cascade)
+
+  @@unique([petId, weekId])
+  @@index([petId])
+  @@index([weekId, totalVotes(sort: Desc)])
+}
+
+model PostComment {
+  id              String            @id
+  postId          String
+  userId          String
+  content         String
+  createdAt       DateTime          @default(now())
+  UserPost        UserPost          @relation(fields: [postId], references: [id], onDelete: Cascade)
+  User            User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  PostCommentLike PostCommentLike[]
+
+  @@index([postId, createdAt])
+}
+
+model PostCommentLike {
+  id          String      @id
+  commentId   String
+  userId      String
+  createdAt   DateTime    @default(now())
+  PostComment PostComment @relation(fields: [commentId], references: [id], onDelete: Cascade)
+  User        User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([commentId, userId])
+  @@index([commentId])
+}
+
+model PostLike {
+  id        String   @id
+  postId    String
+  userId    String
+  createdAt DateTime @default(now())
+  reaction  String   @default("HEART")
+  UserPost  UserPost @relation(fields: [postId], references: [id], onDelete: Cascade)
+  User      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([postId, userId])
+  @@index([postId])
+}
+
+model Prize {
+  id          String      @id
+  contestId   String
+  placement   Int
+  title       String
+  description String?
+  value       Int
+  items       String[]
+  status      PrizeStatus @default(PENDING)
+  winnerId    String?
+  awardedAt   DateTime?
+  fulfilledAt DateTime?
+  createdAt   DateTime    @default(now())
+  Contest     Contest     @relation(fields: [contestId], references: [id], onDelete: Cascade)
+
+  @@unique([contestId, placement])
+}
+
+model ProductDesign {
+  id            String          @id
+  petId         String
+  theme         String
+  aiImageUrl    String
+  isActive      Boolean         @default(true)
+  createdAt     DateTime        @default(now())
+  Pet           Pet             @relation(fields: [petId], references: [id], onDelete: Cascade)
+  ProductMockup ProductMockup[]
+
+  @@index([petId])
+}
+
+model ProductMockup {
+  id            String         @id
+  designId      String
+  productType   ProductType
+  mockupUrl     String
+  price         Int
+  costBasis     Int
+  isActive      Boolean        @default(true)
+  createdAt     DateTime       @default(now())
+  ProductDesign ProductDesign  @relation(fields: [designId], references: [id], onDelete: Cascade)
+  ProductOrder  ProductOrder[]
+
+  @@index([designId])
+}
+
+model ProductOrder {
+  id              String        @id
+  userId          String
+  mockupId        String
+  quantity        Int           @default(1)
+  size            String?
+  totalAmount     Int
+  stripePaymentId String?
+  status          OrderStatus   @default(PENDING)
+  trackingNumber  String?
+  shippingAddress String?
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime
+  ProductMockup   ProductMockup @relation(fields: [mockupId], references: [id])
+  User            User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+model Purchase {
+  id                 String        @id
+  userId             String
+  packageTier        PackageTier
+  votes              Int
+  amount             Int
+  currency           String        @default("usd")
+  stripePaymentId    String?       @unique
+  stripeSessionId    String?       @unique
+  status             PaymentStatus @default(PENDING)
+  mealsProvided      Float         @default(0)
+  mealRateAtPurchase Float         @default(10.0)
+  createdAt          DateTime      @default(now())
+  discountPct        Int           @default(0)
+  isFirstTimeBuyer   Boolean       @default(false)
+  originalAmount     Int           @default(0)
+  User               User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([createdAt])
+  @@index([userId])
+}
+
+model ReEntryToken {
+  id            String    @id
+  token         String    @unique
+  userId        String
+  petId         String
+  fromContestId String
+  toContestId   String
+  usedAt        DateTime?
+  expiresAt     DateTime
+  createdAt     DateTime  @default(now())
+
+  @@index([token])
+  @@index([userId])
+}
+
+model ScheduledComment {
+  id                  String                 @id
+  petId               String
+  engagementAccountId String
+  scheduledFor        DateTime
+  commentText         String                 @db.VarChar(255)
+  status              ScheduledCommentStatus @default(PENDING)
+  processedAt         DateTime?
+  errorMessage        String?                @db.VarChar(500)
+  createdAt           DateTime               @default(now())
+  updatedAt           DateTime
+  User                User                   @relation(fields: [engagementAccountId], references: [id], onDelete: Cascade)
+  Pet                 Pet                    @relation(fields: [petId], references: [id], onDelete: Cascade)
+
+  @@index([engagementAccountId])
+  @@index([petId])
+  @@index([scheduledFor, status])
+}
+
+model ScheduledVote {
+  id            String              @id
+  petId         String
+  seedAccountId String
+  votesAmount   Int                 @default(1)
+  weekId        String
+  scheduledFor  DateTime
+  status        ScheduledVoteStatus @default(PENDING)
+  processedAt   DateTime?
+  errorMessage  String?             @db.VarChar(500)
+  createdAt     DateTime            @default(now())
+  updatedAt     DateTime
+  Pet           Pet                 @relation(fields: [petId], references: [id], onDelete: Cascade)
+  User          User                @relation(fields: [seedAccountId], references: [id], onDelete: Cascade)
+
+  @@index([petId])
+  @@index([scheduledFor, status])
+  @@index([seedAccountId])
+}
+
 model Session {
-  id           String   @id @default(cuid())
+  id           String   @id
   sessionToken String   @unique
   userId       String
   expires      DateTime
-  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  User         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model ShelterPartner {
+  id          String   @id
+  name        String
+  logoUrl     String?
+  website     String?
+  description String?
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+}
+
+model ShelterPost {
+  id            String          @id
+  title         String?
+  featuredImage String?
+  content       String?
+  photos        String[]
+  caption       String?
+  videoUrl      String?
+  tags          String[]
+  type          ShelterPostType @default(UPDATE)
+  location      String?
+  contestId     String?
+  authorId      String
+  isPublished   Boolean         @default(true)
+  createdAt     DateTime        @default(now())
+  updatedAt     DateTime        @default(now())
+  User          User            @relation(fields: [authorId], references: [id], onDelete: Cascade)
+  Contest       Contest?        @relation(fields: [contestId], references: [id])
+
+  @@index([isPublished, createdAt])
+  @@index([type])
+}
+
+model Story {
+  id        String      @id
+  userId    String
+  mediaUrl  String
+  mediaType String      @default("image")
+  caption   String?     @db.VarChar(200)
+  createdAt DateTime    @default(now())
+  expiresAt DateTime
+  user      User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  likes     StoryLike[]
+  views     StoryView[]
+
+  @@index([expiresAt])
+  @@index([userId, expiresAt])
+}
+
+model StoryLike {
+  id        String   @id
+  storyId   String
+  userId    String
+  createdAt DateTime @default(now())
+  story     Story    @relation(fields: [storyId], references: [id], onDelete: Cascade)
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([storyId, userId])
+  @@index([storyId])
+}
+
+model StoryView {
+  id       String   @id
+  storyId  String
+  userId   String
+  viewedAt DateTime @default(now())
+  story    Story    @relation(fields: [storyId], references: [id], onDelete: Cascade)
+  user     User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([storyId, userId])
+  @@index([storyId])
+}
+
+model User {
+  id                                           String                 @id
+  name                                         String?
+  email                                        String?                @unique
+  emailVerified                                DateTime?
+  image                                        String?
+  password                                     String?
+  role                                         UserRole               @default(USER)
+  city                                         String?
+  state                                        String?
+  country                                      String?
+  zipCode                                      String?
+  createdAt                                    DateTime               @default(now())
+  updatedAt                                    DateTime
+  freeVotesRemaining                           Int                    @default(5)
+  lastFreeVoteReset                            DateTime               @default(now())
+  votingStreak                                 Int                    @default(0)
+  lastVotedWeek                                String?
+  paidVoteBalance                              Int                    @default(0)
+  lastFreeVoteReminderWeek                     String?
+  lastVoteDateStr                              String?
+  votingStreakDays                             Int                    @default(0)
+  Account                                      Account[]
+  ChatConversation                             ChatConversation[]
+  Comment                                      Comment[]
+  CommentLike                                  CommentLike[]
+  ContestEmailLog                              ContestEmailLog[]
+  Follow_Follow_followerIdToUser               Follow[]               @relation("Follow_followerIdToUser")
+  Follow_Follow_followingIdToUser              Follow[]               @relation("Follow_followingIdToUser")
+  FollowBonusLog                               FollowBonusLog[]
+  Nomination                                   Nomination[]
+  NominationSendJob                            NominationSendJob[]
+  Notification_Notification_sourceUserIdToUser Notification[]         @relation("Notification_sourceUserIdToUser")
+  Notification_Notification_userIdToUser       Notification[]         @relation("Notification_userIdToUser")
+  PasswordResetToken                           PasswordResetToken[]
+  Pet                                          Pet[]
+  PostComment                                  PostComment[]
+  PostCommentLike                              PostCommentLike[]
+  PostLike                                     PostLike[]
+  ProductOrder                                 ProductOrder[]
+  Purchase                                     Purchase[]
+  ScheduledComment                             ScheduledComment[]
+  ScheduledVote                                ScheduledVote[]
+  Session                                      Session[]
+  ShelterPost                                  ShelterPost[]
+  Story                                        Story[]
+  storyLikes                                   StoryLike[]
+  storyViews                                   StoryView[]
+  UserBadge                                    UserBadge[]
+  UserNotificationPrefs                        UserNotificationPrefs?
+  UserPost                                     UserPost[]
+  Vote                                         Vote[]
+}
+
+model UserBadge {
+  id       String   @id
+  userId   String
+  badgeId  String
+  earnedAt DateTime @default(now())
+  Badge    Badge    @relation(fields: [badgeId], references: [id], onDelete: Cascade)
+  User     User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, badgeId])
+  @@index([userId])
+}
+
+model UserNotificationPrefs {
+  id                  String  @id
+  userId              String  @unique
+  voteAlerts          Boolean @default(true)
+  commentAlerts       Boolean @default(true)
+  designAlerts        Boolean @default(true)
+  weeklyDigest        Boolean @default(true)
+  freeVoteReminder    Boolean @default(true)
+  contestAlerts       Boolean @default(true)
+  maxVoteAlertsPerDay Int     @default(5)
+  User                User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model UserPost {
+  id          String        @id
+  content     String
+  imageUrl    String?
+  createdAt   DateTime      @default(now())
+  userId      String
+  PostComment PostComment[]
+  PostLike    PostLike[]
+  User        User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
 }
 
 model VerificationToken {
@@ -45,231 +804,103 @@ model VerificationToken {
   @@unique([identifier, token])
 }
 
-model PasswordResetToken {
-  id        String   @id @default(cuid())
-  token     String   @unique
-  userId    String
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  expiresAt DateTime
-  used      Boolean  @default(false)
-  createdAt DateTime @default(now())
-
-  @@index([userId])
-  @@index([expiresAt])
-}
-
-// ─── USERS ───────────────────────────────────────────────
-
-model User {
-  id            String    @id @default(cuid())
-  name          String?
-  email         String?   @unique
-  emailVerified DateTime?
-  image         String?
-  password      String?
-  role          UserRole  @default(USER)
-  city          String?
-  state         String?
-  country       String?
-  zipCode       String?
-  createdAt     DateTime  @default(now())
-  updatedAt     DateTime  @updatedAt
-
-  // Free votes
-  freeVotesRemaining Int      @default(5)
-  lastFreeVoteReset  DateTime @default(now())
-  votingStreak       Int      @default(0)
-  lastVotedWeek      String?
-
-  // Daily streak (fire badge)
-  votingStreakDays  Int     @default(0)
-  lastVoteDateStr  String? // e.g. "2026-05-27"
-
-  // Paid votes
-  paidVoteBalance Int @default(0)
-
-  // Email tracking
-  lastFreeVoteReminderWeek String? // e.g. "2026-W15" — prevents double-sending reminder
-
-  accounts       Account[]
-  sessions       Session[]
-  pets           Pet[]
-  votes          Vote[]
-  comments       Comment[]
-  scheduledComments ScheduledComment[] @relation("ScheduledCommentEngagementAccount")
-  scheduledVotes    ScheduledVote[]    @relation("ScheduledVoteSeedAccount")
-  purchases      Purchase[]
-  productOrders  ProductOrder[]
-  notifications  UserNotificationPrefs?
-  shelterPosts   ShelterPost[]
-  passwordResetTokens PasswordResetToken[]
-  chatConversations ChatConversation[]
-  commentLikes  CommentLike[]
-
-  // Social
-  followers           Follow[]          @relation("FollowTarget")
-  following           Follow[]          @relation("FollowSource")
-  badges              UserBadge[]
-  posts               UserPost[]
-  postLikes           PostLike[]
-  postComments        PostComment[]
-  postCommentLikes    PostCommentLike[]
-  followBonusLogs     FollowBonusLog[]
-  nominationsSent     Nomination[]      @relation("NominationsSent")
-  contestEmailLogs    ContestEmailLog[]
-  nominationSendJobs  NominationSendJob[] @relation("NominationSendJobs")
-  inAppNotifications  Notification[]    @relation("NotificationTarget")
-  sentNotifications   Notification[]    @relation("NotificationSource")
-  stories             Story[]
-  storyViews          StoryView[]
-  storyLikes          StoryLike[]
-}
-
-enum UserRole {
-  USER
-  ADMIN
-  MODERATOR
-}
-
-model UserNotificationPrefs {
-  id                  String  @id @default(cuid())
-  userId              String  @unique
-  voteAlerts          Boolean @default(true)
-  commentAlerts       Boolean @default(true)
-  designAlerts        Boolean @default(true)
-  weeklyDigest        Boolean @default(true)
-  freeVoteReminder    Boolean @default(true)
-  contestAlerts       Boolean @default(true)
-  maxVoteAlertsPerDay Int     @default(5)
-  user                User    @relation(fields: [userId], references: [id], onDelete: Cascade)
-}
-
-// Cooldown tracker so we batch vote alerts — only 1 email per pet per 6 hours
-model VoteEmailCooldown {
-  id          String   @id @default(cuid())
-  petId       String
-  ownerId     String
-  lastSentAt  DateTime @default(now())
-  pendingCount Int     @default(0)
-
-  @@unique([petId, ownerId])
-  @@index([petId])
-  @@index([ownerId])
-}
-
-// ─── PETS ────────────────────────────────────────────────
-
-model Pet {
-  id          String   @id @default(cuid())
-  name        String   @db.VarChar(60)
-  type        PetType
-  breed       String?
-  bio         String?  @db.VarChar(255)
-  ownerName   String
-  ownerFirstName String?
-  ownerLastName  String?
-  address     String?
-  city        String?
-  state       String?
-  zipCode     String?
-  country     String?  @default("US")
-  photos      String[] // Array of photo URLs
-  tags        String[]
-  isActive    Boolean  @default(true)
-  optInDesigns Boolean @default(true)
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-
-  userId String
-  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  votes          Vote[]
-  anonymousVotes AnonymousVote[]
-  comments       Comment[]
-  scheduledComments ScheduledComment[]
-  scheduledVotes    ScheduledVote[]
-  contestEntries ContestEntry[]
-  productDesigns ProductDesign[]
-  weeklyStats    PetWeeklyStats[]
-
-  @@index([type, isActive])
-  @@index([state])
-  @@index([breed])
-  @@index([createdAt])
-}
-
-enum PetType {
-  DOG
-  CAT
-  OTHER
-  ALL
-}
-
-// ─── VOTING ──────────────────────────────────────────────
-
 model Vote {
-  id        String   @id @default(cuid())
-  petId     String
-  userId    String
-  voteType  VoteType
-  quantity  Int      @default(1)
-  ipAddress String?
-  userAgent String?
-  createdAt DateTime @default(now())
-  contestWeek String // Format: "2026-W02" for weekly tracking
+  id          String   @id
+  petId       String
+  userId      String
+  voteType    VoteType
+  quantity    Int      @default(1)
+  ipAddress   String?
+  userAgent   String?
+  createdAt   DateTime @default(now())
+  contestWeek String
+  Pet         Pet      @relation(fields: [petId], references: [id], onDelete: Cascade)
+  User        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  pet  Pet  @relation(fields: [petId], references: [id], onDelete: Cascade)
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
-
+  @@index([contestWeek])
+  @@index([createdAt])
   @@index([petId, contestWeek])
   @@index([userId, contestWeek])
-  @@index([createdAt])
-  @@index([contestWeek])
 }
 
-model AnonymousVote {
-  id          String   @id @default(cuid())
-  petId       String
-  ipAddress   String
-  userAgent   String?
-  contestWeek String
-  createdAt   DateTime @default(now())
+model VoteEmailCooldown {
+  id           String   @id
+  petId        String
+  ownerId      String
+  lastSentAt   DateTime @default(now())
+  pendingCount Int      @default(0)
 
-  pet Pet @relation(fields: [petId], references: [id], onDelete: Cascade)
-
-  @@index([ipAddress, createdAt])
-  @@index([contestWeek])
-  @@index([petId, contestWeek])
+  @@unique([petId, ownerId])
+  @@index([ownerId])
+  @@index([petId])
 }
 
-enum VoteType {
-  FREE
+enum BadgeCategory {
+  VOTING
+  SOCIAL
+  PETS
+  STREAK
+  COMMUNITY
+}
+
+enum BookingStatus {
+  PENDING
+  CONFIRMED
+  CANCELLED
+}
+
+enum ChatRole {
+  USER
+  ASSISTANT
+  ADMIN
+}
+
+enum ChatStatus {
+  OPEN
+  CLOSED
+}
+
+enum ContestType {
+  NATIONAL
+  STATE
+  SEASONAL
+  BREED
+  CHARITY
+  CALENDAR
+  FLAGSHIP
+}
+
+enum FlagStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+enum NominationStatus {
+  PENDING
+  SENT
+  SIGNED_UP
+  ENTERED
+}
+
+enum NotificationType {
+  CONTEST
+  LIKE
+  COMMENT
+  FOLLOW
+  SYSTEM
+  RANK_CLIMB
+  RANK_DROP
+  STORY
+}
+
+enum OrderStatus {
+  PENDING
   PAID
-}
-
-// ─── PURCHASES ───────────────────────────────────────────
-
-model Purchase {
-  id              String        @id @default(cuid())
-  userId          String
-  packageTier     PackageTier
-  votes           Int
-  amount          Int           // cents
-  currency        String        @default("usd")
-  stripePaymentId String?       @unique
-  stripeSessionId String?       @unique
-  status          PaymentStatus @default(PENDING)
-  mealsProvided   Float         @default(0)
-  mealRateAtPurchase Float      @default(10.0)
-  isFirstTimeBuyer Boolean      @default(false)
-  originalAmount  Int           @default(0)  // full price before discount (cents), 0 = no discount
-  discountPct     Int           @default(0)  // e.g. 20 means 20% off
-  createdAt       DateTime      @default(now())
-
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  @@index([userId])
-  @@index([createdAt])
+  PROCESSING
+  SHIPPED
+  DELIVERED
+  CANCELLED
 }
 
 enum PackageTier {
@@ -289,141 +920,11 @@ enum PaymentStatus {
   REFUNDED
 }
 
-// ─── CONTESTS ────────────────────────────────────────────
-
-model Contest {
-  id          String      @id @default(cuid())
-  name        String
-  type        ContestType
-  petType     PetType
-  state       String?     // For regional contests
-  weekId      String?     // "2026-W02" (optional — long-running contests don't need this)
-  startDate   DateTime
-  endDate     DateTime
-  isActive    Boolean     @default(true)
-  isFeatured  Boolean     @default(false)
-  description String?     @db.Text
-  rules       String?     @db.Text   // Contest-specific rules or instructions
-  coverImage  String?     // URL for contest banner/image
-  entryFee    Int         @default(0) // cents, 0 = free
-  maxEntries  Int?        // null = unlimited
-  prizeDescription String? @db.Text  // Human-readable summary of prizes
-  sponsorName  String?
-  sponsorLogo  String?
-  sponsorUrl   String?
-  isRecurring       Boolean  @default(false)
-  recurringInterval String?  // 'weekly', 'biweekly', 'monthly'
-  recurringCounter  Int      @default(0) // incremented each recurrence
-  isStoryteller     Boolean  @default(false) // show story/bio toggle on entries
-  // Round / phase fields (FLAGSHIP contests)
-  currentPhase      String   @default("OPEN") // OPEN | TOP100 | TOP25 | TOP5 | ENDED
-  round2StartDate   DateTime?
-  round3StartDate   DateTime?
-  finaleStartDate   DateTime?
-  top100CutSize     Int      @default(100)
-  top25CutSize      Int      @default(25)
-  top5CutSize       Int      @default(5)
-  createdAt   DateTime    @default(now())
-  updatedAt   DateTime    @default(now()) @updatedAt
-
-  entries          ContestEntry[]
-  prizes           Prize[]
-  shelterPosts     ShelterPost[]
-  nominations      Nomination[]
-  contestEmailLogs ContestEmailLog[]
-  nominationSendJobs NominationSendJob[]
-
-  @@index([isActive, petType])
-  @@index([isActive, endDate])
-  @@index([isRecurring, endDate])
-  @@index([weekId])
-}
-
-enum ContestType {
-  NATIONAL
-  STATE
-  SEASONAL
-  BREED
-  CHARITY
-  CALENDAR
-  FLAGSHIP
-}
-
-model ContestEntry {
-  id               String   @id @default(cuid())
-  contestId        String
-  petId            String
-  story            String?  @db.Text
-  isEliminated     Boolean  @default(false)
-  eliminatedAtRound Int?
-  createdAt        DateTime @default(now())
-
-  contest Contest @relation(fields: [contestId], references: [id], onDelete: Cascade)
-  pet     Pet     @relation(fields: [petId], references: [id], onDelete: Cascade)
-
-  @@unique([contestId, petId])
-  @@index([contestId, isEliminated])
-}
-
-model ContestEmailLog {
-  id        String   @id @default(cuid())
-  contestId String
-  userId    String
-  emailType String
-  sentAt    DateTime @default(now())
-
-  contest Contest @relation(fields: [contestId], references: [id], onDelete: Cascade)
-  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  @@unique([contestId, userId, emailType])
-  @@index([contestId])
-  @@index([userId])
-}
-
-model CustomEmailTemplate {
-  id        String   @id @default(cuid())
-  name      String
-  subject   String
-  html      String   @db.Text
-  prompt    String?  @db.Text
-  createdAt DateTime @default(now())
-  updatedAt DateTime @default(now()) @updatedAt
-}
-
-model ReEntryToken {
-  id            String   @id @default(cuid())
-  token         String   @unique @default(cuid())
-  userId        String
-  petId         String
-  fromContestId String
-  toContestId   String
-  usedAt        DateTime?
-  expiresAt     DateTime
-  createdAt     DateTime @default(now())
-
-  @@index([token])
-  @@index([userId])
-}
-
-// ─── PRIZES ──────────────────────────────────────────────
-
-model Prize {
-  id          String    @id @default(cuid())
-  contestId   String
-  placement   Int       // 1, 2, 3, etc.
-  title       String
-  description String?   @db.Text
-  value       Int       // cents
-  items       String[]  // List of prize items
-  status      PrizeStatus @default(PENDING)
-  winnerId    String?   // Pet ID
-  awardedAt   DateTime?
-  fulfilledAt DateTime?
-  createdAt   DateTime  @default(now())
-
-  contest Contest @relation(fields: [contestId], references: [id], onDelete: Cascade)
-
-  @@unique([contestId, placement])
+enum PetType {
+  DOG
+  CAT
+  OTHER
+  ALL
 }
 
 enum PrizeStatus {
@@ -431,148 +932,6 @@ enum PrizeStatus {
   AWARDED
   SHIPPED
   FULFILLED
-}
-
-// ─── PET WEEKLY STATS (Materialized for performance) ────
-
-model PetWeeklyStats {
-  id          String @id @default(cuid())
-  petId       String
-  weekId      String // "2026-W02"
-  totalVotes  Int    @default(0)
-  freeVotes   Int    @default(0)
-  paidVotes   Int    @default(0)
-  rank        Int?
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-
-  pet Pet @relation(fields: [petId], references: [id], onDelete: Cascade)
-
-  @@unique([petId, weekId])
-  @@index([weekId, totalVotes(sort: Desc)])
-  @@index([petId])
-}
-
-// ─── COMMENTS ────────────────────────────────────────────
-
-model Comment {
-  id        String   @id @default(cuid())
-  text      String   @db.VarChar(255)
-  petId     String
-  userId    String
-  parentId  String?
-  createdAt DateTime @default(now())
-
-  pet      Pet       @relation(fields: [petId], references: [id], onDelete: Cascade)
-  user     User      @relation(fields: [userId], references: [id], onDelete: Cascade)
-  parent   Comment?  @relation("CommentReplies", fields: [parentId], references: [id])
-  replies  Comment[] @relation("CommentReplies")
-  flags    FlaggedComment[]
-  likes    CommentLike[]
-
-  @@index([petId, createdAt])
-}
-
-model CommentLike {
-  id        String   @id @default(cuid())
-  commentId String
-  userId    String
-  createdAt DateTime @default(now())
-
-  comment Comment @relation(fields: [commentId], references: [id], onDelete: Cascade)
-  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  @@unique([commentId, userId])
-  @@index([commentId])
-}
-
-model ScheduledComment {
-  id                  String                 @id @default(cuid())
-  petId               String
-  engagementAccountId String
-  scheduledFor        DateTime
-  commentText         String                 @db.VarChar(255)
-  status              ScheduledCommentStatus @default(PENDING)
-  processedAt         DateTime?
-  errorMessage        String?                @db.VarChar(500)
-  createdAt           DateTime               @default(now())
-  updatedAt           DateTime               @updatedAt
-
-  pet               Pet  @relation(fields: [petId], references: [id], onDelete: Cascade)
-  engagementAccount User @relation("ScheduledCommentEngagementAccount", fields: [engagementAccountId], references: [id], onDelete: Cascade)
-
-  @@index([scheduledFor, status])
-  @@index([petId])
-  @@index([engagementAccountId])
-}
-
-enum ScheduledCommentStatus {
-  PENDING
-  PROCESSING
-  PROCESSED
-  FAILED
-}
-
-// ─── SCHEDULED VOTES (Demo Account Auto-Voting) ─────────
-
-model ScheduledVote {
-  id            String              @id @default(cuid())
-  petId         String
-  seedAccountId String
-  votesAmount   Int                 @default(1)
-  weekId        String
-  scheduledFor  DateTime
-  status        ScheduledVoteStatus @default(PENDING)
-  processedAt   DateTime?
-  errorMessage  String?             @db.VarChar(500)
-  createdAt     DateTime            @default(now())
-  updatedAt     DateTime            @updatedAt
-
-  pet         Pet  @relation(fields: [petId], references: [id], onDelete: Cascade)
-  seedAccount User @relation("ScheduledVoteSeedAccount", fields: [seedAccountId], references: [id], onDelete: Cascade)
-
-  @@index([scheduledFor, status])
-  @@index([petId])
-  @@index([seedAccountId])
-}
-
-enum ScheduledVoteStatus {
-  PENDING
-  PROCESSING
-  PROCESSED
-  FAILED
-}
-
-// ─── AI PRODUCT DESIGNS ──────────────────────────────────
-
-model ProductDesign {
-  id          String        @id @default(cuid())
-  petId       String
-  theme       String        // "astronaut", "superhero", etc.
-  aiImageUrl  String        // Generated AI image URL
-  isActive    Boolean       @default(true)
-  createdAt   DateTime      @default(now())
-
-  pet      Pet              @relation(fields: [petId], references: [id], onDelete: Cascade)
-  mockups  ProductMockup[]
-
-  @@index([petId])
-}
-
-model ProductMockup {
-  id            String       @id @default(cuid())
-  designId      String
-  productType   ProductType
-  mockupUrl     String
-  price         Int          // cents
-  costBasis     Int          // cents
-  isActive      Boolean      @default(true)
-  createdAt     DateTime     @default(now())
-
-  design ProductDesign @relation(fields: [designId], references: [id], onDelete: Cascade)
-  orders ProductOrder[]
-
-  @@index([designId])
 }
 
 enum ProductType {
@@ -588,114 +947,18 @@ enum ProductType {
   HAT
 }
 
-model ProductOrder {
-  id              String      @id @default(cuid())
-  userId          String
-  mockupId        String
-  quantity        Int         @default(1)
-  size            String?
-  totalAmount     Int         // cents
-  stripePaymentId String?
-  status          OrderStatus @default(PENDING)
-  trackingNumber  String?
-  shippingAddress String?     @db.Text
-  createdAt       DateTime    @default(now())
-  updatedAt       DateTime    @updatedAt
-
-  user   User          @relation(fields: [userId], references: [id], onDelete: Cascade)
-  mockup ProductMockup @relation(fields: [mockupId], references: [id])
-
-  @@index([userId])
-}
-
-enum OrderStatus {
+enum ScheduledCommentStatus {
   PENDING
-  PAID
   PROCESSING
-  SHIPPED
-  DELIVERED
-  CANCELLED
+  PROCESSED
+  FAILED
 }
 
-// ─── ADMIN SETTINGS ──────────────────────────────────────
-
-model AdminSetting {
-  id        String   @id @default(cuid())
-  key       String   @unique
-  value     String
-  updatedBy String?
-  updatedAt DateTime @updatedAt
-  createdAt DateTime @default(now())
-
-  changelog AdminSettingLog[]
-}
-
-model AdminSettingLog {
-  id        String   @id @default(cuid())
-  settingId String
-  oldValue  String
-  newValue  String
-  changedBy String
-  createdAt DateTime @default(now())
-
-  setting AdminSetting @relation(fields: [settingId], references: [id], onDelete: Cascade)
-
-  @@index([settingId, createdAt])
-}
-
-// ─── SHELTER PARTNERS ────────────────────────────────────
-
-model ShelterPartner {
-  id          String  @id @default(cuid())
-  name        String
-  logoUrl     String?
-  website     String?
-  description String? @db.Text
-  isActive    Boolean @default(true)
-  createdAt   DateTime @default(now())
-}
-
-// ─── BREED DIRECTORY ─────────────────────────────────────
-
-model Breed {
-  id           String  @id @default(cuid())
-  name         String
-  slug         String  @unique
-  petType      PetType
-  origin       String?
-  description  String? @db.Text
-  temperament  String?
-  size         String? // Small, Medium, Large
-  lifespan     String?
-  imageUrl     String?
-  createdAt    DateTime @default(now())
-
-  @@index([petType])
-}
-
-// ─── SHELTER IMPACT POSTS (Instagram-style feed) ────
-
-model ShelterPost {
-  id            String          @id @default(cuid())
-  title         String?
-  featuredImage String?
-  content       String?         @db.Text
-  photos        String[]        // Gallery photo URLs
-  caption       String?         @db.Text
-  videoUrl      String?
-  tags          String[]
-  type          ShelterPostType @default(UPDATE)
-  location      String?         // Shelter name or location
-  contestId     String?
-  contest       Contest?        @relation(fields: [contestId], references: [id], onDelete: SetNull)
-  authorId      String
-  author        User            @relation(fields: [authorId], references: [id], onDelete: Cascade)
-  isPublished   Boolean         @default(true)
-  createdAt     DateTime        @default(now())
-  updatedAt     DateTime        @default(now()) @updatedAt
-
-  @@index([isPublished, createdAt])
-  @@index([type])
+enum ScheduledVoteStatus {
+  PENDING
+  PROCESSING
+  PROCESSED
+  FAILED
 }
 
 enum ShelterPostType {
@@ -705,372 +968,13 @@ enum ShelterPostType {
   GALLERY
 }
 
-// ─── USER POSTS ──────────────────────────────────────────
-
-model UserPost {
-  id        String        @id @default(cuid())
-  content   String        @db.Text
-  imageUrl  String?
-  createdAt DateTime      @default(now())
-  userId    String
-  user      User          @relation(fields: [userId], references: [id], onDelete: Cascade)
-  likes     PostLike[]
-  comments  PostComment[]
-
-  @@index([userId, createdAt])
-}
-
-model PostLike {
-  id        String   @id @default(cuid())
-  postId    String
-  post      UserPost @relation(fields: [postId], references: [id], onDelete: Cascade)
-  userId    String
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  reaction  String   @default("HEART") // "HEART" | "HAHA" | "WOW"
-  createdAt DateTime @default(now())
-
-  @@unique([postId, userId])
-  @@index([postId])
-}
-
-model PostComment {
-  id        String              @id @default(cuid())
-  postId    String
-  post      UserPost            @relation(fields: [postId], references: [id], onDelete: Cascade)
-  userId    String
-  user      User                @relation(fields: [userId], references: [id], onDelete: Cascade)
-  content   String              @db.Text
-  createdAt DateTime            @default(now())
-  likes     PostCommentLike[]
-
-  @@index([postId, createdAt])
-}
-
-model PostCommentLike {
-  id        String      @id @default(cuid())
-  commentId String
-  comment   PostComment @relation(fields: [commentId], references: [id], onDelete: Cascade)
-  userId    String
-  user      User        @relation(fields: [userId], references: [id], onDelete: Cascade)
-  createdAt DateTime    @default(now())
-
-  @@unique([commentId, userId])
-  @@index([commentId])
-}
-
-// ─── STORIES ─────────────────────────────────────────
-
-model Story {
-  id        String       @id @default(cuid())
-  userId    String
-  mediaUrl  String
-  mediaType String       @default("image") // "image" | "video"
-  caption   String?      @db.VarChar(200)
-  createdAt DateTime     @default(now())
-  expiresAt DateTime
-  user      User         @relation(fields: [userId], references: [id], onDelete: Cascade)
-  views     StoryView[]
-  likes     StoryLike[]
-
-  @@index([userId, expiresAt])
-  @@index([expiresAt])
-}
-
-model StoryLike {
-  id        String   @id @default(cuid())
-  storyId   String
-  userId    String
-  createdAt DateTime @default(now())
-  story     Story    @relation(fields: [storyId], references: [id], onDelete: Cascade)
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  @@unique([storyId, userId])
-  @@index([storyId])
-}
-
-model StoryView {
-  id       String   @id @default(cuid())
-  storyId  String
-  userId   String
-  viewedAt DateTime @default(now())
-  story    Story    @relation(fields: [storyId], references: [id], onDelete: Cascade)
-  user     User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  @@unique([storyId, userId])
-  @@index([storyId])
-}
-
-// ─── API KEYS ────────────────────────────────────────────
-
-model ApiKey {
-  id        String   @id @default(cuid())
-  name      String
-  key       String   @unique
-  prefix    String   // first 8 chars for display
-  isActive  Boolean  @default(true)
-  lastUsedAt DateTime?
-  usageCount Int     @default(0)
-  createdBy String
-  createdAt DateTime @default(now())
-  revokedAt DateTime?
-
-  @@index([key])
-  @@index([isActive])
-}
-
-// ─── COMMENT MODERATION ──────────────────────────────────
-
-model FlaggedComment {
-  id        String   @id @default(cuid())
-  commentId String
-  reason    String   // "profanity", "url", "manual"
-  matchedWords String[] // what triggered the flag
-  status    FlagStatus @default(PENDING)
-  reviewedBy String?
-  reviewedAt DateTime?
-  createdAt DateTime @default(now())
-
-  comment Comment @relation(fields: [commentId], references: [id], onDelete: Cascade)
-
-  @@index([status])
-  @@index([createdAt])
-}
-
-// ─── NOMINATIONS ──────────────────────────────────
-
-model Nomination {
-  id          String           @id @default(cuid())
-  email       String
-  name        String
-  petName     String?
-  contestId   String
-  status      NominationStatus @default(PENDING)
-  sentAt      DateTime?
-  createdAt   DateTime         @default(now())
-  sentById    String
-
-  contest Contest @relation(fields: [contestId], references: [id], onDelete: Cascade)
-  sentBy  User    @relation("NominationsSent", fields: [sentById], references: [id], onDelete: Cascade)
-
-  @@unique([email, contestId])
-  @@index([email])
-  @@index([contestId])
-  @@index([status])
-}
-
-enum NominationStatus {
-  PENDING
-  SENT
-  SIGNED_UP
-  ENTERED
-}
-
-// Tracks active/paused/stopped bulk nomination send jobs so progress survives page refresh
-model NominationSendJob {
-  id           String   @id @default(cuid())
-  contestId    String
-  contestName  String
-  recipients   Json     // Array<{ email, name, petName? }>
-  total        Int
-  sent         Int      @default(0)
-  failed       Int      @default(0)
-  status       String   @default("running") // "running" | "paused" | "stopped" | "done"
-  startedAt    DateTime @default(now())
-  updatedAt    DateTime @default(now()) @updatedAt
-  startedById  String
-
-  contest    Contest @relation(fields: [contestId], references: [id], onDelete: Cascade)
-  startedBy  User    @relation("NominationSendJobs", fields: [startedById], references: [id], onDelete: Cascade)
-
-  @@index([status])
-  @@index([startedById])
-}
-
-enum FlagStatus {
-  PENDING
-  APPROVED
-  REJECTED
-}
-
-// ─── AUTO ENGAGEMENT LOG ─────────────────────────────────
-
-model EngagementLog {
-  id            String   @id @default(cuid())
-  targetUserId  String   // new user who got engagement
-  seedAccountId String   // seed account that engaged
-  petId         String   // pet that was engaged with
-  action        String   // "like" or "comment"
-  commentText   String?  // the comment if action=comment
-  createdAt     DateTime @default(now())
-
-  @@index([targetUserId, createdAt])
-  @@index([seedAccountId])
-}
-
-// ─── BOOKINGS ────────────────────────────────────────────
-
-model Booking {
-  id            String        @id @default(cuid())
-  name          String
-  email         String
-  phone         String?
-  purpose       String?
-  notes         String?       @db.Text
-  startTime     DateTime
-  endTime       DateTime
-  status        BookingStatus @default(CONFIRMED)
-  googleEventId String?
-  createdAt     DateTime      @default(now())
-
-  @@index([startTime])
-  @@index([email])
-}
-
-enum BookingStatus {
-  PENDING
-  CONFIRMED
-  CANCELLED
-}
-
-// ─── AI CHAT SUPPORT ─────────────────────────────────────
-
-model ChatConversation {
-  id          String   @id @default(cuid())
-  sessionId   String   @unique // browser session ID
-  userId      String?  // null for anonymous visitors
-  userName    String?  // visitor-provided name or user name
-  userEmail   String?
-  status      ChatStatus @default(OPEN)
-  aiPaused    Boolean  @default(false) // true = admin took over, AI won't respond
-  lastMessage String?  @db.Text
-  // Support ticket fields
-  isTicket        Boolean   @default(false) // true once a support ticket has been created from this conversation
-  ticketStage     String?   // null | "AWAITING_PROBLEM" | "AWAITING_EMAIL" | "OPEN_TICKET" | "RESOLVED"
-  ticketProblem   String?   @db.Text // user's first-described problem when the ticket was opened
-  ticketCreatedAt DateTime?
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-
-  user     User?          @relation(fields: [userId], references: [id], onDelete: SetNull)
-  messages ChatMessage[]
-
-  @@index([status, updatedAt])
-  @@index([userId])
-  @@index([isTicket, ticketStage])
-}
-
-model ChatMessage {
-  id             String   @id @default(cuid())
-  conversationId String
-  role           ChatRole // USER, ASSISTANT, or ADMIN
-  content        String   @db.Text
-  createdAt      DateTime @default(now())
-
-  conversation ChatConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
-
-  @@index([conversationId, createdAt])
-}
-
-enum ChatStatus {
-  OPEN
-  CLOSED
-}
-
-enum ChatRole {
+enum UserRole {
   USER
-  ASSISTANT
   ADMIN
+  MODERATOR
 }
 
-// ─── SOCIAL: FOLLOWS ─────────────────────────────────────
-
-model Follow {
-  id          String   @id @default(cuid())
-  followerId  String   // the user who follows
-  followingId String   // the user being followed
-  createdAt   DateTime @default(now())
-
-  follower  User @relation("FollowSource", fields: [followerId], references: [id], onDelete: Cascade)
-  following User @relation("FollowTarget", fields: [followingId], references: [id], onDelete: Cascade)
-
-  @@unique([followerId, followingId])
-  @@index([followerId])
-  @@index([followingId])
-}
-
-model FollowBonusLog {
-  id          String   @id @default(cuid())
-  followerId  String
-  followingId String
-  createdAt   DateTime @default(now())
-
-  follower User @relation(fields: [followerId], references: [id], onDelete: Cascade)
-
-  @@unique([followerId, followingId])
-}
-
-// ─── BADGES ──────────────────────────────────────────────
-
-model Badge {
-  id          String   @id @default(cuid())
-  slug        String   @unique
-  name        String
-  description String
-  icon        String   // emoji or icon name
-  category    BadgeCategory
-  threshold   Int      @default(0) // the number needed to earn it
-  createdAt   DateTime @default(now())
-
-  users UserBadge[]
-}
-
-model UserBadge {
-  id        String   @id @default(cuid())
-  userId    String
-  badgeId   String
-  earnedAt  DateTime @default(now())
-
-  user  User  @relation(fields: [userId], references: [id], onDelete: Cascade)
-  badge Badge @relation(fields: [badgeId], references: [id], onDelete: Cascade)
-
-  @@unique([userId, badgeId])
-  @@index([userId])
-}
-
-enum BadgeCategory {
-  VOTING      // based on votes cast
-  SOCIAL      // based on followers/following
-  PETS        // based on pets registered
-  STREAK      // based on voting streaks
-  COMMUNITY   // special community badges
-}
-
-// ─── NOTIFICATIONS ───────────────────────────────────────
-
-model Notification {
-  id           String           @id @default(cuid())
-  userId       String           // The user who receives the notification
-  type         NotificationType
-  title        String
-  message      String
-  isRead       Boolean          @default(false)
-  linkUrl      String?          // URL to redirect upon click
-  sourceUserId String?          // Optional: user who triggered the action
-  createdAt    DateTime         @default(now())
-
-  user       User  @relation("NotificationTarget", fields: [userId], references: [id], onDelete: Cascade)
-  sourceUser User? @relation("NotificationSource", fields: [sourceUserId], references: [id], onDelete: SetNull)
-
-  @@index([userId, isRead])
-  @@index([createdAt])
-}
-
-enum NotificationType {
-  CONTEST     // New contest, contest ending, etc.
-  LIKE        // Someone liked a post
-  COMMENT     // Someone commented
-  FOLLOW      // Someone followed
-  SYSTEM      // Admin warnings, badges earned, etc.
-  RANK_CLIMB  // Your pet climbed in leaderboard
-  RANK_DROP   // Your pet was overtaken
+enum VoteType {
+  FREE
+  PAID
 }
