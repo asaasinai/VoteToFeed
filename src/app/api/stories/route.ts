@@ -154,37 +154,5 @@ export async function POST(req: NextRequest) {
     select: { id: true, userId: true, mediaUrl: true, mediaType: true, caption: true, createdAt: true, expiresAt: true },
   });
 
-  // Notify followers (fire-and-forget)
-  void (async () => {
-    try {
-      const [author, followers] = await Promise.all([
-        prisma.user.findUnique({
-          where: { id: session.user.id },
-          select: { name: true },
-        }),
-        prisma.follow.findMany({
-          where: { followingId: session.user.id },
-          select: { followerId: true },
-          take: 500,
-        }),
-      ]);
-      if (!followers.length) return;
-      const authorName = author?.name || "Someone";
-      await prisma.notification.createMany({
-        data: followers.map((f) => ({
-          userId: f.followerId,
-          type: "STORY" as const,
-          title: `${authorName} posted a new story`,
-          message: caption?.trim() ? `"${caption.trim().slice(0, 80)}"` : "Tap to view before it disappears!",
-          linkUrl: `/feed`,
-          sourceUserId: session.user.id,
-        })),
-        skipDuplicates: true,
-      });
-    } catch (e) {
-      console.error("[story] follower notifications failed:", e);
-    }
-  })();
-
   return NextResponse.json(story, { status: 201 });
 }
