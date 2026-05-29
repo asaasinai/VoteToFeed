@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { createNotification } from "@/lib/notifications";
 
 export const dynamic = "force-dynamic";
 
@@ -152,6 +153,26 @@ export async function POST(req: NextRequest) {
       expiresAt,
     },
   });
+
+  // Notify all followers that a new story was posted
+  const followers = await prisma.follow.findMany({
+    where: { followingId: session.user.id },
+    select: { followerId: true },
+  });
+
+  const posterName = session.user.name || "Someone";
+  await Promise.all(
+    followers.map((f) =>
+      createNotification({
+        userId: f.followerId,
+        type: "STORY",
+        title: "New Story",
+        message: `${posterName} posted a new story`,
+        linkUrl: "/feed",
+        sourceUserId: session.user.id,
+      })
+    )
+  );
 
   return NextResponse.json(story, { status: 201 });
 }

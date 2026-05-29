@@ -807,66 +807,87 @@ function StoriesBar({
   const others = storyUsers.filter((s) => s.user.id !== ownId);
 
   return (
-    <div className="bg-white rounded-2xl border border-surface-200/60 shadow-sm mb-4 overflow-hidden">
-      <div className="flex gap-4 overflow-x-auto px-4 py-3 scroll-smooth" style={{ scrollbarWidth: "none", msOverflowStyle: "none" }}>
-        {/* My story circle */}
-        {ownId && (
-          <button
-            onClick={() => {
-              const idx = storyUsers.findIndex((s) => s.user.id === ownId);
-              if (idx >= 0 && storyUsers[idx].stories.length > 0) onOpenViewer(idx);
-              else onOpenCreate();
-            }}
-            className="flex flex-col items-center gap-1.5 flex-shrink-0 group"
-          >
-            <div className="relative">
-              <div className={`w-16 h-16 rounded-full p-[2px] ${myEntry?.hasUnseen ? "bg-gradient-to-tr from-yellow-400 via-brand-500 to-purple-500" : myEntry ? "bg-surface-300" : "bg-surface-100"}`}>
-                <div className="w-full h-full rounded-full overflow-hidden bg-white p-[2px]">
-                  {(myEntry?.user.image || ownImage) ? (
-                    <img src={myEntry?.user.image || ownImage!} alt="" className="w-full h-full rounded-full object-cover" />
-                  ) : (
-                    <div className="w-full h-full rounded-full bg-brand-50 flex items-center justify-center">
-                      <span className="text-xl font-bold text-brand-500">{(myEntry?.user.name || ownName || "Y")[0].toUpperCase()}</span>
-                    </div>
-                  )}
-                </div>
-              </div>
-              <div className="absolute -bottom-0.5 -right-0.5 w-5 h-5 rounded-full bg-brand-500 border-2 border-white flex items-center justify-center">
-                <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="3.5" strokeLinecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-              </div>
-            </div>
-            <span className="text-[11px] font-semibold text-surface-600 w-16 text-center truncate">Your Story</span>
-          </button>
-        )}
-
-        {/* Other users' stories */}
-        {others.map((su) => {
-          const realIdx = storyUsers.findIndex((s) => s.user.id === su.user.id);
-          return (
+    <>
+      <div className="bg-white rounded-2xl border border-surface-200/60 shadow-sm mb-4 overflow-hidden">
+        <div className="flex gap-4 overflow-x-auto px-4 py-3 scroll-smooth" style={{ scrollbarWidth: "none", msOverflowStyle: "none" }}>
+          {/* My story circle */}
+          {ownId && (
             <button
-              key={su.user.id}
-              onClick={() => onOpenViewer(realIdx)}
-              className="flex flex-col items-center gap-1.5 flex-shrink-0 group"
+              onClick={() => {
+                const idx = storyUsers.findIndex((s) => s.user.id === ownId);
+                if (idx >= 0 && storyUsers[idx].stories.length > 0) onOpenViewer(idx);
+                else onOpenCreate();
+              }}
+              className="flex flex-col items-center gap-1.5 flex-shrink-0"
             >
-              <div className={`w-16 h-16 rounded-full p-[2px] ${su.hasUnseen ? "bg-gradient-to-tr from-yellow-400 via-brand-500 to-purple-500" : "bg-surface-200"}`}>
-                <div className="w-full h-full rounded-full overflow-hidden bg-white p-[2px]">
-                  {su.user.image ? (
-                    <img src={su.user.image} alt="" className="w-full h-full rounded-full object-cover" />
-                  ) : (
-                    <div className="w-full h-full rounded-full bg-brand-50 flex items-center justify-center">
-                      <span className="text-lg font-bold text-brand-500">{(su.user.name || "?")[0].toUpperCase()}</span>
+              <div className="relative">
+                <div className={`w-16 h-16 rounded-full p-[2px] ${myEntry?.hasUnseen ? "bg-gradient-to-tr from-brand-400 via-brand-500 to-brand-700" : myEntry ? "bg-surface-300" : "bg-surface-100"}`}>
+                  <div className="w-full h-full rounded-full overflow-hidden bg-white p-[2px]">
+                    <div className="w-full h-full rounded-full overflow-hidden">
+                      {myEntry?.stories[0] ? (
+                        myEntry.stories[0].mediaType === "video" ? (
+                          <video src={myEntry.stories[0].mediaUrl} className="w-full h-full object-cover" muted playsInline preload="metadata"
+                            onLoadedMetadata={(e) => { (e.currentTarget as HTMLVideoElement).currentTime = 0.1; }} />
+                        ) : (
+                          <img src={myEntry.stories[0].mediaUrl} alt="" className="w-full h-full object-cover" />
+                        )
+                      ) : (myEntry?.user.image || ownImage) ? (
+                        <img src={myEntry?.user.image || ownImage!} alt="" className="w-full h-full object-cover" />
+                      ) : (
+                        <div className="w-full h-full bg-brand-50 flex items-center justify-center">
+                          <span className="text-xl font-bold text-brand-500">{(myEntry?.user.name || ownName || "Y")[0].toUpperCase()}</span>
+                        </div>
+                      )}
                     </div>
-                  )}
+                  </div>
+                </div>
+                <div className="absolute -bottom-0.5 -right-0.5 w-5 h-5 rounded-full bg-brand-500 border-2 border-white flex items-center justify-center">
+                  <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="3.5" strokeLinecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
                 </div>
               </div>
-              <span className="text-[11px] font-semibold text-surface-600 w-16 text-center truncate">
-                {su.user.name?.split(" ")[0] || "User"}
-              </span>
+              <span className="text-[11px] font-semibold text-surface-600 w-16 text-center truncate">Your Story</span>
             </button>
-          );
-        })}
+          )}
+
+          {/* Other users' stories */}
+          {others.map((su) => {
+            const realIdx = storyUsers.findIndex((s) => s.user.id === su.user.id);
+            return (
+              <button
+                key={su.user.id}
+                onClick={() => onOpenViewer(realIdx)}
+                className="flex flex-col items-center gap-1.5 flex-shrink-0"
+              >
+                <div className={`w-16 h-16 rounded-full p-[2px] ${su.hasUnseen ? "bg-gradient-to-tr from-brand-400 via-brand-500 to-brand-700" : "bg-surface-200"}`}>
+                  <div className="w-full h-full rounded-full overflow-hidden bg-white p-[2px]">
+                    <div className="w-full h-full rounded-full overflow-hidden">
+                      {su.stories[0] ? (
+                        su.stories[0].mediaType === "video" ? (
+                          <video src={su.stories[0].mediaUrl} className="w-full h-full object-cover" muted playsInline preload="metadata"
+                            onLoadedMetadata={(e) => { (e.currentTarget as HTMLVideoElement).currentTime = 0.1; }} />
+                        ) : (
+                          <img src={su.stories[0].mediaUrl} alt="" className="w-full h-full object-cover" />
+                        )
+                      ) : su.user.image ? (
+                        <img src={su.user.image} alt="" className="w-full h-full object-cover" />
+                      ) : (
+                        <div className="w-full h-full bg-brand-50 flex items-center justify-center">
+                          <span className="text-lg font-bold text-brand-500">{(su.user.name || "?")[0].toUpperCase()}</span>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+                <span className="text-[11px] font-semibold text-surface-600 w-16 text-center truncate">
+                  {su.user.name?.split(" ")[0] || "User"}
+                </span>
+              </button>
+            );
+          })}
+        </div>
       </div>
-    </div>
+
+    </>
   );
 }
 
