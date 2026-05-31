@@ -21,6 +21,8 @@ type DemoAccount = {
     name: string | null;
     email: string | null;
     image: string | null;
+    city: string | null;
+    state: string | null;
     createdAt: string;
     pets: DemoPet[];
   };
@@ -101,6 +103,7 @@ function AccountsTab() {
   const [showForm, setShowForm] = useState(false);
   const [msg, setMsg] = useState("");
   const [creating, setCreating] = useState(false);
+  const [editingAccount, setEditingAccount] = useState<DemoAccount | null>(null);
 
   // Form state
   const [name, setName] = useState("");
@@ -164,6 +167,20 @@ function AccountsTab() {
       const slug = petName.toLowerCase().replace(/\s+/g, ".");
       setEmail(`demo.${slug}.${Date.now().toString().slice(-4)}@vtfdemo.com`);
     }
+  };
+
+  const handleDeleteAccount = async (acc: DemoAccount) => {
+    if (!confirm(`Delete "${acc.user.name}" and all their data? This cannot be undone.`)) return;
+    try {
+      const res = await fetch(`/api/admin/demo-studio/accounts?userId=${acc.user.id}`, { method: "DELETE" });
+      const data = await res.json();
+      if (!res.ok) { setMsg(data.error || "Delete failed"); return; }
+      setAccounts((prev) => prev.filter((a) => a.id !== acc.id));
+      setMsg(`Deleted account "${acc.user.name}"`);
+    } catch {
+      setMsg("Network error");
+    }
+    setTimeout(() => setMsg(""), 4000);
   };
 
   return (
@@ -281,15 +298,43 @@ function AccountsTab() {
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
           {accounts.map((acc) => (
-            <AccountCard key={acc.id} account={acc} />
+            <AccountCard
+              key={acc.id}
+              account={acc}
+              onEdit={() => setEditingAccount(acc)}
+              onDelete={() => handleDeleteAccount(acc)}
+            />
           ))}
         </div>
+      )}
+
+      {editingAccount && (
+        <EditAccountModal
+          account={editingAccount}
+          onClose={() => setEditingAccount(null)}
+          onSaved={(updated) => {
+            setAccounts((prev) =>
+              prev.map((a) => (a.id === updated.id ? updated : a))
+            );
+            setEditingAccount(null);
+            setMsg(`Saved changes for "${updated.user.name}"`);
+            setTimeout(() => setMsg(""), 4000);
+          }}
+        />
       )}
     </div>
   );
 }
 
-function AccountCard({ account }: { account: DemoAccount }) {
+function AccountCard({
+  account,
+  onEdit,
+  onDelete,
+}: {
+  account: DemoAccount;
+  onEdit: () => void;
+  onDelete: () => void;
+}) {
   const u = account.user;
   const pet = u.pets[0];
   return (
@@ -302,28 +347,230 @@ function AccountCard({ account }: { account: DemoAccount }) {
             {(u.name || "D")[0].toUpperCase()}
           </div>
         )}
-        <div>
-          <p className="font-medium text-surface-900 text-sm">{u.name}</p>
-          <p className="text-xs text-surface-400">{u.email}</p>
+        <div className="flex-1 min-w-0">
+          <p className="font-medium text-surface-900 text-sm truncate">{u.name}</p>
+          <p className="text-xs text-surface-400 truncate">{u.email}</p>
         </div>
       </div>
       {pet && (
         <div className="flex gap-3 items-center">
           {pet.photos[0] ? (
-            <img src={pet.photos[0]} alt={pet.name} className="w-12 h-12 rounded-lg object-cover" />
+            <img src={pet.photos[0]} alt={pet.name} className="w-12 h-12 rounded-lg object-cover flex-shrink-0" />
           ) : (
-            <div className="w-12 h-12 rounded-lg bg-surface-100 flex items-center justify-center text-lg">
+            <div className="w-12 h-12 rounded-lg bg-surface-100 flex items-center justify-center text-lg flex-shrink-0">
               {pet.type === "DOG" ? "🐶" : pet.type === "CAT" ? "🐱" : "🐾"}
             </div>
           )}
-          <div>
-            <p className="text-sm font-medium text-surface-800">{pet.name}</p>
+          <div className="min-w-0">
+            <p className="text-sm font-medium text-surface-800 truncate">{pet.name}</p>
             <p className="text-xs text-surface-400">{pet.breed || pet.type}</p>
             <p className="text-xs text-surface-400">{pet.contestEntries.length} contest{pet.contestEntries.length !== 1 ? "s" : ""}</p>
           </div>
         </div>
       )}
-      <p className="text-xs text-surface-400">{u.pets.length} pet{u.pets.length !== 1 ? "s" : ""} · Created {new Date(u.createdAt).toLocaleDateString()}</p>
+      <div className="flex items-center justify-between pt-1 border-t border-surface-100">
+        <p className="text-xs text-surface-400">{u.pets.length} pet{u.pets.length !== 1 ? "s" : ""} · {new Date(u.createdAt).toLocaleDateString()}</p>
+        <div className="flex gap-1.5">
+          <button
+            onClick={onEdit}
+            className="rounded-lg bg-surface-100 px-2.5 py-1 text-xs font-medium text-surface-600 hover:bg-brand-50 hover:text-brand-700 transition-colors"
+          >
+            ✏️ Edit
+          </button>
+          <button
+            onClick={onDelete}
+            className="rounded-lg bg-surface-100 px-2.5 py-1 text-xs font-medium text-surface-500 hover:bg-red-50 hover:text-red-600 transition-colors"
+          >
+            🗑️
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function EditAccountModal({
+  account,
+  onClose,
+  onSaved,
+}: {
+  account: DemoAccount;
+  onClose: () => void;
+  onSaved: (updated: DemoAccount) => void;
+}) {
+  const u = account.user;
+  const pet = u.pets[0];
+
+  const [name, setName] = useState(u.name || "");
+  const [email, setEmail] = useState(u.email || "");
+  const [profileImage, setProfileImage] = useState(u.image || "");
+  const [city, setCity] = useState(u.city || "");
+  const [state, setState] = useState(u.state || "");
+  const [petName, setPetName] = useState(pet?.name || "");
+  const [petType, setPetType] = useState<"DOG" | "CAT" | "OTHER">((pet?.type as "DOG" | "CAT" | "OTHER") || "DOG");
+  const [petBreed, setPetBreed] = useState(pet?.breed || "");
+  const [petBio, setPetBio] = useState("");
+  const [petPhotos, setPetPhotos] = useState<string[]>(pet?.photos.length ? pet.photos : [""]);
+  const [saving, setSaving] = useState(false);
+  const [err, setErr] = useState("");
+
+  const handleSave = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setSaving(true);
+    setErr("");
+    try {
+      const res = await fetch("/api/admin/demo-studio/accounts", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          userId: u.id,
+          petId: pet?.id,
+          name,
+          email,
+          profileImage: profileImage || undefined,
+          city: city || undefined,
+          state: state || undefined,
+          petName: petName || undefined,
+          petType,
+          petBreed: petBreed || undefined,
+          petBio: petBio || undefined,
+          petPhotos: petPhotos.filter(Boolean),
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) { setErr(data.error || "Save failed"); return; }
+
+      // Build updated DemoAccount from response
+      const updated: DemoAccount = {
+        ...account,
+        user: {
+          ...u,
+          name: data.user.name,
+          email: data.user.email,
+          image: data.user.image,
+          city: data.user.city,
+          state: data.user.state,
+          pets: pet && data.pet
+            ? u.pets.map((p) =>
+                p.id === data.pet.id
+                  ? { ...p, name: data.pet.name, type: data.pet.type, breed: data.pet.breed, photos: data.pet.photos }
+                  : p
+              )
+            : u.pets,
+        },
+      };
+      onSaved(updated);
+    } catch {
+      setErr("Network error");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
+      onClick={onClose}
+    >
+      <div
+        className="w-full max-w-lg rounded-2xl bg-white shadow-xl overflow-y-auto max-h-[90vh]"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-center justify-between px-6 pt-5 pb-4 border-b border-surface-100">
+          <h3 className="text-base font-bold text-surface-900">Edit Demo Account</h3>
+          <button onClick={onClose} className="text-surface-400 hover:text-surface-700 text-lg leading-none">✕</button>
+        </div>
+
+        <form onSubmit={handleSave} className="p-6 space-y-5">
+          {err && <div className="rounded-lg bg-red-50 px-4 py-2 text-sm text-red-700">{err}</div>}
+
+          <div>
+            <p className="text-xs font-semibold text-surface-500 uppercase tracking-wide mb-3">Owner</p>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div>
+                <label className="block text-xs font-medium text-surface-500 mb-1">Name *</label>
+                <input required value={name} onChange={e => setName(e.target.value)} className="input-field w-full" />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-surface-500 mb-1">Email *</label>
+                <input required type="email" value={email} onChange={e => setEmail(e.target.value)} className="input-field w-full" />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-surface-500 mb-1">City</label>
+                <input value={city} onChange={e => setCity(e.target.value)} className="input-field w-full" placeholder="New York" />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-surface-500 mb-1">State</label>
+                <input value={state} onChange={e => setState(e.target.value)} className="input-field w-full" placeholder="NY" />
+              </div>
+              <div className="sm:col-span-2">
+                <ImageUpload value={profileImage} onChange={setProfileImage} label="Profile Picture" placeholder="Paste URL or upload..." />
+              </div>
+            </div>
+          </div>
+
+          {pet && (
+            <div>
+              <p className="text-xs font-semibold text-surface-500 uppercase tracking-wide mb-3">Pet</p>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-medium text-surface-500 mb-1">Pet Name *</label>
+                  <input required value={petName} onChange={e => setPetName(e.target.value)} className="input-field w-full" />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-surface-500 mb-1">Type</label>
+                  <select value={petType} onChange={e => setPetType(e.target.value as "DOG" | "CAT" | "OTHER")} className="input-field w-full">
+                    <option value="DOG">Dog</option>
+                    <option value="CAT">Cat</option>
+                    <option value="OTHER">Other</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-surface-500 mb-1">Breed</label>
+                  <input value={petBreed} onChange={e => setPetBreed(e.target.value)} className="input-field w-full" placeholder="Golden Retriever" />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-surface-500 mb-1">Bio</label>
+                  <input value={petBio} onChange={e => setPetBio(e.target.value)} className="input-field w-full" placeholder="Loves fetch..." />
+                </div>
+              </div>
+
+              <div className="mt-3">
+                <label className="block text-xs font-medium text-surface-500 mb-2">Photos</label>
+                <div className="space-y-2">
+                  {petPhotos.map((url, i) => (
+                    <div key={i} className="flex gap-2">
+                      <ImageUpload
+                        value={url}
+                        onChange={(v) => {
+                          const next = [...petPhotos];
+                          next[i] = v;
+                          setPetPhotos(next);
+                        }}
+                        label=""
+                        placeholder={`Photo ${i + 1}`}
+                      />
+                      {petPhotos.length > 1 && (
+                        <button type="button" onClick={() => setPetPhotos(petPhotos.filter((_, j) => j !== i))} className="text-red-500 text-xs px-2">✕</button>
+                      )}
+                    </div>
+                  ))}
+                  <button type="button" onClick={() => setPetPhotos([...petPhotos, ""])} className="text-brand-600 text-xs hover:underline">
+                    + Add photo
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          <div className="flex justify-end gap-3 pt-2">
+            <button type="button" onClick={onClose} className="btn-secondary text-sm">Cancel</button>
+            <button type="submit" disabled={saving} className="btn-primary text-sm">
+              {saving ? "Saving..." : "Save Changes"}
+            </button>
+          </div>
+        </form>
+      </div>
     </div>
   );
 }
