@@ -22,6 +22,8 @@ export async function GET() {
           name: true,
           email: true,
           image: true,
+          city: true,
+          state: true,
           createdAt: true,
           pets: {
             where: { isActive: true },
@@ -131,4 +133,86 @@ export async function POST(req: NextRequest) {
   });
 
   return NextResponse.json({ user, pet }, { status: 201 });
+}
+
+// PUT /api/admin/demo-studio/accounts — update user + pet
+export async function PUT(req: NextRequest) {
+  const session = await getServerSession(authOptions);
+  if (!session?.user || (session.user as { role?: string }).role !== "ADMIN") {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  const body = await req.json();
+  const { userId, petId, name, email, profileImage, city, state, petName, petType, petBreed, petBio, petPhotos } = body as {
+    userId: string;
+    petId?: string;
+    name: string;
+    email?: string;
+    profileImage?: string;
+    city?: string;
+    state?: string;
+    petName?: string;
+    petType?: "DOG" | "CAT" | "OTHER";
+    petBreed?: string;
+    petBio?: string;
+    petPhotos?: string[];
+  };
+
+  if (!userId || !name) {
+    return NextResponse.json({ error: "userId and name required" }, { status: 400 });
+  }
+
+  if (email) {
+    const conflict = await prisma.user.findFirst({ where: { email, id: { not: userId } } });
+    if (conflict) return NextResponse.json({ error: "Email already in use" }, { status: 409 });
+  }
+
+  const updatedUser = await prisma.user.update({
+    where: { id: userId },
+    data: { name, email: email || undefined, image: profileImage ?? undefined, city: city ?? undefined, state: state ?? undefined },
+  });
+
+  let updatedPet = null;
+  if (petId && petName) {
+    updatedPet = await prisma.pet.update({
+      where: { id: petId },
+      data: {
+        name: petName,
+        type: petType ?? "DOG",
+        breed: petBreed ?? null,
+        bio: petBio ?? null,
+        photos: petPhotos ?? [],
+        ownerName: name,
+        ownerFirstName: name.split(" ")[0],
+        ownerLastName: name.split(" ").slice(1).join(" ") || undefined,
+      },
+    });
+  }
+
+  return NextResponse.json({ user: updatedUser, pet: updatedPet });
+}
+
+// DELETE /api/admin/demo-studio/accounts?userId=xxx — delete demo account
+export async function DELETE(req: NextRequest) {
+  const session = await getServerSession(authOptions);
+  if (!session?.user || (session.user as { role?: string }).role !== "ADMIN") {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  const { searchParams } = new URL(req.url);
+  const userId = searchParams.get("userId");
+  if (!userId) return NextResponse.json({ error: "userId required" }, { status: 400 });
+
+  const demoAccount = await prisma.demoStudioAccount.findUnique({ where: { userId } });
+  if (!demoAccount) return NextResponse.json({ error: "Not a demo studio account" }, { status: 404 });
+
+  const userPets = await prisma.pet.findMany({ where: { userId }, select: { id: true } });
+  const petIds = userPets.map((p) => p.id);
+  if (petIds.length > 0) {
+    await prisma.scheduledVote.deleteMany({ where: { petId: { in: petIds } } });
+  }
+  await prisma.scheduledPost.deleteMany({ where: { userId } });
+  await prisma.user.delete({ where: { id: userId } });
+
+  return NextResponse.json({ success: true });
 }
