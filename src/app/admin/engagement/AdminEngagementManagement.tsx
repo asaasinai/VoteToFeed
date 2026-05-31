@@ -312,9 +312,10 @@ function AccountsTab() {
 
 type ContestOption = { id: string; name: string; petType: string | null; endDate: string };
 type DemoPetItem = { id: string; name: string; type: string; breed: string | null; photo: string | null; weekVotes: number; weekRank: number | null };
+type RealPetItem = { id: string; name: string; type: string; ownerName: string | null; photo: string | null; weekVotes: number; weekRank: number | null };
 
 function AutoVoteTab() {
-  const [mode, setMode] = useState<"all_pets" | "demo_pets" | "specific_pets">("all_pets");
+  const [mode, setMode] = useState<"all_pets" | "demo_pets" | "specific_pets" | "boost_contest">("all_pets");
   const [totalVotes, setTotalVotes] = useState(100);
   const [spreadHours, setSpreadHours] = useState(24);
   const [submitting, setSubmitting] = useState(false);
@@ -329,6 +330,10 @@ function AutoVoteTab() {
   const [demoPets, setDemoPets] = useState<DemoPetItem[]>([]);
   const [selectedDemoPetIds, setSelectedDemoPetIds] = useState<string[]>([]);
   const [loadingDemoPets, setLoadingDemoPets] = useState(false);
+
+  // Real pets list (for boost_contest mode)
+  const [contestRealPets, setContestRealPets] = useState<RealPetItem[]>([]);
+  const [loadingContestPets, setLoadingContestPets] = useState(false);
 
   // For specific_pets mode
   const [searchQuery, setSearchQuery] = useState("");
@@ -362,6 +367,20 @@ function AutoVoteTab() {
       .finally(() => setLoadingDemoPets(false));
   }, [mode, contestFilter]);
 
+  // When boost_contest mode + contestFilter changes, load real pets for that contest
+  useEffect(() => {
+    if (mode !== "boost_contest" || !contestFilter) {
+      setContestRealPets([]);
+      return;
+    }
+    setLoadingContestPets(true);
+    fetch(`/api/admin/engagement/auto-vote?contestId=${contestFilter}&realPets=true`)
+      .then((r) => r.json())
+      .then((d) => setContestRealPets(d.pets || []))
+      .catch(() => {})
+      .finally(() => setLoadingContestPets(false));
+  }, [mode, contestFilter]);
+
   const searchPets = async () => {
     if (searchQuery.length < 2) return;
     setSearching(true);
@@ -392,10 +411,15 @@ function AutoVoteTab() {
     setSubmitting(true);
     setResult(null);
     try {
-      // For demo_pets mode: if contest selected, send selected pet IDs (specific_pets)
-      // For all_pets/demo_pets without selection filtering, pass contestId
       let body: Record<string, unknown>;
-      if (mode === "demo_pets" && demoPets.length > 0) {
+      if (mode === "boost_contest") {
+        body = {
+          mode: "all_pets",
+          totalVotes,
+          spreadHours,
+          contestId: contestFilter,
+        };
+      } else if (mode === "demo_pets" && demoPets.length > 0) {
         body = {
           mode: "specific_pets",
           targetPetIds: selectedDemoPetIds,
@@ -434,7 +458,8 @@ function AutoVoteTab() {
   const isDisabled =
     submitting ||
     (mode === "specific_pets" && selectedPets.length === 0) ||
-    (mode === "demo_pets" && demoPets.length > 0 && selectedDemoPetIds.length === 0);
+    (mode === "demo_pets" && demoPets.length > 0 && selectedDemoPetIds.length === 0) ||
+    (mode === "boost_contest" && !contestFilter);
 
   const selectedContest = contests.find((c) => c.id === contestFilter);
 
@@ -457,9 +482,10 @@ function AutoVoteTab() {
         {/* Mode */}
         <div>
           <label className="block text-xs font-semibold text-surface-700 mb-2">Target Mode</label>
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
             {(
               [
+                { id: "boost_contest", label: "🏆 Boost Contest", desc: "Nudge real users to compete & buy votes" },
                 { id: "all_pets", label: "🌍 All Real Pets", desc: "Vote on all non-demo pets" },
                 { id: "demo_pets", label: "🤖 Demo Pets Only", desc: "Boost demo account pets" },
                 { id: "specific_pets", label: "🎯 Specific Pets", desc: "Pick exact pets to boost" },
@@ -472,10 +498,13 @@ function AutoVoteTab() {
                   setContestFilter("");
                   setDemoPets([]);
                   setSelectedDemoPetIds([]);
+                  setContestRealPets([]);
                 }}
                 className={`rounded-xl border-2 p-3 text-left transition-all ${
                   mode === m.id
-                    ? "border-brand-500 bg-brand-50"
+                    ? m.id === "boost_contest"
+                      ? "border-amber-500 bg-amber-50"
+                      : "border-brand-500 bg-brand-50"
                     : "border-surface-200 bg-white hover:border-surface-300"
                 }`}
               >
@@ -485,6 +514,80 @@ function AutoVoteTab() {
             ))}
           </div>
         </div>
+
+        {/* Boost Contest — required contest picker + real pets preview */}
+        {mode === "boost_contest" && (
+          <div className="space-y-4">
+            <div className="rounded-lg bg-amber-50 border border-amber-200 px-4 py-3 text-sm text-amber-800">
+              <strong>How it works:</strong> Demo accounts gradually vote on all real participants in the selected contest. This creates social proof — real users see the contest is active and competitive, nudging them to vote more and buy vote packages.
+            </div>
+
+            <div>
+              <label className="block text-xs font-semibold text-surface-700 mb-2">
+                Select Contest <span className="text-red-500">*</span>
+              </label>
+              <select
+                value={contestFilter}
+                onChange={(e) => setContestFilter(e.target.value)}
+                className={`w-full rounded-lg border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500 bg-white ${
+                  !contestFilter ? "border-amber-400 ring-1 ring-amber-300" : "border-surface-300"
+                }`}
+              >
+                <option value="">— Pick a contest to boost —</option>
+                {contests.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.name}{c.petType ? ` (${c.petType})` : ""} — ends {new Date(c.endDate).toLocaleDateString()}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            {/* Real pets preview */}
+            {contestFilter && (
+              <div>
+                <div className="flex items-center justify-between mb-2">
+                  <label className="text-xs font-semibold text-surface-700">
+                    Contestants that will receive votes{" "}
+                    <span className="font-normal text-surface-400">({contestRealPets.length} real pets)</span>
+                  </label>
+                </div>
+                {loadingContestPets ? (
+                  <div className="py-5 text-center text-sm text-surface-400">Loading contestants...</div>
+                ) : contestRealPets.length === 0 ? (
+                  <div className="rounded-lg border border-surface-200 p-4 text-center text-sm text-surface-400">
+                    No real pets found in this contest yet.
+                  </div>
+                ) : (
+                  <div className="rounded-lg border border-surface-200 divide-y divide-surface-100 max-h-56 overflow-y-auto">
+                    {contestRealPets.map((pet) => (
+                      <div key={pet.id} className="flex items-center gap-3 px-3 py-2">
+                        {pet.photo ? (
+                          <img src={pet.photo} alt="" className="h-8 w-8 rounded-lg object-cover flex-shrink-0" />
+                        ) : (
+                          <div className="h-8 w-8 rounded-lg bg-surface-200 flex-shrink-0" />
+                        )}
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-1.5">
+                            <span className="font-medium text-sm text-surface-800 truncate">{pet.name}</span>
+                            <span className="text-[10px] rounded-full px-1.5 py-0.5 bg-surface-100 text-surface-500 flex-shrink-0">{pet.type}</span>
+                          </div>
+                          {pet.ownerName && <div className="text-xs text-surface-400 truncate">by {pet.ownerName}</div>}
+                        </div>
+                        <div className="text-right flex-shrink-0">
+                          <div className="text-sm font-semibold text-surface-800">{pet.weekVotes}</div>
+                          <div className="text-[10px] text-surface-400">votes</div>
+                        </div>
+                        {pet.weekRank && (
+                          <div className="text-xs font-bold text-brand-600 flex-shrink-0">#{pet.weekRank}</div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        )}
 
         {/* Contest filter — shown for all_pets and demo_pets modes */}
         {(mode === "all_pets" || mode === "demo_pets") && (
@@ -733,17 +836,25 @@ function AutoVoteTab() {
         {/* Summary */}
         <div className="rounded-lg bg-amber-50 border border-amber-200 p-3 text-sm text-amber-800">
           <strong>Preview:</strong>{" "}
-          {totalVotes} votes distributed across{" "}
-          {mode === "specific_pets"
-            ? `${selectedPets.length} selected pets`
-            : mode === "demo_pets"
-              ? demoPets.length > 0
-                ? `${selectedDemoPetIds.length} selected demo pets`
-                : "all demo pets"
-              : contestFilter
-                ? `all real pets in "${selectedContest?.name ?? "contest"}"`
-                : "all real pets"}
-          {", "}spread gradually over {spreadHours}h. Demo accounts will vote in random batches of 1-5 every 5 minutes.
+          {mode === "boost_contest"
+            ? contestFilter
+              ? `${totalVotes} votes spread across all ${contestRealPets.length} real pets in "${selectedContest?.name ?? "contest"}" to create social proof and nudge users to compete.`
+              : "Select a contest above to preview."
+            : <>
+                {totalVotes} votes distributed across{" "}
+                {mode === "specific_pets"
+                  ? `${selectedPets.length} selected pets`
+                  : mode === "demo_pets"
+                    ? demoPets.length > 0
+                      ? `${selectedDemoPetIds.length} selected demo pets`
+                      : "all demo pets"
+                    : contestFilter
+                      ? `all real pets in "${selectedContest?.name ?? "contest"}"`
+                      : "all real pets"}
+                {", "}spread gradually over {spreadHours}h. Demo accounts will vote in random batches of 1-5 every 5 minutes.
+              </>
+          }
+          {mode !== "boost_contest" ? "" : contestFilter ? ` Spread gradually over ${spreadHours}h in random batches of 1–5 every 5 minutes.` : ""}
         </div>
 
         <button
