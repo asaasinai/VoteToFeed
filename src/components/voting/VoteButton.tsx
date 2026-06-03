@@ -522,18 +522,13 @@ function VoteStats({
   petId: string;
   petName?: string;
 }) {
-  const rankSuffix = (n: number) => {
-    const s = ["th", "st", "nd", "rd"];
-    const v = n % 100;
-    return n + (s[(v - 20) % 10] || s[v] || s[0]);
-  };
-
   const [now, setNow] = useState(Date.now());
   useEffect(() => {
     if (!contestEndDate) return;
     const id = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(id);
   }, [contestEndDate]);
+  const rankContestName = contestName ? contestName : `Weekly ${petType === "DOG" ? "Dog" : petType === "CAT" ? "Cat" : "Pet"} Leaderboard`;
 
   const countdown = useMemo(() => {
     if (!contestEndDate) return null;
@@ -581,7 +576,7 @@ function VoteStats({
 
       {weeklyRank != null && weeklyRank > 0 && (
         <p className="text-lg font-semibold text-surface-500 mt-1">
-          {rankSuffix(weeklyRank)} in {contestName ? contestName : `Weekly ${petType === "DOG" ? "Dog" : petType === "CAT" ? "Cat" : "Pet"} Leaderboard`}
+          RANKED #{weeklyRank} in {rankContestName}
         </p>
       )}
 

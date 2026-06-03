@@ -3023,6 +3023,9 @@ function ContestManager() {
                     </div>
                   </div>
                   <div className="flex items-center gap-1 shrink-0">
+                    <Link href={`/contests/${c.id}`} title="Open contest" className="px-2 py-1.5 rounded-lg bg-surface-100 text-surface-600 hover:bg-brand-50 hover:text-brand-600 text-xs font-semibold transition">
+                      Open
+                    </Link>
                     <button onClick={() => toggleField(c.id, "isFeatured", !c.isFeatured)} title={c.isFeatured ? "Unfeature" : "Feature"} className={`p-1.5 rounded-lg text-xs transition ${c.isFeatured ? "bg-yellow-100 text-yellow-700" : "text-surface-400 hover:bg-surface-100"}`}>⭐</button>
                     <button onClick={() => toggleField(c.id, "isActive", !c.isActive)} title={c.isActive ? "Deactivate" : "Activate"} className={`p-1.5 rounded-lg text-xs transition ${c.isActive ? "bg-green-100 text-green-700" : "bg-surface-100 text-surface-400"}`}>{c.isActive ? "✅" : "⏸"}</button>
                     <button onClick={() => startEdit(c)} title="Edit" className="p-1.5 rounded-lg text-surface-400 hover:bg-surface-100 hover:text-surface-700 text-xs transition">✏️</button>
