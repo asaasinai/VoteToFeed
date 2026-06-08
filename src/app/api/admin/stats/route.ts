@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import prisma from "@/lib/prisma";
-import { getCurrentWeekId } from "@/lib/utils";
+import { getCurrentWeekId, getRevenuePeriodStarts } from "@/lib/utils";
 
 export const dynamic = "force-dynamic";
 
@@ -18,6 +18,7 @@ export async function GET() {
     }
 
     const weekId = getCurrentWeekId();
+    const { weekStart, monthStart } = getRevenuePeriodStarts();
 
     const [
       totalUsers,
@@ -26,6 +27,7 @@ export async function GET() {
       weeklyVoteStats,
       totalRevenue,
       weeklyRevenue,
+      monthToDateRevenue,
       recentUsers,
       recentPets,
       recentPurchases,
@@ -50,7 +52,15 @@ export async function GET() {
       prisma.purchase.aggregate({
         where: {
           status: "COMPLETED",
-          createdAt: { gte: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000) },
+          createdAt: { gte: weekStart },
+        },
+        _sum: { amount: true },
+        _count: true,
+      }),
+      prisma.purchase.aggregate({
+        where: {
+          status: "COMPLETED",
+          createdAt: { gte: monthStart },
         },
         _sum: { amount: true },
         _count: true,
@@ -105,6 +115,8 @@ export async function GET() {
         totalMealsProvided: totalRevenue._sum.mealsProvided ?? 0,
         weeklyRevenueCents: weeklyRevenue._sum.amount ?? 0,
         weeklyPurchases: weeklyRevenue._count,
+        monthToDateRevenueCents: monthToDateRevenue._sum.amount ?? 0,
+        monthToDatePurchases: monthToDateRevenue._count,
       },
       usersByRole: usersByRole.map((r) => ({ role: r.role, count: r._count })),
       petsByType: petsByType.map((p) => ({ type: p.type, count: p._count })),

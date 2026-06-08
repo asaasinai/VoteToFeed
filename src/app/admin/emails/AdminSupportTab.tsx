@@ -70,10 +70,125 @@ function timeAgo(d: string | null) {
   return `${days}d ago`;
 }
 
-function formatDate(d: string) {
+function fullDate(d: string | null) {
+  if (!d) return "";
   return new Date(d).toLocaleString("en-US", {
-    month: "short", day: "numeric", hour: "2-digit", minute: "2-digit",
+    weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit",
   });
+}
+
+function initials(name: string | null, email: string | null) {
+  const src = (name || email || "?").trim();
+  const parts = src.split(/\s+/).filter(Boolean);
+  if (parts.length >= 2) return (parts[0][0] + parts[1][0]).toUpperCase();
+  return src.slice(0, 2).toUpperCase();
+}
+
+// Deterministic avatar color from a seed — full class strings so Tailwind keeps them.
+const AVATAR_COLORS = [
+  "bg-rose-500", "bg-orange-500", "bg-amber-500", "bg-emerald-500",
+  "bg-teal-500", "bg-sky-500", "bg-blue-500", "bg-indigo-500",
+  "bg-violet-500", "bg-fuchsia-500", "bg-pink-500", "bg-cyan-600",
+];
+function avatarColor(seed: string) {
+  let h = 0;
+  for (let i = 0; i < seed.length; i++) h = (h * 31 + seed.charCodeAt(i)) >>> 0;
+  return AVATAR_COLORS[h % AVATAR_COLORS.length];
+}
+
+function Avatar({ name, email, className = "", brand = false }: {
+  name?: string | null; email?: string | null; className?: string; brand?: boolean;
+}) {
+  if (brand) {
+    return (
+      <div className={`shrink-0 rounded-full flex items-center justify-center bg-gradient-to-br from-red-600 to-red-500 text-white font-bold ${className}`}>
+        🐾
+      </div>
+    );
+  }
+  return (
+    <div className={`shrink-0 rounded-full flex items-center justify-center text-white font-bold ${avatarColor(name || email || "?")} ${className}`}>
+      {initials(name ?? null, email ?? null)}
+    </div>
+  );
+}
+
+// Parse the stored content of an email message into subject / from / body.
+// Received: "📧 Email reply (subject: X)\n[From: y\n]\n BODY"
+// Sent:     "📧 Email sent to user with subject: X\n\nBODY" (body optional on older rows)
+function parseEmailContent(content: string, kind: SupportMessage["kind"]) {
+  if (kind === "email_received") {
+    const m = content.match(/^📧 (?:Email reply|New email)\s*\(subject:\s*([\s\S]*?)\)\s*\n([\s\S]*)$/);
+    if (m) {
+      let rest = m[2];
+      let from: string | null = null;
+      const fm = rest.match(/^\s*From:\s*(.+)\n/);
+      if (fm) { from = fm[1].trim(); rest = rest.slice(fm[0].length); }
+      return { subject: m[1].trim() || null, from, body: rest.trim() };
+    }
+  }
+  if (kind === "email_sent") {
+    const m = content.match(/^📧 Email sent to user with subject:\s*([^\n]*)\n*([\s\S]*)$/);
+    if (m) return { subject: m[1].trim() || null, from: null as string | null, body: m[2].trim() };
+  }
+  return { subject: null as string | null, from: null as string | null, body: content.replace(/^📧\s*/, "").trim() };
+}
+
+type ThreadItem = {
+  id: string;
+  direction: "in" | "out";
+  fromName: string;
+  fromEmail: string | null;
+  toName: string;
+  subject: string | null;
+  body: string;
+  createdAt: string;
+  isOriginal: boolean;
+};
+
+// Build a Gmail/Outlook-style chronological thread: the customer's original
+// request (so the pane is never empty) followed by every sent/received email.
+function buildThreadItems(detail: SupportConvDetail): ThreadItem[] {
+  const SUPPORT_NAME = "VoteToFeed Support";
+  const SUPPORT_EMAIL = "support@votetofeed.com";
+  const customerName = detail.userName || detail.userEmail || "Customer";
+  const customerEmail = detail.userEmail || null;
+  const items: ThreadItem[] = [];
+
+  const firstUserChat = detail.messages.find((m) => m.role === "USER" && m.kind === "chat");
+  const openingBody = (firstUserChat?.content || detail.ticketProblem || "").trim();
+  if (openingBody) {
+    items.push({
+      id: "opening",
+      direction: "in",
+      fromName: customerName,
+      fromEmail: customerEmail,
+      toName: SUPPORT_NAME,
+      subject: detail.isTicket ? `Ticket #${detail.ticketShort}` : null,
+      body: openingBody,
+      createdAt: firstUserChat?.createdAt || detail.ticketCreatedAt || detail.createdAt,
+      isOriginal: true,
+    });
+  }
+
+  for (const m of detail.messages) {
+    if (m.kind !== "email_sent" && m.kind !== "email_received") continue;
+    const parsed = parseEmailContent(m.content, m.kind);
+    const out = m.kind === "email_sent";
+    items.push({
+      id: m.id,
+      direction: out ? "out" : "in",
+      fromName: out ? SUPPORT_NAME : (parsed.from || customerName),
+      fromEmail: out ? SUPPORT_EMAIL : (parsed.from || customerEmail),
+      toName: out ? customerName : SUPPORT_NAME,
+      subject: parsed.subject,
+      body: parsed.body || (out ? "(Email body not recorded)" : ""),
+      createdAt: m.createdAt,
+      isOriginal: false,
+    });
+  }
+
+  return items;
 }
 
 export function AdminSupportTab() {
@@ -360,44 +475,49 @@ export function AdminSupportTab() {
     await fetchList();
   }
 
+  const detailSummary = detail ? list.find((c) => c.id === detail.id) : undefined;
+  const threadItems = detail ? buildThreadItems(detail) : [];
+
   return (
-    <div className="space-y-4">
+    <div className="overflow-hidden rounded-xl border border-surface-200 bg-white shadow-sm">
       {/* Stat cards specific to support */}
-      <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+      <div className="flex flex-wrap items-center gap-1 border-b border-surface-200 bg-surface-50 px-3 py-2">
+        <div className="mr-2 min-w-[110px] text-xs font-bold uppercase tracking-wider text-surface-500">Mailbox</div>
         <button
           onClick={() => setFilter("tickets")}
-          className={`rounded-xl bg-purple-50 text-purple-700 px-4 py-3 text-left transition ${filter === "tickets" ? "ring-2 ring-purple-500" : "hover:ring-1 hover:ring-purple-300"}`}
+          className={`inline-flex items-center gap-2 rounded-md px-3 py-1.5 text-left text-xs font-semibold transition ${filter === "tickets" ? "bg-surface-900 text-white" : "text-surface-700 hover:bg-white"}`}
         >
-          <div className="text-2xl font-black">{totals.tickets}</div>
-          <div className="text-[11px] font-semibold opacity-80">Total Tickets</div>
+          <span>Tickets</span>
+          <span className={`rounded-full px-1.5 py-0.5 text-[10px] ${filter === "tickets" ? "bg-white/20 text-white" : "bg-surface-200 text-surface-600"}`}>{totals.tickets}</span>
         </button>
         <button
           onClick={() => setFilter("open")}
-          className={`rounded-xl bg-green-50 text-green-700 px-4 py-3 text-left transition ${filter === "open" ? "ring-2 ring-green-500" : "hover:ring-1 hover:ring-green-300"}`}
+          className={`inline-flex items-center gap-2 rounded-md px-3 py-1.5 text-left text-xs font-semibold transition ${filter === "open" ? "bg-surface-900 text-white" : "text-surface-700 hover:bg-white"}`}
         >
-          <div className="text-2xl font-black">{totals.openTickets}</div>
-          <div className="text-[11px] font-semibold opacity-80">Open Tickets</div>
+          <span>Open</span>
+          <span className={`rounded-full px-1.5 py-0.5 text-[10px] ${filter === "open" ? "bg-white/20 text-white" : "bg-emerald-100 text-emerald-700"}`}>{totals.openTickets}</span>
         </button>
         <button
           onClick={() => setFilter("awaiting")}
-          className={`rounded-xl bg-amber-100 text-amber-800 px-4 py-3 text-left transition ${filter === "awaiting" ? "ring-2 ring-amber-500" : "hover:ring-1 hover:ring-amber-400"} ${totals.awaitingReply > 0 ? "animate-pulse" : ""}`}
+          className={`inline-flex items-center gap-2 rounded-md px-3 py-1.5 text-left text-xs font-semibold transition [&>div]:hidden ${filter === "awaiting" ? "bg-surface-900 text-white" : "text-surface-700 hover:bg-white"} ${totals.awaitingReply > 0 ? "animate-pulse" : ""}`}
         >
-          <div className="text-2xl font-black">{totals.awaitingReply}</div>
+          <span>Awaiting</span>
+          <span className={`rounded-full px-1.5 py-0.5 text-[10px] ${filter === "awaiting" ? "bg-white/20 text-white" : "bg-amber-100 text-amber-700"}`}>{totals.awaitingReply}</span>
           <div className="text-[11px] font-semibold opacity-80">📥 Awaiting Reply</div>
         </button>
-        <div className="rounded-xl bg-blue-50 text-blue-700 px-4 py-3">
-          <div className="text-2xl font-black">{totals.sent}</div>
-          <div className="text-[11px] font-semibold opacity-80">Emails Sent</div>
+        <div className="ml-auto hidden items-center gap-1.5 px-2 text-[11px] font-semibold text-surface-500 sm:flex">
+          <span>Sent</span>
+          <strong className="text-surface-800">{totals.sent}</strong>
         </div>
-        <div className="rounded-xl bg-amber-50 text-amber-700 px-4 py-3">
-          <div className="text-2xl font-black">{totals.received}</div>
-          <div className="text-[11px] font-semibold opacity-80">Emails Received</div>
+        <div className="hidden items-center gap-1.5 px-2 text-[11px] font-semibold text-surface-500 sm:flex">
+          <span>Received</span>
+          <strong className="text-surface-800">{totals.received}</strong>
         </div>
       </div>
 
-      <div className="grid lg:grid-cols-[320px_1fr] gap-4">
+      <div className="grid min-h-[680px] lg:grid-cols-[360px_minmax(0,1fr)]">
         {/* LEFT: list */}
-        <div className="bg-white rounded-xl border border-surface-200 shadow-sm overflow-hidden flex flex-col max-h-[700px]">
+        <div className="flex max-h-[680px] flex-col overflow-hidden border-r border-surface-200 bg-white">
           <div className="px-3 py-2 border-b border-surface-100 bg-surface-50 flex flex-wrap gap-1">
             {(["tickets", "open", "awaiting", "with_email", "all"] as Filter[]).map((f) => (
               <button
@@ -425,56 +545,62 @@ export function AdminSupportTab() {
             ) : sorted.length === 0 ? (
               <div className="px-4 py-8 text-center text-sm text-surface-400">No conversations match this filter.</div>
             ) : (
-              sorted.map((c) => (
-                <button
-                  key={c.id}
-                  onClick={() => setSelectedId(c.id)}
-                  className={`w-full text-left px-3 py-2.5 border-b transition-colors ${
-                    selectedId === c.id
-                      ? "bg-purple-50 border-purple-200"
-                      : c.hasUnansweredReply
-                      ? "bg-amber-50/40 border-amber-100 hover:bg-amber-50"
-                      : "border-surface-100 hover:bg-surface-50"
-                  }`}
-                >
-                  <div className="flex items-center justify-between gap-2 mb-0.5">
-                    <div className="flex items-center gap-1.5 min-w-0">
-                      {c.isTicket && (
-                        <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-purple-100 text-purple-700">
-                          🎫 #{c.ticketShort}
+              sorted.map((c) => {
+                const unread = c.hasUnansweredReply;
+                const isSel = selectedId === c.id;
+                const name = c.userName || c.userEmail || "Visitor";
+                return (
+                  <button
+                    key={c.id}
+                    onClick={() => setSelectedId(c.id)}
+                    className={`w-full text-left flex gap-3 px-3 py-3 border-b border-surface-100 border-l-2 transition-colors ${
+                      isSel
+                        ? "bg-sky-50 border-l-sky-500"
+                        : unread
+                        ? "bg-white hover:bg-surface-50 border-l-amber-400"
+                        : "bg-white hover:bg-surface-50 border-l-transparent"
+                    }`}
+                  >
+                    <Avatar name={c.userName} email={c.userEmail} className="h-9 w-9 text-[12px]" />
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center justify-between gap-2">
+                        <span className={`truncate text-[13px] ${unread ? "font-bold text-surface-900" : "font-semibold text-surface-700"}`}>
+                          {name}
                         </span>
-                      )}
-                      <span className="text-sm font-semibold text-surface-800 truncate">
-                        {c.userName || c.userEmail || "Visitor"}
-                      </span>
-                    </div>
-                    <div className="flex items-center gap-1 shrink-0">
-                      {c.hasUnansweredReply && (
-                        <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-amber-500 text-white animate-pulse">
-                          📥 NEW
+                        <span className="text-[10px] text-surface-400 shrink-0 whitespace-nowrap">
+                          {timeAgo(c.lastEmailAt || c.updatedAt)}
                         </span>
-                      )}
-                      <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded-full ${
-                        c.status === "OPEN" ? "bg-green-100 text-green-700" : "bg-surface-200 text-surface-500"
-                      }`}>{c.status}</span>
+                      </div>
+                      <p className={`truncate text-[12px] mt-0.5 ${unread ? "font-semibold text-surface-700" : "text-surface-500"}`}>
+                        {c.ticketProblem || c.lastMessage || "No messages"}
+                      </p>
+                      <div className="flex items-center gap-1.5 mt-1.5">
+                        {c.isTicket && (
+                          <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-purple-100 text-purple-700">
+                            #{c.ticketShort}
+                          </span>
+                        )}
+                        {unread && (
+                          <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-amber-500 text-white">NEW</span>
+                        )}
+                        <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded-full ${
+                          c.status === "OPEN" ? "bg-green-100 text-green-700" : "bg-surface-100 text-surface-400"
+                        }`}>{c.status}</span>
+                        <span className="ml-auto flex items-center gap-1.5 text-[10px] text-surface-400">
+                          {c.sentCount > 0 && <span title="Sent">↑{c.sentCount}</span>}
+                          {c.receivedCount > 0 && <span title="Received">↓{c.receivedCount}</span>}
+                        </span>
+                      </div>
                     </div>
-                  </div>
-                  <p className="text-[11px] text-surface-500 truncate">
-                    {c.ticketProblem || c.lastMessage || "No messages"}
-                  </p>
-                  <div className="flex items-center gap-2 text-[10px] text-surface-400 mt-1">
-                    <span className="text-blue-500">📤 {c.sentCount}</span>
-                    <span className="text-amber-500">📥 {c.receivedCount}</span>
-                    <span className="ml-auto">{timeAgo(c.lastEmailAt || c.updatedAt)}</span>
-                  </div>
-                </button>
-              ))
+                  </button>
+                );
+              })
             )}
           </div>
         </div>
 
         {/* RIGHT: detail + draft */}
-        <div className="bg-white rounded-xl border border-surface-200 shadow-sm flex flex-col max-h-[700px]">
+        <div className="flex max-h-[680px] flex-col bg-white">
           {!detail && !loadingDetail ? (
             <div className="flex-1 flex items-center justify-center text-sm text-surface-400 p-8">
               Select a conversation to view its email thread.
@@ -483,37 +609,14 @@ export function AdminSupportTab() {
             <div className="flex-1 flex items-center justify-center text-sm text-surface-400 p-8">Loading…</div>
           ) : detail ? (
             <>
-              <div className="px-4 py-3 border-b border-surface-200 bg-surface-50 shrink-0">
-                <div className="flex items-center justify-between mb-1">
-                  <div className="min-w-0">
-                    <div className="flex items-center gap-2 mb-0.5">
-                      <span className="font-bold text-sm text-surface-800 truncate">
-                        {detail.userName || detail.userEmail || "Anonymous"}
-                      </span>
-                      {detail.isTicket && (
-                        <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-purple-100 text-purple-700">
-                          🎫 Ticket #{detail.ticketShort}
-                        </span>
-                      )}
-                      {(() => {
-                        const summary = list.find((c) => c.id === detail.id);
-                        if (summary?.hasUnansweredReply) {
-                          return (
-                            <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-500 text-white animate-pulse">
-                              📥 New reply — needs response
-                            </span>
-                          );
-                        }
-                        return null;
-                      })()}
-                      <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
-                        detail.status === "OPEN" ? "bg-green-100 text-green-700" : "bg-surface-200 text-surface-500"
-                      }`}>{detail.status}</span>
-                    </div>
-                    {detail.userEmail && (
-                      <div className="text-[11px] text-surface-500">📧 {detail.userEmail}</div>
-                    )}
-                  </div>
+              {/* Reading-pane header — subject + participant (Gmail/Outlook style) */}
+              <div className="px-4 py-3 border-b border-surface-200 bg-white shrink-0">
+                <div className="flex items-start justify-between gap-3">
+                  <h2 className="text-[15px] font-bold text-surface-900 leading-snug min-w-0 break-words">
+                    {detail.ticketProblem
+                      ? detail.ticketProblem.split("\n")[0].slice(0, 90)
+                      : `Conversation with ${detail.userName || detail.userEmail || "visitor"}`}
+                  </h2>
                   <div className="flex items-center gap-1.5 shrink-0">
                     <button
                       onClick={generateDraft}
@@ -539,43 +642,86 @@ export function AdminSupportTab() {
                   </div>
                 </div>
 
-                {detail.ticketProblem && (
-                  <div className="mt-2 px-3 py-2 bg-purple-50 border border-purple-100 rounded-lg text-[12px] text-surface-800">
-                    <div className="font-semibold mb-0.5">Ticket issue:</div>
-                    <div>{detail.ticketProblem}</div>
+                <div className="flex items-center gap-2.5 mt-2.5">
+                  <Avatar name={detail.userName} email={detail.userEmail} className="h-9 w-9 text-[12px]" />
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="font-semibold text-[13px] text-surface-800 truncate">
+                        {detail.userName || detail.userEmail || "Anonymous"}
+                      </span>
+                      {detail.isTicket && (
+                        <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-purple-100 text-purple-700">
+                          🎫 #{detail.ticketShort}
+                        </span>
+                      )}
+                      {detailSummary?.hasUnansweredReply && (
+                        <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-500 text-white">
+                          📥 Needs response
+                        </span>
+                      )}
+                      <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
+                        detail.status === "OPEN" ? "bg-green-100 text-green-700" : "bg-surface-100 text-surface-400"
+                      }`}>{detail.status}</span>
+                    </div>
+                    {detail.userEmail && (
+                      <div className="text-[11px] text-surface-500 truncate">{detail.userEmail}</div>
+                    )}
                   </div>
-                )}
+                </div>
               </div>
 
-              {/* Thread — show only email messages */}
-              <div className="flex-1 overflow-y-auto px-4 py-3 space-y-2 bg-surface-50">
-                {detail.messages.filter((m) => m.kind === "email_sent" || m.kind === "email_received").length === 0 && (
-                  <div className="flex items-center justify-center h-full text-sm text-surface-400">No emails in this thread yet.</div>
-                )}
-                {detail.messages.filter((m) => m.kind === "email_sent" || m.kind === "email_received").map((m) => {
-                  const isEmailSent = m.kind === "email_sent";
-                  const isEmailRecv = m.kind === "email_received";
-
-                  return (
-                    <div key={m.id} className="flex justify-start">
-                      <div className={`max-w-[90%] w-full rounded-xl border px-3 py-2 text-[12px] ${
-                        isEmailSent
-                          ? "bg-blue-50 border-blue-200"
-                          : "bg-amber-50 border-amber-200"
-                      }`}>
-                        <div className="flex items-center gap-1.5 mb-1">
-                          <span className={`text-[9px] font-bold uppercase tracking-wider ${
-                            isEmailSent ? "text-blue-700" : "text-amber-700"
-                          }`}>
-                            {isEmailSent ? "📤 Email Sent" : "📥 Email Received"}
-                          </span>
-                          <span className="text-[9px] text-surface-400">{formatDate(m.createdAt)}</span>
+              {/* Thread — original request + every email, as stacked mail cards */}
+              <div className="flex-1 overflow-y-auto px-4 py-4 space-y-3 bg-surface-50">
+                {threadItems.length === 0 ? (
+                  <div className="flex items-center justify-center h-full text-sm text-surface-400">
+                    No messages in this conversation yet.
+                  </div>
+                ) : (
+                  threadItems.map((it) => {
+                    const out = it.direction === "out";
+                    return (
+                      <div
+                        key={it.id}
+                        className={`rounded-xl border bg-white shadow-sm overflow-hidden ${out ? "border-sky-200" : "border-surface-200"}`}
+                      >
+                        <div className={`flex items-start gap-3 px-4 pt-3 pb-2 ${out ? "bg-sky-50/60" : "bg-white"}`}>
+                          {out ? (
+                            <Avatar brand className="h-9 w-9 text-[13px]" />
+                          ) : (
+                            <Avatar name={it.fromName} email={it.fromEmail} className="h-9 w-9 text-[12px]" />
+                          )}
+                          <div className="min-w-0 flex-1">
+                            <div className="flex items-start justify-between gap-2">
+                              <div className="min-w-0 flex items-baseline gap-1.5 flex-wrap">
+                                <span className="font-semibold text-[13px] text-surface-900">{it.fromName}</span>
+                                {it.fromEmail && (
+                                  <span className="text-[11px] text-surface-400 truncate">&lt;{it.fromEmail}&gt;</span>
+                                )}
+                                {out && (
+                                  <span className="text-[9px] font-bold uppercase tracking-wide text-sky-700 bg-sky-100 px-1.5 py-0.5 rounded">You</span>
+                                )}
+                                {it.isOriginal && (
+                                  <span className="text-[9px] font-bold uppercase tracking-wide text-purple-700 bg-purple-100 px-1.5 py-0.5 rounded">Original request</span>
+                                )}
+                              </div>
+                              <time className="text-[10px] text-surface-400 shrink-0 whitespace-nowrap">{fullDate(it.createdAt)}</time>
+                            </div>
+                            <div className="text-[11px] text-surface-400">to {it.toName}</div>
+                          </div>
                         </div>
-                        <div className="text-[12px] whitespace-pre-wrap text-surface-800">{m.content}</div>
+                        {it.subject && (
+                          <div className="px-4 pb-1 text-[12px]">
+                            <span className="text-surface-400">Subject: </span>
+                            <span className="font-semibold text-surface-700">{it.subject}</span>
+                          </div>
+                        )}
+                        <div className="px-4 py-3 text-[13px] leading-relaxed text-surface-800 whitespace-pre-wrap break-words">
+                          {it.body || <span className="italic text-surface-400">(no content)</span>}
+                        </div>
                       </div>
-                    </div>
-                  );
-                })}
+                    );
+                  })
+                )}
                 <div ref={messagesEndRef} />
               </div>
 

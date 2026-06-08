@@ -23,8 +23,11 @@ export async function GET() {
   const admin = await requireAdmin();
   if (!admin) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-  const winners = await getAdminContestWinners();
-  return NextResponse.json({ winners });
+  const winnerContests = await getAdminContestWinners();
+  return NextResponse.json({
+    winnerContests,
+    winners: winnerContests.flatMap((contest) => contest.winners),
+  });
 }
 
 export async function PUT(req: NextRequest) {
