@@ -480,20 +480,24 @@ export function AdminEmailsClient() {
         <button onClick={fetchData} className="rounded-lg bg-surface-100 px-4 py-2 text-sm font-medium text-surface-700 hover:bg-surface-200 transition-colors">↻ Refresh</button>
       </div>
 
-      {/* Stats */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        <StatCard label="Emails Today" value={data.stats.today} sub="Since midnight UTC" />
-        <StatCard label="Last 7 Days" value={data.stats.last7d} />
-        <StatCard label="Last 30 Days" value={data.stats.last30d} />
-        <StatCard label="All Time" value={data.stats.total} />
-      </div>
+      {tab === "overview" && (
+        <>
+          {/* Stats */}
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+            <StatCard label="Emails Today" value={data.stats.today} sub="Since midnight UTC" />
+            <StatCard label="Last 7 Days" value={data.stats.last7d} />
+            <StatCard label="Last 30 Days" value={data.stats.last30d} />
+            <StatCard label="All Time" value={data.stats.total} />
+          </div>
 
-      {/* Chart */}
-      {data.byDay.length > 0 && (
-        <div className="bg-white rounded-xl border border-surface-200 p-5 shadow-sm">
-          <h3 className="text-sm font-semibold text-surface-700 mb-4">Emails per Day (Last 7 Days)</h3>
-          <BarChart data={data.byDay} />
-        </div>
+          {/* Chart */}
+          {data.byDay.length > 0 && (
+            <div className="bg-white rounded-xl border border-surface-200 p-5 shadow-sm">
+              <h3 className="text-sm font-semibold text-surface-700 mb-4">Emails per Day (Last 7 Days)</h3>
+              <BarChart data={data.byDay} />
+            </div>
+          )}
+        </>
       )}
 
       {/* Tabs */}

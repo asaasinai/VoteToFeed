@@ -81,6 +81,20 @@ export function getWeekDateRange(weekId?: string): {
   return { start, end };
 }
 
+export function getRevenuePeriodStarts(now = new Date()): {
+  weekStart: Date;
+  monthStart: Date;
+} {
+  const todayUtc = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+  const weekStart = new Date(todayUtc);
+  weekStart.setUTCDate(todayUtc.getUTCDate() - todayUtc.getUTCDay());
+
+  return {
+    weekStart,
+    monthStart: new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1)),
+  };
+}
+
 export function daysRemainingInWeek(): number {
   const now = new Date();
   const nextReset = new Date(now);

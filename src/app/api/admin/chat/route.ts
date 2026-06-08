@@ -141,11 +141,18 @@ export async function POST(req: NextRequest) {
     const trimmedEmailBody = emailBody?.trim().slice(0, 5000) || "";
     const finalSubject = emailSubject?.trim() || "You have a new reply from VoteToFeed Support 🐾";
 
+    // Persist the full email body in the message so it renders in the support
+    // mailbox thread (not just the subject line). Keeps the "📧 Email sent to
+    // user with subject:" prefix so existing detection (startsWith "📧") works.
+    const sentContent = trimmedEmailBody
+      ? `📧 Email sent to user with subject: ${finalSubject}\n\n${trimmedEmailBody}`
+      : `📧 Email sent to user with subject: ${finalSubject}`;
+
     const newMessage = await prisma.chatMessage.create({
       data: {
         conversationId,
         role: "ADMIN",
-        content: trimmedMessage || `📧 Email sent to user with subject: ${finalSubject}`,
+        content: trimmedEmailBody ? sentContent : (trimmedMessage || sentContent),
       },
     });
 

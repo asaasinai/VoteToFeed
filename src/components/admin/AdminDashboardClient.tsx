@@ -18,6 +18,8 @@ type Overview = {
   totalMealsProvided: number;
   weeklyRevenueCents: number;
   weeklyPurchases: number;
+  monthToDateRevenueCents: number;
+  monthToDatePurchases: number;
 };
 
 type RecentUser = {
@@ -227,15 +229,20 @@ export function AdminDashboardClient({
               <MiniStat label="Active Pets" value={overview.totalPets.toLocaleString()} color="default" />
               <MiniStat label="Total Votes" value={overview.totalVotes.toLocaleString()} color="default" />
               <MiniStat label="Weekly Votes" value={overview.weeklyVotes.toLocaleString()} color="accent" />
-              <MiniStat label="Total Revenue" value={`$${(overview.totalRevenueCents / 100).toFixed(0)}`} color="brand" />
+              <MiniStat
+                label="Total Revenue"
+                value={`$${(overview.totalRevenueCents / 100).toFixed(0)}`}
+                color="brand"
+                sub={`Week $${(overview.weeklyRevenueCents / 100).toFixed(0)} | MTD $${(overview.monthToDateRevenueCents / 100).toFixed(0)}`}
+              />
               <MiniStat label="Shelter Pets Fed" value={`~${Math.round(overview.totalMealsProvided).toLocaleString()}`} color="accent" />
             </div>
 
             {/* Breakdown row */}
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-              {/* This Week */}
+              {/* Week to Date */}
               <div className="card p-5">
-                <h3 className="text-sm font-semibold text-surface-900 mb-4">This Week</h3>
+                <h3 className="text-sm font-semibold text-surface-900 mb-4">Week to Date</h3>
                 <div className="space-y-3">
                   <div className="flex items-center justify-between">
                     <span className="text-sm text-surface-500">Votes</span>
@@ -256,6 +263,14 @@ export function AdminDashboardClient({
                   <div className="flex items-center justify-between">
                     <span className="text-sm text-surface-500">Purchases</span>
                     <span className="text-sm font-semibold text-surface-900">{overview.weeklyPurchases}</span>
+                  </div>
+                  <div className="border-t border-surface-100 pt-3 flex items-center justify-between">
+                    <span className="text-sm text-surface-500">Month Revenue</span>
+                    <span className="text-sm font-bold text-brand-600">${(overview.monthToDateRevenueCents / 100).toFixed(2)}</span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm text-surface-500">Month Purchases</span>
+                    <span className="text-sm font-semibold text-surface-900">{overview.monthToDatePurchases}</span>
                   </div>
                 </div>
               </div>
@@ -1819,6 +1834,8 @@ function AdminRevenueTab({ animalType }: { animalType: string }) {
   const [purchases, setPurchases] = useState<RevenuePurchase[]>([]);
   const [loading, setLoading] = useState(true);
   const [range, setRange] = useState("all");
+  const [dateFrom, setDateFrom] = useState("");
+  const [dateTo, setDateTo] = useState("");
   const [tier, setTier] = useState("");
   const [search, setSearch] = useState("");
   const [page, setPage] = useState(1);
@@ -1830,10 +1847,14 @@ function AdminRevenueTab({ animalType }: { animalType: string }) {
   const [fixingPending, setFixingPending] = useState(false);
   const [fixResult, setFixResult] = useState<FixPendingResult | null>(null);
 
-  async function loadRevenue(p = page) {
+  async function loadRevenue(p = page, rangeOverride = range) {
     setLoading(true);
     try {
-      const params = new URLSearchParams({ page: String(p), limit: "25", range });
+      const params = new URLSearchParams({ page: String(p), limit: "25", range: rangeOverride });
+      if (rangeOverride === "custom") {
+        if (dateFrom) params.set("from", dateFrom);
+        if (dateTo) params.set("to", dateTo);
+      }
       if (tier) params.set("tier", tier);
       if (search) params.set("search", search);
       const res = await fetch(`/api/admin/revenue?${params}`);
@@ -1864,14 +1885,43 @@ function AdminRevenueTab({ animalType }: { animalType: string }) {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => { loadRevenue(1); }, [range, tier]);
 
-  const rangeLabels: Record<string, string> = { all: "All Time", today: "Today", "7d": "Last 7 Days", "30d": "Last 30 Days", "90d": "Last 90 Days" };
+  const rangeLabels: Record<string, string> = { all: "All Time", today: "Today", "7d": "Last 7 Days", "30d": "Last 30 Days", "90d": "Last 90 Days", custom: "Custom Dates" };
+  const formatDateLabel = (value: string) => new Date(`${value}T00:00:00`).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+  const customRangeLabel = dateFrom && dateTo
+    ? `${formatDateLabel(dateFrom)} to ${formatDateLabel(dateTo)}`
+    : dateFrom
+      ? `From ${formatDateLabel(dateFrom)}`
+      : dateTo
+        ? `Until ${formatDateLabel(dateTo)}`
+        : "Custom Dates";
+  const activeRangeLabel = range === "custom" ? customRangeLabel : rangeLabels[range];
+
+  function selectPreset(nextRange: string) {
+    setDateFrom("");
+    setDateTo("");
+    setRange(nextRange);
+    setPage(1);
+  }
+
+  function applyDateFilter() {
+    setPage(1);
+    if (range === "custom") loadRevenue(1, "custom");
+    else setRange("custom");
+  }
+
+  function clearDateFilter() {
+    setDateFrom("");
+    setDateTo("");
+    setRange("all");
+    setPage(1);
+  }
 
   return (
     <div className="space-y-6 animate-fade-in">
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
         <div>
           <h2 className="text-lg font-bold text-surface-900">Revenue & Purchases</h2>
-          <p className="text-sm text-surface-500">{rangeLabels[range]} — {total.toLocaleString()} purchases</p>
+          <p className="text-sm text-surface-500">{activeRangeLabel} - {total.toLocaleString()} purchases</p>
         </div>
       </div>
 
@@ -1960,32 +2010,61 @@ function AdminRevenueTab({ animalType }: { animalType: string }) {
       )}
 
       {/* Filters */}
-      <div className="card p-4 flex flex-col sm:flex-row gap-3 items-stretch sm:items-center">
-        <div className="flex gap-1 overflow-x-auto hide-scrollbar">
-          {(["all", "today", "7d", "30d", "90d"] as const).map((r) => (
-            <button
-              key={r}
-              onClick={() => { setRange(r); setPage(1); }}
-              className={`px-3 py-1.5 rounded-lg text-xs font-medium whitespace-nowrap transition-all ${
-                range === r
-                  ? "bg-brand-500 text-white shadow-sm"
-                  : "bg-surface-100 text-surface-600 hover:bg-surface-200"
-              }`}
-            >
-              {rangeLabels[r]}
-            </button>
-          ))}
+      <div className="card p-4 space-y-3">
+        <div className="flex flex-col gap-3 lg:flex-row lg:items-center">
+          <div className="flex gap-1 overflow-x-auto hide-scrollbar">
+            {(["all", "today", "7d", "30d", "90d"] as const).map((r) => (
+              <button
+                key={r}
+                onClick={() => selectPreset(r)}
+                className={`px-3 py-1.5 rounded-lg text-xs font-medium whitespace-nowrap transition-all ${
+                  range === r
+                    ? "bg-brand-500 text-white shadow-sm"
+                    : "bg-surface-100 text-surface-600 hover:bg-surface-200"
+                }`}
+              >
+                {rangeLabels[r]}
+              </button>
+            ))}
+          </div>
+          <form onSubmit={(e) => { e.preventDefault(); loadRevenue(1); }} className="flex gap-2 lg:ml-auto">
+            <input
+              type="text"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Search buyer..."
+              className="input-field min-w-0 flex-1 text-sm sm:w-48"
+            />
+            <button type="submit" className="btn-secondary text-sm px-3 py-2">Go</button>
+          </form>
         </div>
-        <div className="flex-1" />
-        <form onSubmit={(e) => { e.preventDefault(); loadRevenue(1); }} className="flex gap-2">
-          <input
-            type="text"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search buyer..."
-            className="input-field text-sm w-40"
-          />
-          <button type="submit" className="btn-secondary text-sm px-3 py-2">Go</button>
+
+        <form
+          onSubmit={(e) => { e.preventDefault(); applyDateFilter(); }}
+          className={`grid grid-cols-1 gap-2 rounded-lg border p-3 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto_auto] sm:items-end ${
+            range === "custom" ? "border-brand-200 bg-brand-50/40" : "border-surface-200 bg-surface-50"
+          }`}
+        >
+          <label className="min-w-0">
+            <span className="mb-1 block text-[11px] font-bold uppercase tracking-wider text-surface-400">From</span>
+            <input
+              type="date"
+              value={dateFrom}
+              onChange={(e) => setDateFrom(e.target.value)}
+              className="input-field w-full text-sm"
+            />
+          </label>
+          <label className="min-w-0">
+            <span className="mb-1 block text-[11px] font-bold uppercase tracking-wider text-surface-400">To</span>
+            <input
+              type="date"
+              value={dateTo}
+              onChange={(e) => setDateTo(e.target.value)}
+              className="input-field w-full text-sm"
+            />
+          </label>
+          <button type="submit" className="btn-primary whitespace-nowrap px-4 py-2 text-sm">Apply</button>
+          <button type="button" onClick={clearDateFilter} className="btn-secondary whitespace-nowrap px-4 py-2 text-sm">Clear</button>
         </form>
       </div>
 
@@ -2058,12 +2137,13 @@ function AdminRevenueTab({ animalType }: { animalType: string }) {
   );
 }
 
-function MiniStat({ label, value, color }: { label: string; value: string; color: "brand" | "accent" | "default" }) {
+function MiniStat({ label, value, color, sub }: { label: string; value: string; color: "brand" | "accent" | "default"; sub?: string }) {
   const colorMap = { brand: "text-brand-600", accent: "text-accent-600", default: "text-surface-900" };
   return (
     <div className="card p-4">
       <p className="text-[11px] font-medium text-surface-400 uppercase tracking-wider">{label}</p>
       <p className={`text-xl font-bold mt-1 ${colorMap[color]}`}>{value}</p>
+      {sub && <p className="mt-1 text-[11px] font-medium text-surface-500">{sub}</p>}
     </div>
   );
 }
@@ -2294,25 +2374,43 @@ type ContestData = {
 
 type ContestWinnerRecord = {
   id: string;
+  prizeId: string | null;
   contestId: string;
-  contestName: string;
-  contestEndedAt: string;
   placement: number;
-  title: string;
+  placementLabel: string;
+  rank: number;
   winnerPetId: string | null;
   winnerPetName: string;
+  petType: string | null;
+  petBreed: string | null;
+  petPhoto: string | null;
+  totalVotes: number;
+  ownerUserId: string | null;
   ownerUserName: string;
+  ownerEmail: string | null;
   ownerAddress: string;
+  prizeTitle: string;
+  prizeValue: number;
   prizeSent: boolean;
   fulfilledAt: string | null;
   awardedAt: string | null;
   status: string;
-  value: number;
+};
+
+type ContestWinnerGroup = {
+  contestId: string;
+  contestName: string;
+  contestType: string;
+  contestPetType: string;
+  contestEndedAt: string;
+  entryCount: number;
+  winners: ContestWinnerRecord[];
 };
 
 function ContestManager() {
   const [contests, setContests] = useState<ContestData[]>([]);
-  const [winners, setWinners] = useState<ContestWinnerRecord[]>([]);
+  const [winnerContests, setWinnerContests] = useState<ContestWinnerGroup[]>([]);
+  const [expandedWinnerContestId, setExpandedWinnerContestId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [winnersLoading, setWinnersLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
@@ -2367,9 +2465,9 @@ function ContestManager() {
     try {
       const res = await fetch("/api/admin/contest-winners");
       const data = await res.json();
-      setWinners(Array.isArray(data.winners) ? data.winners : []);
+      setWinnerContests(Array.isArray(data.winnerContests) ? data.winnerContests : []);
     } catch {
-      setWinners([]);
+      setWinnerContests([]);
     } finally {
       setWinnersLoading(false);
     }
@@ -2543,12 +2641,15 @@ function ContestManager() {
       if (!res.ok) {
         setWinnerMsg(data.error || "Failed to update prize status");
       } else {
-        setWinners((current) => current.map((winner) => winner.id === prizeId ? {
-          ...winner,
-          prizeSent: data.prizeSent,
-          fulfilledAt: data.fulfilledAt,
-          status: data.status,
-        } : winner));
+        setWinnerContests((current) => current.map((contest) => ({
+          ...contest,
+          winners: contest.winners.map((winner) => winner.prizeId === prizeId ? {
+            ...winner,
+            prizeSent: data.prizeSent,
+            fulfilledAt: data.fulfilledAt,
+            status: data.status,
+          } : winner),
+        })));
         setWinnerMsg(data.prizeSent ? "Prize marked as sent" : "Prize marked as not sent");
       }
     } catch {
@@ -2560,6 +2661,15 @@ function ContestManager() {
   }
 
   const endedContests = contests.filter((contest) => contest.hasEnded);
+  const winners = winnerContests.flatMap((contest) =>
+    contest.winners.map((winner) => ({
+      ...winner,
+      id: winner.prizeId ?? winner.id,
+      contestName: contest.contestName,
+      contestEndedAt: contest.contestEndedAt,
+      title: winner.prizeTitle,
+    }))
+  );
 
   return (
     <div>
@@ -3055,21 +3165,127 @@ function ContestManager() {
 
         {winnersLoading ? (
           <div className="card p-5 text-sm text-surface-400">Loading winners...</div>
-        ) : winners.length === 0 ? (
+        ) : winnerContests.length === 0 ? (
           <div className="card p-5 text-sm text-surface-500">
             {endedContests.length === 0
               ? "No ended contests yet. Winners will appear here once contests close."
-              : "No prizes or winners have been assigned for ended contests yet."}
+              : "No contest entries found for ended contests yet."}
           </div>
         ) : (
-          <div className="card p-0 overflow-hidden">
+          <div className="space-y-3">
+            {winnerContests.map((contest) => {
+              const isOpen = expandedWinnerContestId === contest.contestId;
+              const topWinner = contest.winners[0];
+              const sentCount = contest.winners.filter((winner) => winner.prizeSent).length;
+
+              return (
+                <div key={contest.contestId} className="overflow-hidden rounded-lg border border-surface-200 bg-white shadow-sm">
+                  <button
+                    type="button"
+                    onClick={() => setExpandedWinnerContestId(isOpen ? null : contest.contestId)}
+                    className="flex w-full flex-col gap-3 px-4 py-4 text-left transition hover:bg-surface-50 sm:flex-row sm:items-center sm:justify-between"
+                  >
+                    <div className="flex min-w-0 items-center gap-3">
+                      <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg bg-brand-50 text-sm font-extrabold text-brand-600 ring-1 ring-brand-100">
+                        {contest.winners.length}
+                      </div>
+                      <div className="min-w-0">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <h4 className="truncate text-sm font-bold text-surface-900">{contest.contestName}</h4>
+                          <span className={`text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full ${contestTypeBadge(contest.contestType)}`}>
+                            {contestTypeLabel(contest.contestType)}
+                          </span>
+                          <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-surface-100 text-surface-500">
+                            {contest.contestPetType === "DOG" ? "Dogs" : contest.contestPetType === "CAT" ? "Cats" : contest.contestPetType === "ALL" ? "All pets" : "Other"}
+                          </span>
+                        </div>
+                        <p className="mt-1 text-xs text-surface-500">
+                          Ended {new Date(contest.contestEndedAt).toLocaleDateString()} - {contest.entryCount} entries
+                          {topWinner ? ` - winner ${topWinner.winnerPetName} with ${topWinner.totalVotes.toLocaleString()} votes` : ""}
+                        </p>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-3 sm:justify-end">
+                      <span className="rounded-full bg-surface-100 px-3 py-1 text-xs font-semibold text-surface-600">
+                        {sentCount}/{contest.winners.length} sent
+                      </span>
+                      <span className="rounded-lg bg-brand-500 px-3 py-2 text-xs font-bold text-white shadow-sm">
+                        {isOpen ? "Hide top 3" : "View top 3"}
+                      </span>
+                    </div>
+                  </button>
+
+                  {isOpen && (
+                    <div className="space-y-2 border-t border-surface-100 bg-surface-50/60 p-3">
+                      {contest.winners.map((winner) => {
+                        const prizeId = winner.prizeId;
+
+                        return (
+                          <div key={winner.id} className="grid gap-3 rounded-lg border border-surface-200 bg-white p-3 shadow-sm sm:grid-cols-[96px_minmax(180px,1fr)_minmax(220px,1.2fr)_minmax(170px,0.8fr)] sm:items-center">
+                            <div className="relative h-24 w-24 overflow-hidden rounded-lg bg-surface-100">
+                              {winner.petPhoto ? (
+                                <img src={winner.petPhoto} alt="" className="h-full w-full object-cover" />
+                              ) : (
+                                <div className="flex h-full w-full items-center justify-center text-sm font-semibold text-surface-400">
+                                  No photo
+                                </div>
+                              )}
+                              <div className="absolute left-3 top-3 rounded-full bg-white/95 px-3 py-1 text-xs font-extrabold text-brand-600 shadow-sm">
+                                #{winner.placement}
+                              </div>
+                            </div>
+
+                            <div className="min-w-0">
+                              <p className="truncate text-base font-extrabold text-surface-900">{winner.winnerPetName}</p>
+                              <p className="mt-0.5 text-xs font-medium text-surface-500">
+                                {winner.totalVotes.toLocaleString()} votes - {winner.petBreed || winner.petType || "Pet"}
+                              </p>
+                              <p className="mt-2 truncate text-xs font-semibold text-surface-800">{winner.prizeTitle}</p>
+                              <p className="text-[11px] text-surface-400">
+                                {winner.prizeValue > 0 ? `$${(winner.prizeValue / 100).toLocaleString()}` : "No prize value"}
+                              </p>
+                            </div>
+
+                            <div className="grid gap-2 text-xs sm:grid-cols-2">
+                              <div className="rounded-lg bg-surface-50 p-2">
+                                <p className="font-semibold uppercase tracking-wider text-surface-400">Owner</p>
+                                <p className="mt-0.5 font-semibold text-surface-800">{winner.ownerUserName}</p>
+                                <p className="mt-0.5 break-all text-surface-500">{winner.ownerEmail || "No email"}</p>
+                              </div>
+
+                              <div className="rounded-lg bg-surface-50 p-2">
+                                <p className="font-semibold uppercase tracking-wider text-surface-400">Shipping Address</p>
+                                <p className="mt-0.5 text-surface-700">{winner.ownerAddress}</p>
+                              </div>
+                            </div>
+
+                            <label className="inline-flex items-center justify-center gap-2 rounded-lg border border-surface-200 px-3 py-2 text-xs font-medium text-surface-700">
+                              <input
+                                type="checkbox"
+                                checked={winner.prizeSent}
+                                disabled={!prizeId || togglingPrizeId === prizeId}
+                                onChange={(e) => prizeId && togglePrizeSent(prizeId, e.target.checked)}
+                                className="h-4 w-4 rounded border-surface-300 text-brand-600"
+                              />
+                              {!prizeId ? "No prize" : togglingPrizeId === prizeId ? "Saving" : winner.prizeSent ? "Sent" : "Not sent"}
+                            </label>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+            {false && (
+            <div className="hidden">
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b border-surface-100 bg-surface-50">
                     <th className="px-4 py-3 text-left text-[11px] font-medium uppercase tracking-wider text-surface-400">Contest</th>
                     <th className="px-4 py-3 text-left text-[11px] font-medium uppercase tracking-wider text-surface-400">Winner Pet</th>
-                    <th className="px-4 py-3 text-left text-[11px] font-medium uppercase tracking-wider text-surface-400">Owner Name</th>
+                    <th className="px-4 py-3 text-left text-[11px] font-medium uppercase tracking-wider text-surface-400">Owner / Contact</th>
                     <th className="px-4 py-3 text-left text-[11px] font-medium uppercase tracking-wider text-surface-400">Shipping Address</th>
                     <th className="px-4 py-3 text-center text-[11px] font-medium uppercase tracking-wider text-surface-400">Prize / Product Sent</th>
                   </tr>
@@ -3086,21 +3302,26 @@ function ContestManager() {
                       <td className="px-4 py-3">
                         <div>
                           <p className="font-semibold text-surface-900">{winner.winnerPetName}</p>
-                          <p className="text-[11px] text-surface-400">{winner.title}</p>
+                          <p className="text-[11px] text-surface-400">{winner.totalVotes.toLocaleString()} votes · {winner.title}</p>
                         </div>
                       </td>
-                      <td className="px-4 py-3 text-surface-700">{winner.ownerUserName}</td>
+                      <td className="px-4 py-3 text-surface-700">
+                        <div>
+                          <p className="font-medium text-surface-800">{winner.ownerUserName}</p>
+                          <p className="mt-0.5 break-all text-[11px] text-surface-400">{winner.ownerEmail || "No email"}</p>
+                        </div>
+                      </td>
                       <td className="px-4 py-3 text-surface-700 max-w-xs whitespace-normal">{winner.ownerAddress}</td>
                       <td className="px-4 py-3 text-center">
                         <label className="inline-flex items-center justify-center gap-2 rounded-lg border border-surface-200 px-3 py-2 text-xs font-medium text-surface-700">
                           <input
                             type="checkbox"
                             checked={winner.prizeSent}
-                            disabled={togglingPrizeId === winner.id}
-                            onChange={(e) => togglePrizeSent(winner.id, e.target.checked)}
+                            disabled={!winner.prizeId || togglingPrizeId === winner.id}
+                            onChange={(e) => winner.prizeId && togglePrizeSent(winner.prizeId, e.target.checked)}
                             className="h-4 w-4 rounded border-surface-300 text-brand-600"
                           />
-                          {togglingPrizeId === winner.id ? "Saving..." : winner.prizeSent ? "Sent" : "Not sent"}
+                          {!winner.prizeId ? "No prize" : togglingPrizeId === winner.id ? "Saving..." : winner.prizeSent ? "Sent" : "Not sent"}
                         </label>
                       </td>
                     </tr>
@@ -3108,6 +3329,8 @@ function ContestManager() {
                 </tbody>
               </table>
             </div>
+          </div>
+            )}
           </div>
         )}
       </div>
