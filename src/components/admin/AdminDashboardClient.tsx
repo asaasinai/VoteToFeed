@@ -2411,6 +2411,7 @@ function ContestManager() {
   const [contests, setContests] = useState<ContestData[]>([]);
   const [winnerContests, setWinnerContests] = useState<ContestWinnerGroup[]>([]);
   const [expandedWinnerContestId, setExpandedWinnerContestId] = useState<string | null>(null);
+  const [winnerReportOpen, setWinnerReportOpen] = useState(false);
   const [loading, setLoading] = useState(true);
   const [winnersLoading, setWinnersLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
@@ -2670,6 +2671,25 @@ function ContestManager() {
       title: winner.prizeTitle,
     }))
   );
+  type WinnerListItem = (typeof winners)[number];
+  const winnerUserSummaries = Array.from(
+    winners.reduce<Map<string, { key: string; ownerName: string; ownerEmail: string | null; wins: number; totalValue: number; prizes: WinnerListItem[] }>>((map, winner) => {
+      const key = winner.ownerEmail || winner.ownerUserId || winner.ownerUserName || winner.winnerPetName;
+      const current = map.get(key) || {
+        key,
+        ownerName: winner.ownerUserName,
+        ownerEmail: winner.ownerEmail,
+        wins: 0,
+        totalValue: 0,
+        prizes: [],
+      };
+      current.wins += 1;
+      current.totalValue += winner.prizeValue || 0;
+      current.prizes.push(winner);
+      map.set(key, current);
+      return map;
+    }, new Map()).values()
+  ).sort((a, b) => b.totalValue - a.totalValue || b.wins - a.wins);
 
   return (
     <div>
@@ -3149,12 +3169,28 @@ function ContestManager() {
       )}
 
       <div className="mt-8">
-        <div className="flex items-center justify-between mb-4">
+        <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <h3 className="text-lg font-bold text-surface-900">Winners</h3>
             <p className="text-sm text-surface-500 mt-1">Closed contest winners and fulfillment tracking.</p>
           </div>
-          <span className="text-xs font-medium text-surface-400">{endedContests.length} ended contests</span>
+          <div className="flex flex-wrap items-center gap-2 print:hidden">
+            <span className="rounded-full bg-surface-100 px-3 py-1 text-xs font-medium text-surface-500">{endedContests.length} ended contests</span>
+            <button
+              type="button"
+              onClick={() => setWinnerReportOpen((open) => !open)}
+              className={`rounded-lg px-3 py-2 text-xs font-bold transition ${winnerReportOpen ? "bg-surface-900 text-white" : "bg-white text-surface-700 ring-1 ring-surface-200 hover:bg-surface-50"}`}
+            >
+              {winnerReportOpen ? "Hide PDF view" : "PDF view"}
+            </button>
+            <button
+              type="button"
+              onClick={() => window.print()}
+              className="rounded-lg bg-brand-500 px-3 py-2 text-xs font-bold text-white shadow-sm transition hover:bg-brand-600"
+            >
+              Print / Save PDF
+            </button>
+          </div>
         </div>
 
         {winnerMsg && (
@@ -3173,19 +3209,109 @@ function ContestManager() {
           </div>
         ) : (
           <div className="space-y-3">
+            <div className={`${winnerReportOpen ? "block" : "hidden print:block"} rounded-xl border border-surface-200 bg-white p-5 shadow-sm print:border-0 print:p-0 print:shadow-none`}>
+              <div className="mb-5 flex flex-col gap-2 border-b border-surface-200 pb-4 sm:flex-row sm:items-end sm:justify-between">
+                <div>
+                  <p className="text-xs font-bold uppercase tracking-wider text-brand-600">VoteToFeed Winners Report</p>
+                  <h4 className="mt-1 text-xl font-extrabold text-surface-900">Closed Contest Winners</h4>
+                  <p className="mt-1 text-sm text-surface-500">
+                    {winnerContests.length} contests - {winners.length} winner records - generated {new Date().toLocaleDateString()}
+                  </p>
+                </div>
+                <p className="text-xs font-semibold text-surface-400">Prize fulfillment and user winnings</p>
+              </div>
+
+              <div className="overflow-x-auto">
+                <table className="w-full text-left text-xs">
+                  <thead>
+                    <tr className="border-b border-surface-200 bg-surface-50 text-[10px] uppercase tracking-wider text-surface-400">
+                      <th className="px-3 py-2">Contest</th>
+                      <th className="px-3 py-2">Place</th>
+                      <th className="px-3 py-2">Pet</th>
+                      <th className="px-3 py-2">Owner</th>
+                      <th className="px-3 py-2">Prize Won</th>
+                      <th className="px-3 py-2 text-right">Value</th>
+                      <th className="px-3 py-2 text-center">Sent</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-surface-100">
+                    {winners.map((winner) => (
+                      <tr key={`${winner.contestId}-${winner.id}-${winner.placement}`} className="align-top">
+                        <td className="px-3 py-2">
+                          <p className="font-semibold text-surface-900">{winner.contestName}</p>
+                          <p className="text-[10px] text-surface-400">{new Date(winner.contestEndedAt).toLocaleDateString()}</p>
+                        </td>
+                        <td className="px-3 py-2 font-extrabold text-brand-600">#{winner.placement}</td>
+                        <td className="px-3 py-2">
+                          <p className="font-semibold text-surface-800">{winner.winnerPetName}</p>
+                          <p className="text-[10px] text-surface-400">{winner.totalVotes.toLocaleString()} votes</p>
+                        </td>
+                        <td className="px-3 py-2">
+                          <p className="font-semibold text-surface-800">{winner.ownerUserName}</p>
+                          <p className="break-all text-[10px] text-surface-400">{winner.ownerEmail || "No email"}</p>
+                        </td>
+                        <td className="px-3 py-2 text-surface-700">{winner.prizeTitle}</td>
+                        <td className="px-3 py-2 text-right font-semibold text-surface-900">
+                          {winner.prizeValue > 0 ? `$${(winner.prizeValue / 100).toLocaleString()}` : "-"}
+                        </td>
+                        <td className="px-3 py-2 text-center">
+                          <span className={`rounded-full px-2 py-0.5 text-[10px] font-bold ${winner.prizeSent ? "bg-green-100 text-green-700" : "bg-surface-100 text-surface-500"}`}>
+                            {winner.prizeSent ? "Sent" : "Not sent"}
+                          </span>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+
+              <div className="mt-6">
+                <h5 className="text-sm font-extrabold text-surface-900">Winnings by User</h5>
+                <div className="mt-3 grid gap-3 lg:grid-cols-2">
+                  {winnerUserSummaries.map((user) => (
+                    <div key={user.key} className="rounded-lg border border-surface-200 bg-surface-50 p-3">
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0">
+                          <p className="truncate text-sm font-bold text-surface-900">{user.ownerName}</p>
+                          <p className="break-all text-[11px] text-surface-500">{user.ownerEmail || "No email"}</p>
+                        </div>
+                        <div className="shrink-0 text-right">
+                          <p className="text-xs font-bold text-brand-600">{user.wins} wins</p>
+                          <p className="text-[11px] font-semibold text-surface-500">
+                            {user.totalValue > 0 ? `$${(user.totalValue / 100).toLocaleString()}` : "No value"}
+                          </p>
+                        </div>
+                      </div>
+                      <ul className="mt-3 space-y-1.5 text-xs text-surface-700">
+                        {user.prizes.map((winner) => (
+                          <li key={`${user.key}-${winner.contestId}-${winner.placement}`} className="flex gap-2">
+                            <span className="font-bold text-brand-600">#{winner.placement}</span>
+                            <span className="min-w-0">
+                              <span className="font-semibold">{winner.prizeTitle}</span>
+                              <span className="text-surface-400"> - {winner.contestName} / {winner.winnerPetName}</span>
+                            </span>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+
             {winnerContests.map((contest) => {
               const isOpen = expandedWinnerContestId === contest.contestId;
               const topWinner = contest.winners[0];
               const sentCount = contest.winners.filter((winner) => winner.prizeSent).length;
 
               return (
-                <div key={contest.contestId} className="overflow-hidden rounded-lg border border-surface-200 bg-white shadow-sm">
-                  <button
-                    type="button"
-                    onClick={() => setExpandedWinnerContestId(isOpen ? null : contest.contestId)}
-                    className="flex w-full flex-col gap-3 px-4 py-4 text-left transition hover:bg-surface-50 sm:flex-row sm:items-center sm:justify-between"
-                  >
-                    <div className="flex min-w-0 items-center gap-3">
+                <div key={contest.contestId} className="overflow-hidden rounded-lg border border-surface-200 bg-white shadow-sm print:hidden">
+                  <div className="flex flex-col gap-3 px-4 py-4 transition hover:bg-surface-50 sm:flex-row sm:items-center sm:justify-between">
+                    <button
+                      type="button"
+                      onClick={() => setExpandedWinnerContestId(isOpen ? null : contest.contestId)}
+                      className="flex min-w-0 flex-1 items-center gap-3 text-left"
+                    >
                       <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg bg-brand-50 text-sm font-extrabold text-brand-600 ring-1 ring-brand-100">
                         {contest.winners.length}
                       </div>
@@ -3204,16 +3330,23 @@ function ContestManager() {
                           {topWinner ? ` - winner ${topWinner.winnerPetName} with ${topWinner.totalVotes.toLocaleString()} votes` : ""}
                         </p>
                       </div>
-                    </div>
+                    </button>
                     <div className="flex items-center gap-3 sm:justify-end">
                       <span className="rounded-full bg-surface-100 px-3 py-1 text-xs font-semibold text-surface-600">
                         {sentCount}/{contest.winners.length} sent
                       </span>
-                      <span className="rounded-lg bg-brand-500 px-3 py-2 text-xs font-bold text-white shadow-sm">
+                      <Link href={`/contests/${contest.contestId}`} className="rounded-lg bg-white px-3 py-2 text-xs font-bold text-surface-700 ring-1 ring-surface-200 transition hover:bg-brand-50 hover:text-brand-600">
+                        Open contest
+                      </Link>
+                      <button
+                        type="button"
+                        onClick={() => setExpandedWinnerContestId(isOpen ? null : contest.contestId)}
+                        className="rounded-lg bg-brand-500 px-3 py-2 text-xs font-bold text-white shadow-sm transition hover:bg-brand-600"
+                      >
                         {isOpen ? "Hide top 3" : "View top 3"}
-                      </span>
+                      </button>
                     </div>
-                  </button>
+                  </div>
 
                   {isOpen && (
                     <div className="space-y-2 border-t border-surface-100 bg-surface-50/60 p-3">
