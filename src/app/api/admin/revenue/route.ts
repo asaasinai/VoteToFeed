@@ -13,23 +13,52 @@ export async function GET(req: NextRequest) {
     if ((session.user as { role?: string }).role !== "ADMIN") return NextResponse.json({ error: "Forbidden" }, { status: 403 });
 
     const { searchParams } = new URL(req.url);
-    const range = searchParams.get("range") || "all"; // today, 7d, 30d, 90d, all
+    const range = searchParams.get("range") || "all"; // today, 7d, 30d, 90d, custom, all
     const tier = searchParams.get("tier") || ""; // STARTER, FRIEND, etc.
     const search = searchParams.get("search") || "";
+    const from = searchParams.get("from") || "";
+    const to = searchParams.get("to") || "";
     const page = parseInt(searchParams.get("page") || "1");
     const limit = Math.min(parseInt(searchParams.get("limit") || "25"), 100);
     const skip = (page - 1) * limit;
 
     // Build date filter
-    let dateFilter: Date | undefined;
+    const parseDateBoundary = (value: string, endOfDay = false) => {
+      const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
+      if (!match) return null;
+      const [, year, month, day] = match;
+      return new Date(
+        Number(year),
+        Number(month) - 1,
+        Number(day),
+        endOfDay ? 23 : 0,
+        endOfDay ? 59 : 0,
+        endOfDay ? 59 : 0,
+        endOfDay ? 999 : 0,
+      );
+    };
+
+    const createdAt: { gte?: Date; lte?: Date } = {};
     const now = new Date();
-    if (range === "today") dateFilter = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-    else if (range === "7d") dateFilter = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
-    else if (range === "30d") dateFilter = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
-    else if (range === "90d") dateFilter = new Date(now.getTime() - 90 * 24 * 60 * 60 * 1000);
+    const fromDate = parseDateBoundary(from);
+    const toDate = parseDateBoundary(to, true);
+
+    if (fromDate) createdAt.gte = fromDate;
+    if (toDate) createdAt.lte = toDate;
+
+    if (!fromDate && !toDate) {
+      if (range === "today") createdAt.gte = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+      else if (range === "7d") createdAt.gte = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+      else if (range === "30d") createdAt.gte = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+      else if (range === "90d") createdAt.gte = new Date(now.getTime() - 90 * 24 * 60 * 60 * 1000);
+    }
+
+    if (createdAt.gte && createdAt.lte && createdAt.gte > createdAt.lte) {
+      return NextResponse.json({ error: "From date must be before to date" }, { status: 400 });
+    }
 
     const where: Record<string, unknown> = { status: "COMPLETED" };
-    if (dateFilter) where.createdAt = { gte: dateFilter };
+    if (createdAt.gte || createdAt.lte) where.createdAt = createdAt;
     if (tier) where.packageTier = tier;
     if (search) {
       where.user = {
@@ -40,7 +69,7 @@ export async function GET(req: NextRequest) {
       };
     }
 
-    const [purchases, total, aggregate, byTier] = await Promise.all([
+    const [purchases, total, aggregate, byTier, pendingCount] = await Promise.all([
       prisma.purchase.findMany({
         where,
         include: { user: { select: { name: true, email: true } } },
@@ -61,6 +90,7 @@ export async function GET(req: NextRequest) {
         _count: true,
         orderBy: { _sum: { amount: "desc" } },
       }),
+      prisma.purchase.count({ where: { status: "PENDING" } }),
     ]);
 
     return NextResponse.json({
@@ -73,10 +103,14 @@ export async function GET(req: NextRequest) {
         userName: p.user.name,
         userEmail: p.user.email,
         createdAt: p.createdAt.toISOString(),
+        isFirstTimeBuyer: p.isFirstTimeBuyer,
+        originalAmount: p.originalAmount,
+        discountPct: p.discountPct,
       })),
       total,
       page,
       totalPages: Math.ceil(total / limit),
+      pendingCount,
       summary: {
         totalRevenue: aggregate._sum.amount ?? 0,
         totalVotesSold: aggregate._sum.votes ?? 0,

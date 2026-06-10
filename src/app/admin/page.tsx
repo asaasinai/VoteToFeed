@@ -4,7 +4,7 @@ import { authOptions } from "@/lib/auth";
 import prisma from "@/lib/prisma";
 import { AdminDashboardClient } from "@/components/admin/AdminDashboardClient";
 import { AdminSectionNav } from "@/components/admin/AdminSectionNav";
-import { getCurrentWeekId } from "@/lib/utils";
+import { getCurrentWeekId, getRevenuePeriodStarts } from "@/lib/utils";
 
 export default async function AdminPage() {
   const session = await getServerSession(authOptions);
@@ -13,6 +13,7 @@ export default async function AdminPage() {
   if (role !== "ADMIN") redirect("/dashboard");
 
   const weekId = getCurrentWeekId();
+  const { weekStart, monthStart } = getRevenuePeriodStarts();
 
   const [
     settings,
@@ -23,6 +24,7 @@ export default async function AdminPage() {
     weeklyVoteStats,
     totalRevenue,
     weeklyRevenue,
+    monthToDateRevenue,
     recentUsers,
     recentPurchases,
     topPetsThisWeek,
@@ -52,7 +54,15 @@ export default async function AdminPage() {
     prisma.purchase.aggregate({
       where: {
         status: "COMPLETED",
-        createdAt: { gte: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000) },
+        createdAt: { gte: weekStart },
+      },
+      _sum: { amount: true },
+      _count: true,
+    }),
+    prisma.purchase.aggregate({
+      where: {
+        status: "COMPLETED",
+        createdAt: { gte: monthStart },
       },
       _sum: { amount: true },
       _count: true,
@@ -111,6 +121,8 @@ export default async function AdminPage() {
         stripeSecretKey: settingsMap.stripe_secret_key ?? "",
         stripePublishableKey: settingsMap.stripe_publishable_key ?? "",
         stripeWebhookSecret: settingsMap.stripe_webhook_secret ?? "",
+        firstTimeBuyerDiscountEnabled: settingsMap.first_time_buyer_discount_enabled ?? "true",
+        firstTimeBuyerDiscountPct: settingsMap.first_time_buyer_discount_pct ?? "20",
       }}
       settingLogs={settingLogs.map((l) => ({
         key: l.setting.key,
@@ -132,6 +144,8 @@ export default async function AdminPage() {
         totalMealsProvided: totalRevenue._sum.mealsProvided ?? 0,
         weeklyRevenueCents: weeklyRevenue._sum.amount ?? 0,
         weeklyPurchases: weeklyRevenue._count,
+        monthToDateRevenueCents: monthToDateRevenue._sum.amount ?? 0,
+        monthToDatePurchases: monthToDateRevenue._count,
       }}
       usersByRole={usersByRole.map((r) => ({ role: r.role, count: r._count }))}
       petsByType={petsByType.map((p) => ({ type: p.type, count: p._count }))}

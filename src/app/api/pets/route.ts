@@ -111,7 +111,7 @@ export async function POST(req: NextRequest) {
 
     const userId = (session.user as Record<string, unknown>).id as string;
     const body = await req.json();
-    const { name, type, breed, bio, ownerName, ownerFirstName, ownerLastName, address, city, state, zipCode, photos, tags, contestIds } = body;
+    const { name, type, breed, bio, ownerName, ownerFirstName, ownerLastName, address, city, state, zipCode, photos, tags, contestIds, story } = body;
 
     // Support both combined ownerName and separate first/last
     const finalOwnerName = ownerName || [ownerFirstName, ownerLastName].filter(Boolean).join(" ");
@@ -172,19 +172,24 @@ export async function POST(req: NextRequest) {
             where: {
               id: { in: contestIds },
               isActive: true,
-              petType: type,
+              petType: { in: [type, "ALL"] },
               endDate: { gte: new Date() },
+              // FLAGSHIP contests only accept entries while the phase is OPEN
+              OR: [
+                { type: { not: "FLAGSHIP" } },
+                { type: "FLAGSHIP", currentPhase: "OPEN" },
+              ],
             },
             select: { id: true },
           }).then((contests) => contests.map((contest) => contest.id))
         : await tx.contest.findMany({
-            where: { isActive: true, weekId, petType: type, type: "NATIONAL" },
+            where: { isActive: true, weekId, petType: { in: [type, "ALL"] }, type: "NATIONAL" },
             select: { id: true },
           }).then((contests) => contests.map((contest) => contest.id));
 
       if (selectedContestIds.length > 0) {
         await tx.contestEntry.createMany({
-          data: selectedContestIds.map((contestId) => ({ contestId, petId: createdPet.id })),
+          data: selectedContestIds.map((contestId) => ({ contestId, petId: createdPet.id, story: story || null })),
           skipDuplicates: true,
         });
       }
@@ -206,6 +211,50 @@ export async function POST(req: NextRequest) {
       });
     } catch (scheduleError) {
       console.error("Failed to schedule welcome comments:", scheduleError);
+    }
+
+    // Auto-create a feed post introducing the new pet
+    try {
+      const petEmoji = type === "DOG" ? "🐶" : type === "CAT" ? "🐱" : "🐾";
+      const lines: string[] = [`${petEmoji} Meet ${name}!`];
+      if (bio) lines.push(bio);
+      if (story) lines.push(story);
+      const postContent = lines.join("\n\n");
+
+      function isTrustedMediaUrl(url: string): boolean {
+        if (!url) return false;
+        if (url.startsWith("/uploads/")) return true;
+        try {
+          const { hostname, protocol } = new URL(url);
+          if (protocol !== "https:") return false;
+          if (hostname === "public.blob.vercel-storage.com") return true;
+          if (hostname.endsWith(".public.blob.vercel-storage.com")) return true;
+          if (process.env.BLOB_BASE_URL) {
+            try { if (hostname === new URL(process.env.BLOB_BASE_URL).hostname) return true; } catch { /* ignore */ }
+          }
+          return false;
+        } catch { return false; }
+      }
+
+      const petPhotos: string[] = (Array.isArray(photos) ? photos : [])
+        .filter((u): u is string => typeof u === "string" && isTrustedMediaUrl(u.trim()))
+        .slice(0, 3);
+      const postImageUrl =
+        petPhotos.length === 0
+          ? null
+          : petPhotos.length === 1
+          ? petPhotos[0]
+          : JSON.stringify(petPhotos);
+
+      await prisma.userPost.create({
+        data: {
+          content: postContent,
+          imageUrl: postImageUrl,
+          userId,
+        },
+      });
+    } catch (postError) {
+      console.error("Failed to auto-create feed post for new pet:", postError);
     }
 
     return NextResponse.json(pet, { status: 201 });

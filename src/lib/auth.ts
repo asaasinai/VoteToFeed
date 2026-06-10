@@ -69,9 +69,14 @@ export const authOptions: NextAuthOptions = {
     maxAge: 30 * 24 * 60 * 60,
   },
   callbacks: {
-    async jwt({ token, user }) {
+    async jwt({ token, user, account, isNewUser }) {
       if (user) {
         token.id = user.id;
+      }
+      // Mark new Google OAuth registrations so the client can fire the Meta Pixel
+      // on whatever page the user lands on after OAuth completes.
+      if (isNewUser && account?.provider === "google") {
+        token.newGoogleUserAt = Date.now();
       }
       if (token.email) {
         const dbUser = await prisma.user.findUnique({
@@ -91,6 +96,9 @@ export const authOptions: NextAuthOptions = {
         (session.user as Record<string, unknown>).id = token.id;
         (session.user as Record<string, unknown>).role = token.role;
         (session.user as Record<string, unknown>).image = token.picture;
+        if (token.newGoogleUserAt) {
+          (session.user as Record<string, unknown>).newGoogleUserAt = token.newGoogleUserAt;
+        }
       }
       return session;
     },

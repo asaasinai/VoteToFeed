@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
+import { AdminSupportTab } from "./AdminSupportTab";
 
 /* ─── Types ────────────────────────────────────────────── */
 type EmailStats = {
@@ -61,7 +62,7 @@ const BUILTIN_TEMPLATE_IDS = [
 
 const CATEGORIES = ["Daily", "Countdown", "Engagement", "Post-Contest", "Winner"];
 
-type Tab = "overview" | "preview" | "generate" | "saved" | "send" | "contest" | "logs";
+type Tab = "overview" | "support" | "manual" | "preview" | "generate" | "saved" | "send" | "contest" | "logs";
 
 type ContestEmailType = {
   type: string;
@@ -171,6 +172,13 @@ export function AdminEmailsClient() {
   const [testEmail, setTestEmail] = useState("");
   const [testSending, setTestSending] = useState(false);
   const [testResult, setTestResult] = useState("");
+
+  // Manual Send state
+  const [manualTo, setManualTo] = useState("");
+  const [manualSubject, setManualSubject] = useState("");
+  const [manualBody, setManualBody] = useState("");
+  const [manualSending, setManualSending] = useState(false);
+  const [manualResult, setManualResult] = useState<{ kind: "success" | "error"; message: string } | null>(null);
 
   // Contest Emails state
   const [ceContestId, setCeContestId] = useState("");
@@ -325,6 +333,41 @@ export function AdminEmailsClient() {
     }
   }
 
+  async function handleManualSend() {
+    if (!manualTo.trim() || !manualSubject.trim() || !manualBody.trim()) {
+      setManualResult({ kind: "error", message: "Email to, subject, and body are required." });
+      return;
+    }
+
+    setManualSending(true);
+    setManualResult(null);
+    try {
+      const res = await fetch("/api/admin/emails/manual-send", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ to: manualTo, subject: manualSubject, body: manualBody }),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json.error || "Send failed");
+
+      const sent = Number(json.sent || 0);
+      const failed = Number(json.failed || 0);
+      setManualResult({
+        kind: failed > 0 ? "error" : "success",
+        message: failed > 0 ? `${sent} sent, ${failed} failed.` : `Email sent to ${sent} recipient${sent === 1 ? "" : "s"}.`,
+      });
+      if (failed === 0) {
+        setManualTo("");
+        setManualSubject("");
+        setManualBody("");
+      }
+    } catch (err) {
+      setManualResult({ kind: "error", message: err instanceof Error ? err.message : "Failed to send email." });
+    } finally {
+      setManualSending(false);
+    }
+  }
+
   async function fetchContestEmails(cId: string) {
     if (!cId) { setCeInfo(null); return; }
     setCeLoading(true);
@@ -416,6 +459,8 @@ export function AdminEmailsClient() {
 
   const TABS: Array<{ id: Tab; label: string }> = [
     { id: "overview", label: "📊 Dashboard" },
+    { id: "support", label: "🎫 Support" },
+    { id: "manual", label: "✉️ Manual" },
     { id: "preview", label: "👁️ Preview" },
     { id: "generate", label: "🤖 AI Generate" },
     { id: "saved", label: "💾 Templates" },
@@ -430,25 +475,29 @@ export function AdminEmailsClient() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold text-surface-900">Email Management</h1>
-          <p className="text-sm text-surface-500 mt-1">Preview, generate, manage &amp; broadcast emails</p>
+          <p className="text-sm text-surface-500 mt-1">Preview, generate, manage, send &amp; broadcast emails</p>
         </div>
         <button onClick={fetchData} className="rounded-lg bg-surface-100 px-4 py-2 text-sm font-medium text-surface-700 hover:bg-surface-200 transition-colors">↻ Refresh</button>
       </div>
 
-      {/* Stats */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        <StatCard label="Emails Today" value={data.stats.today} sub="Since midnight UTC" />
-        <StatCard label="Last 7 Days" value={data.stats.last7d} />
-        <StatCard label="Last 30 Days" value={data.stats.last30d} />
-        <StatCard label="All Time" value={data.stats.total} />
-      </div>
+      {tab === "overview" && (
+        <>
+          {/* Stats */}
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+            <StatCard label="Emails Today" value={data.stats.today} sub="Since midnight UTC" />
+            <StatCard label="Last 7 Days" value={data.stats.last7d} />
+            <StatCard label="Last 30 Days" value={data.stats.last30d} />
+            <StatCard label="All Time" value={data.stats.total} />
+          </div>
 
-      {/* Chart */}
-      {data.byDay.length > 0 && (
-        <div className="bg-white rounded-xl border border-surface-200 p-5 shadow-sm">
-          <h3 className="text-sm font-semibold text-surface-700 mb-4">Emails per Day (Last 7 Days)</h3>
-          <BarChart data={data.byDay} />
-        </div>
+          {/* Chart */}
+          {data.byDay.length > 0 && (
+            <div className="bg-white rounded-xl border border-surface-200 p-5 shadow-sm">
+              <h3 className="text-sm font-semibold text-surface-700 mb-4">Emails per Day (Last 7 Days)</h3>
+              <BarChart data={data.byDay} />
+            </div>
+          )}
+        </>
       )}
 
       {/* Tabs */}
@@ -533,6 +582,75 @@ export function AdminEmailsClient() {
                 <li>• <strong>Countdown</strong> sent once per milestone — never duplicated</li>
                 <li>• All emails deduped via ContestEmailLog</li>
               </ul>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ═══════ TAB: MANUAL EMAIL ═══════ */}
+      {tab === "manual" && (
+        <div className="space-y-4">
+          <div className="bg-white rounded-xl border border-surface-200 p-5 shadow-sm">
+            <h3 className="text-sm font-semibold text-surface-700 mb-1">Manual Email</h3>
+            <p className="text-xs text-surface-400 mb-4">Send a direct email with plain text body.</p>
+
+            <div className="grid gap-4">
+              <label className="block">
+                <span className="text-xs font-semibold text-surface-600 block mb-2">Email to</span>
+                <input
+                  type="text"
+                  value={manualTo}
+                  onChange={(e) => setManualTo(e.target.value)}
+                  placeholder="customer@email.com"
+                  className="w-full px-3 py-2 rounded-lg border border-surface-200 text-sm focus:border-red-300 focus:ring-1 focus:ring-red-200 outline-none"
+                />
+              </label>
+
+              <label className="block">
+                <span className="text-xs font-semibold text-surface-600 block mb-2">Subject</span>
+                <input
+                  type="text"
+                  value={manualSubject}
+                  onChange={(e) => setManualSubject(e.target.value)}
+                  placeholder="Email subject"
+                  className="w-full px-3 py-2 rounded-lg border border-surface-200 text-sm focus:border-red-300 focus:ring-1 focus:ring-red-200 outline-none"
+                />
+              </label>
+
+              <label className="block">
+                <span className="text-xs font-semibold text-surface-600 block mb-2">Body</span>
+                <textarea
+                  value={manualBody}
+                  onChange={(e) => setManualBody(e.target.value)}
+                  placeholder="Write the email body..."
+                  rows={12}
+                  className="w-full px-3 py-2 rounded-lg border border-surface-200 text-sm leading-6 focus:border-red-300 focus:ring-1 focus:ring-red-200 outline-none resize-y"
+                />
+              </label>
+
+              <div className="flex flex-wrap items-center gap-2">
+                <Btn onClick={handleManualSend} disabled={manualSending}>
+                  {manualSending ? "Sending..." : "Send Email"}
+                </Btn>
+                <Btn
+                  variant="secondary"
+                  onClick={() => {
+                    setManualTo("");
+                    setManualSubject("");
+                    setManualBody("");
+                    setManualResult(null);
+                  }}
+                  disabled={manualSending}
+                >
+                  Clear
+                </Btn>
+              </div>
+
+              {manualResult && (
+                <div className={`rounded-xl border p-4 text-sm font-medium ${manualResult.kind === "success" ? "border-green-200 bg-green-50 text-green-700" : "border-red-200 bg-red-50 text-red-700"}`}>
+                  {manualResult.message}
+                </div>
+              )}
             </div>
           </div>
         </div>
@@ -1132,6 +1250,9 @@ export function AdminEmailsClient() {
           </div>
         </div>
       )}
+
+      {/* ═══════ TAB: SUPPORT (tickets + sent/received emails) ═══════ */}
+      {tab === "support" && <AdminSupportTab />}
 
       {/* ═══════ TAB: LOGS ═══════ */}
       {tab === "logs" && (

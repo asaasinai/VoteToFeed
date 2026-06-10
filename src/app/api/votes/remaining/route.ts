@@ -26,6 +26,7 @@ export async function GET(req: NextRequest) {
         select: {
           freeVotesRemaining: true,
           paidVoteBalance: true,
+          votingStreakDays: true,
         },
       });
 
@@ -37,6 +38,7 @@ export async function GET(req: NextRequest) {
         isAnonymous: false,
         freeVotesRemaining: user.freeVotesRemaining,
         paidVoteBalance: user.paidVoteBalance,
+        votingStreakDays: user.votingStreakDays ?? 0,
       });
     }
 

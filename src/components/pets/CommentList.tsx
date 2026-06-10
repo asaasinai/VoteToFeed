@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
 import { timeAgo } from "@/lib/utils";
 import { AvatarFallback } from "@/components/shared/AvatarFallback";
 import { CommentForm } from "./CommentForm";
@@ -11,7 +12,7 @@ type Reply = {
   createdAt: string | Date;
   likeCount: number;
   likedByMe: boolean;
-  user: { name: string | null; image: string | null };
+  user: { id: string; name: string | null; image: string | null };
 };
 
 type Comment = {
@@ -20,7 +21,7 @@ type Comment = {
   createdAt: string | Date;
   likeCount: number;
   likedByMe: boolean;
-  user: { name: string | null; image: string | null };
+  user: { id: string; name: string | null; image: string | null };
   replies: Reply[];
 };
 
@@ -91,15 +92,17 @@ export function CommentList({
       {comments.map((c) => (
         <li key={c.id} className="py-4" id={`comment-${c.id}`}>
           <div className="flex gap-3">
-            <AvatarFallback
-              image={c.user.image}
-              name={c.user.name}
-              className="w-11 h-11 rounded-full object-cover flex-shrink-0"
-              fallbackClassName="w-11 h-11 rounded-full bg-surface-100 flex items-center justify-center flex-shrink-0 text-xs font-bold text-surface-500"
-            />
+            <Link href={`/users/${c.user.id}`} className="flex-shrink-0">
+              <AvatarFallback
+                image={c.user.image}
+                name={c.user.name}
+                className="w-11 h-11 rounded-full object-cover flex-shrink-0 hover:opacity-80 transition-opacity"
+                fallbackClassName="w-11 h-11 rounded-full bg-surface-100 flex items-center justify-center flex-shrink-0 text-xs font-bold text-surface-500 hover:opacity-80 transition-opacity"
+              />
+            </Link>
             <div className="flex-1 min-w-0">
               <div className="flex items-center gap-2">
-                <p className="text-base font-semibold text-surface-900">{abbreviateName(c.user.name)}</p>
+                <Link href={`/users/${c.user.id}`} className="text-base font-semibold text-surface-900 hover:text-brand-600 transition-colors">{abbreviateName(c.user.name)}</Link>
                 <p className="text-xs text-surface-600 font-medium">{timeAgo(new Date(c.createdAt))}</p>
               </div>
               <p className="text-base text-surface-800 font-medium mt-1">{c.text}</p>
@@ -140,15 +143,17 @@ export function CommentList({
                   {c.replies.map((r) => (
                     <li key={r.id} id={`comment-${r.id}`}>
                       <div className="flex gap-2">
-                        <AvatarFallback
-                          image={r.user.image}
-                          name={r.user.name}
-                          className="w-7 h-7 rounded-full object-cover flex-shrink-0"
-                          fallbackClassName="w-7 h-7 rounded-full bg-surface-100 flex items-center justify-center flex-shrink-0 text-[10px] font-bold text-surface-500"
-                        />
+                        <Link href={`/users/${r.user.id}`} className="flex-shrink-0">
+                          <AvatarFallback
+                            image={r.user.image}
+                            name={r.user.name}
+                            className="w-7 h-7 rounded-full object-cover flex-shrink-0 hover:opacity-80 transition-opacity"
+                            fallbackClassName="w-7 h-7 rounded-full bg-surface-100 flex items-center justify-center flex-shrink-0 text-[10px] font-bold text-surface-500 hover:opacity-80 transition-opacity"
+                          />
+                        </Link>
                         <div>
                           <div className="flex items-center gap-2">
-                            <p className="text-xs font-semibold text-surface-900">{abbreviateName(r.user.name)}</p>
+                            <Link href={`/users/${r.user.id}`} className="text-xs font-semibold text-surface-900 hover:text-brand-600 transition-colors">{abbreviateName(r.user.name)}</Link>
                             <p className="text-xs text-surface-500">{timeAgo(new Date(r.createdAt))}</p>
                           </div>
                           <p className="text-sm text-surface-700 font-medium">{r.text}</p>

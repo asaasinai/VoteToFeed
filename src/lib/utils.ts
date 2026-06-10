@@ -18,10 +18,26 @@ export function formatDisplayName(
   return "Anonymous";
 }
 
+/**
+ * Format a user's account name as "First L." for public display.
+ * e.g. "Krenar Mahmuti" → "Krenar M."
+ *      "Krenar" → "Krenar"
+ *      null/empty → "Anonymous"
+ */
+export function formatUserName(name: string | null | undefined): string {
+  if (!name?.trim()) return "Anonymous";
+  const parts = name.trim().split(/\s+/);
+  if (parts.length >= 2) {
+    return `${parts[0]} ${parts[parts.length - 1][0].toUpperCase()}.`;
+  }
+  return parts[0];
+}
+
 // Simple class name merger
 export function cn(...inputs: (string | undefined | null | false)[]): string {
   return inputs.filter(Boolean).join(" ");
 }
+
 
 // Format vote count with commas
 export function formatVotes(count: number): string {
@@ -63,6 +79,20 @@ export function getWeekDateRange(weekId?: string): {
   end.setUTCDate(start.getUTCDate() + 7);
 
   return { start, end };
+}
+
+export function getRevenuePeriodStarts(now = new Date()): {
+  weekStart: Date;
+  monthStart: Date;
+} {
+  const todayUtc = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+  const weekStart = new Date(todayUtc);
+  weekStart.setUTCDate(todayUtc.getUTCDate() - todayUtc.getUTCDay());
+
+  return {
+    weekStart,
+    monthStart: new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1)),
+  };
 }
 
 export function daysRemainingInWeek(): number {
@@ -130,8 +160,8 @@ export const US_STATES: Record<string, string> = {
 export const VOTE_PACKAGES = [
   { tier: "STARTER", votes: 5, price: 99, label: "Starter" },
   { tier: "FRIEND", votes: 30, price: 499, label: "Friend" },
-  { tier: "SUPPORTER", votes: 60, price: 999, label: "Supporter" },
   { tier: "CHAMPION", votes: 150, price: 2499, label: "Champion" },
-  { tier: "HERO", votes: 300, price: 4999, label: "Hero" },
-  { tier: "LEGEND", votes: 600, price: 9999, label: "Legend" },
+  { tier: "HERO", votes: 750, price: 9900, label: "Hero" },
+  { tier: "LEGEND", votes: 2500, price: 24900, label: "Legend" },
+  { tier: "ICON", votes: 6000, price: 49900, label: "Icon" },
 ] as const;

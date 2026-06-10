@@ -1,7 +1,9 @@
 import { Resend } from "resend";
+import { createHmac, timingSafeEqual } from "crypto";
 import { rankSuffix, VOTE_PACKAGES } from "@/lib/utils";
 
-const FROM_EMAIL = "VoteToFeed <noreply@votetofeed.com>";
+// Use a friendly from-address — "noreply@" is a well-known spam trigger
+const FROM_EMAIL = "VoteToFeed <hello@votetofeed.com>";
 
 function getResend() {
   if (!process.env.RESEND_API_KEY) {
@@ -10,9 +12,96 @@ function getResend() {
   return new Resend(process.env.RESEND_API_KEY);
 }
 
-export async function sendEmail(payload: Parameters<ReturnType<typeof getResend>["emails"]["send"]>[0]) {
+export function buildUnsubscribeUrl(email: string): string {
+  const secret = process.env.NEXTAUTH_SECRET || "";
+  const token = createHmac("sha256", secret).update(email.toLowerCase()).digest("hex");
+  const base = appUrl();
+  return `${base}/api/unsubscribe?email=${encodeURIComponent(email)}&token=${token}`;
+}
+
+/** Verify an unsubscribe token (used in /api/unsubscribe route). */
+export function verifyUnsubscribeToken(email: string, token: string): boolean {
+  const secret = process.env.NEXTAUTH_SECRET || "";
+  const expected = createHmac("sha256", secret).update(email.toLowerCase()).digest("hex");
+  try {
+    return timingSafeEqual(Buffer.from(expected, "hex"), Buffer.from(token, "hex"));
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Strip HTML tags and decode common entities for plain-text fallback.
+ * Required for inbox placement — HTML-only emails score higher on spam filters.
+ */
+function htmlToPlainText(html: string): string {
+  return html
+    .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, "")
+    .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, "")
+    .replace(/<!--[\s\S]*?-->/g, "")
+    .replace(/<br\s*\/?>/gi, "\n")
+    .replace(/<\/?(p|div|tr|table|td|li|h[1-6])[^>]*>/gi, "\n")
+    .replace(/<[^>]+>/g, "")
+    .replace(/&nbsp;/g, " ")
+    .replace(/&amp;/g, "&")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&quot;/g, '"')
+    .replace(/\u200d/g, "")
+    .replace(/[ \t]+/g, " ")
+    .replace(/(\n\s*){3,}/g, "\n\n")
+    .trim();
+}
+
+export async function sendEmail(
+  payload: Parameters<ReturnType<typeof getResend>["emails"]["send"]>[0],
+  { transactional = false }: { transactional?: boolean } = {},
+) {
   const resend = getResend();
-  const { data, error } = await resend.emails.send(payload);
+
+  // Auto-derive recipient email for the unsubscribe token
+  const toEmail = !transactional
+    ? (Array.isArray(payload.to) ? payload.to[0] : payload.to) as string | undefined
+    : undefined;
+
+  const unsubscribeUrl = toEmail ? buildUnsubscribeUrl(toEmail) : undefined;
+
+  // Inject reply-to and (for bulk mail) List-Unsubscribe headers required by Gmail & Yahoo
+  const finalPayload: Record<string, unknown> = {
+    ...payload,
+    reply_to: "hello@votetofeed.com",
+    ...(unsubscribeUrl && {
+      headers: {
+        ...((payload as { headers?: Record<string, string> }).headers ?? {}),
+        "List-Unsubscribe": `<${unsubscribeUrl}>`,
+        "List-Unsubscribe-Post": "List-Unsubscribe=One-Click",
+      },
+    }),
+  };
+
+  // Inject the unsubscribe URL into the HTML footer placeholder (<!--UNSUB_URL-->)
+  if (typeof finalPayload.html === "string") {
+    if (unsubscribeUrl) {
+      finalPayload.html = (finalPayload.html as string)
+        .replace(/<!--UNSUB_BLOCK_START-->/g, "")
+        .replace(/<!--UNSUB_URL-->/g, unsubscribeUrl)
+        .replace(/<!--UNSUB_BLOCK_END-->/g, "");
+    } else {
+      // Transactional emails: remove the block entirely
+      finalPayload.html = (finalPayload.html as string).replace(
+        /<!--UNSUB_BLOCK_START-->[\s\S]*?<!--UNSUB_BLOCK_END-->/g,
+        "",
+      );
+    }
+    // Auto-generate plain-text fallback if not provided — lowers spam score
+    if (!finalPayload.text) {
+      finalPayload.text = htmlToPlainText(finalPayload.html as string);
+    }
+  }
+
+  const { data, error } = await resend.emails.send(
+    finalPayload as unknown as Parameters<ReturnType<typeof getResend>["emails"]["send"]>[0],
+  );
   if (error) {
     // Log full error so it shows in Vercel logs
     console.error("[Resend] email send failed:", JSON.stringify(error));
@@ -75,7 +164,9 @@ ${preheader ? `<div style="display:none;max-height:0;overflow:hidden;mso-hide:al
               &nbsp;·&nbsp;
               <a href="${url}/terms" style="color:#a1a1aa;text-decoration:none;">Terms</a>
             </p>
-            <p style="margin:0;font-size:12px;color:#a1a1aa;">You're receiving this because you have an account on VoteToFeed.</p>
+            <p style="margin:0 0 6px;font-size:12px;color:#a1a1aa;">You're receiving this because you have an account on VoteToFeed.</p>
+            <!--UNSUB_BLOCK_START--><p style="margin:0;font-size:12px;"><a href="<!--UNSUB_URL-->" style="color:#a1a1aa;text-decoration:underline;">Unsubscribe from these emails</a></p><!--UNSUB_BLOCK_END-->
+            <p style="margin:8px 0 0;font-size:11px;color:#d4d4d8;">VoteToFeed · 2261 Market Street #4955 · San Francisco, CA 94114</p>
           </td>
         </tr>
 
@@ -124,13 +215,16 @@ ${preheader ? `<div style="display:none;max-height:0;overflow:hidden;mso-hide:al
         </tr>
         <tr>
           <td style="background:#ffffff;border-radius:0 0 16px 16px;padding:24px 40px;text-align:center;">
-            <p style="margin:0;font-size:13px;color:#71717a;">
+            <p style="margin:0 0 8px;font-size:13px;color:#71717a;">
               <a href="${url}" style="color:#ef4444;text-decoration:none;font-weight:600;">VoteToFeed</a>
               &nbsp;·&nbsp;
               <a href="${url}/privacy" style="color:#a1a1aa;text-decoration:none;">Privacy</a>
               &nbsp;·&nbsp;
               <a href="${url}/terms" style="color:#a1a1aa;text-decoration:none;">Terms</a>
             </p>
+            <p style="margin:0 0 6px;font-size:12px;color:#a1a1aa;">You're receiving this because you have an account on VoteToFeed.</p>
+            <!--UNSUB_BLOCK_START--><p style="margin:0;font-size:12px;"><a href="<!--UNSUB_URL-->" style="color:#a1a1aa;text-decoration:underline;">Unsubscribe from these emails</a></p><!--UNSUB_BLOCK_END-->
+            <p style="margin:8px 0 0;font-size:11px;color:#d4d4d8;">VoteToFeed · 2261 Market Street #4955 · San Francisco, CA 94114</p>
           </td>
         </tr>
         <tr><td style="height:24px;"></td></tr>
@@ -205,8 +299,12 @@ export async function sendPurchaseConfirmation(
   votes: number,
   amount: number,
   mealsProvided: number,
-  animalType: string
+  animalType: string,
+  petId?: string,
+  petName?: string
 ) {
+  const ctaUrl = petId ? `${appUrl()}/pets/${petId}` : appUrl();
+  const ctaLabel = petName ? `Go vote for ${petName} now →` : "Start Voting Now";
   await sendEmail({
     from: FROM_EMAIL,
     to: [to],
@@ -216,8 +314,37 @@ export async function sendPurchaseConfirmation(
       <h1 style="margin:0 0 20px;font-size:28px;font-weight:900;color:#18181b;line-height:1.2;">${votes} votes added<br/>to your account! ✅</h1>
       ${statRow([{ label: "Votes Added", value: String(votes) }, { label: "Amount Paid", value: `$${(amount / 100).toFixed(2)}` }, { label: "Meals Provided", value: String(Math.round(mealsProvided)) }])}
       ${infoBox(`<strong>🐾 ${Math.round(mealsProvided)} shelter pets</strong> will be fed because of your vote. Thank you for making a difference!`, "#f0fdf4", "#86efac")}
-      ${ctaButton("Start Voting Now", appUrl(), "#16a34a")}
+      ${ctaButton(ctaLabel, ctaUrl, "#16a34a")}
     `, `${votes} votes added — you helped feed ${Math.round(mealsProvided)} shelter pets!`),
+  });
+}
+
+export async function sendAbandonedCheckoutEmail(
+  to: string,
+  userName: string,
+  tier: string,
+  petId?: string,
+  petName?: string
+) {
+  const tierLabels: Record<string, string> = {
+    STARTER: "Starter Pack", FRIEND: "Friend Pack", SUPPORTER: "Supporter Pack",
+    CHAMPION: "Champion Pack", HERO: "Hero Pack", LEGEND: "Legend Pack", ICON: "Icon Pack",
+  };
+  const tierName = tierLabels[tier] ?? tier;
+  const ctaUrl = petId ? `${appUrl()}/dashboard?pet=${petId}&buy=${tier}` : `${appUrl()}/dashboard`;
+  const petLine = petName ? `<p style="margin:0 0 16px;color:#52525b;font-size:16px;">You were buying votes for <strong>${petName}</strong> — they still need your support!</p>` : "";
+  await sendEmail({
+    from: FROM_EMAIL,
+    to: [to],
+    subject: `🛒 You left your ${tierName} behind, ${userName}!`,
+    html: emailShell(`
+      <p style="margin:0 0 6px;font-size:13px;font-weight:700;color:#ef4444;text-transform:uppercase;letter-spacing:1px;">Almost There!</p>
+      <h1 style="margin:0 0 20px;font-size:28px;font-weight:900;color:#18181b;line-height:1.2;">Your ${tierName} is<br/>waiting, ${userName}! 🛒</h1>
+      ${petLine}
+      ${infoBox(`Every vote you buy feeds a real shelter pet. <strong>Your purchase makes a difference. 🐾</strong>`)}
+      ${ctaButton(`Complete My ${tierName} →`, ctaUrl, "#ef4444")}
+      <p style="margin-top:20px;font-size:13px;color:#a1a1aa;">This offer won't last forever — complete your purchase now to keep your pet in the running!</p>
+    `, `You left your ${tierName} behind — complete your purchase to support ${petName ?? "your pet"}!`),
   });
 }
 
@@ -379,7 +506,7 @@ export async function sendDailyRankEmail(
     : isTop3
     ? `🏆 ${petName} is #${rank} — hold your spot!`
     : rank <= 5
-    ? `🔥 ${petName} is #${rank} — SO close to top 3!`
+    ? `🔥 ${petName} is #${rank} — so close to top 3!`
     : `📈 ${petName} is #${rank} — here's how to climb`;
 
   // Dynamic heading
@@ -558,7 +685,7 @@ export async function sendFinalHoursPush(
   await sendEmail({
     from: FROM_EMAIL,
     to: [to],
-    subject: `🚨 LAST CHANCE — ${contestName} ends tomorrow!`,
+    subject: `⏰ Last chance — ${contestName} ends tomorrow`,
     html: emailShell(`
       <p style="margin:0 0 6px;font-size:13px;font-weight:700;color:#dc2626;text-transform:uppercase;letter-spacing:1px;">🚨 Final Hours</p>
       <h1 style="margin:0 0 20px;font-size:28px;font-weight:900;color:#18181b;line-height:1.2;">This is it — last chance<br/>for ${petName}!</h1>
@@ -594,7 +721,7 @@ export async function sendContestReEntry(
   await sendEmail({
     from: FROM_EMAIL,
     to: [to],
-    subject: `🐾 ${petName} was SO close — let's run it back`,
+    subject: `🐾 ${petName} was so close — let's run it back`,
     html: emailShell(`
       <p style="margin:0 0 6px;font-size:13px;font-weight:700;color:#ef4444;text-transform:uppercase;letter-spacing:1px;">New Contest Available</p>
       <h1 style="margin:0 0 20px;font-size:28px;font-weight:900;color:#18181b;line-height:1.2;">${petName} was so close...<br/>Time for round 2! 🐾</h1>
@@ -622,7 +749,7 @@ export async function sendAlmostWonEmail(
   await sendEmail({
     from: FROM_EMAIL,
     to: [to],
-    subject: `😢 ${petName} was SO close — finished ${rSuffix}, only ${votesFromTop3} votes from Top 3`,
+    subject: `😢 ${petName} was so close — finished ${rSuffix}, only ${votesFromTop3} votes from top 3`,
     html: emailShell(`
       <p style="margin:0 0 6px;font-size:13px;font-weight:700;color:#dc2626;text-transform:uppercase;letter-spacing:1px;">So Close!</p>
       <h1 style="margin:0 0 20px;font-size:28px;font-weight:900;color:#18181b;line-height:1.2;">${petName} finished ${rSuffix} 😢<br/>Just ${votesFromTop3} vote${votesFromTop3 !== 1 ? "s" : ""} from winning!</h1>
@@ -649,7 +776,7 @@ export async function sendPasswordResetEmail(to: string, resetUrl: string) {
       ${ctaButton("Reset My Password", resetUrl)}
       <p style="margin-top:20px;font-size:12px;color:#a1a1aa;">Button not working? Copy this URL into your browser:<br/><span style="color:#71717a;word-break:break-all;">${resetUrl}</span></p>
     `, "Click the link to reset your VoteToFeed password — expires in 1 hour."),
-  });
+  }, { transactional: true });
 }
 
 export async function sendContestWinner(
@@ -809,6 +936,27 @@ export async function sendBatchedVoteAlert(
   });
 }
 
+export async function sendNewPostNotification(
+  to: string,
+  recipientName: string,
+  posterName: string,
+  postPreview: string,
+  feedUrl: string,
+) {
+  const preview = postPreview.length > 100 ? postPreview.slice(0, 100) + "\u2026" : postPreview;
+  await sendEmail({
+    from: FROM_EMAIL,
+    to: [to],
+    subject: `\uD83D\uDCF7 ${posterName} posted something new on VoteToFeed`,
+    html: emailShell(`
+      <p style="margin:0 0 6px;font-size:13px;font-weight:700;color:#ef4444;text-transform:uppercase;letter-spacing:1px;">New Post</p>
+      <h1 style="margin:0 0 20px;font-size:26px;font-weight:900;color:#18181b;line-height:1.2;">Someone you follow just posted \uD83D\uDCF7</h1>
+      ${infoBox(`Hi <strong>${recipientName}</strong>, <strong>${posterName}</strong> shared a new post:<br/><br/><em style="color:#52525b;">\u201C${preview}\u201D</em>`)}
+      ${ctaButton("See the Post", feedUrl)}
+    `, `${posterName} posted on VoteToFeed`),
+  });
+}
+
 export async function sendFollowNotification(
   to: string,
   recipientName: string,
@@ -961,5 +1109,85 @@ export async function sendContestAddedEmail(
       ${ctaButton("Buy Extra Votes — Jump the Ranks", `${url}/dashboard#votes`, "#71717a")}
       <p style="margin-top:20px;font-size:14px;color:#16a34a;text-align:center;">🐾 Every vote feeds shelter pets — win or not, you're making a difference.</p>
     `, `${petName} is now competing in ${contestName} on VoteToFeed!`),
+  });
+}
+
+export async function sendWelcomeEmail(to: string, firstName: string) {
+  const url = appUrl();
+  const starterPkg = VOTE_PACKAGES[0];
+
+  await sendEmail({
+    from: FROM_EMAIL,
+    to: [to],
+    subject: `Welcome to VoteToFeed, ${firstName}! 🐾`,
+    html: emailShell(`
+      <p style="margin:0 0 6px;font-size:13px;font-weight:700;color:#16a34a;text-transform:uppercase;letter-spacing:1px;">You're In!</p>
+      <h1 style="margin:0 0 20px;font-size:28px;font-weight:900;color:#18181b;line-height:1.2;">Welcome, ${firstName}! 🎉<br/>Let's get your pet in the game.</h1>
+      <p style="margin:0 0 20px;color:#52525b;font-size:16px;">VoteToFeed is a pet voting contest where every vote you cast <strong>feeds a shelter pet</strong>. Here's how to get started in 3 steps:</p>
+      ${infoBox(`
+        <strong>Step 1 — Add your pet</strong> (takes 30 seconds)<br/>
+        Upload a photo and a short bio. That's it.<br/><br/>
+        <strong>Step 2 — Enter a free contest</strong><br/>
+        Enter your pet into an active contest for free. You're competing for prizes immediately.<br/><br/>
+        <strong>Step 3 — Get votes &amp; climb the ranks</strong><br/>
+        Share your contest link, cast free daily votes, or buy a vote pack to jump the leaderboard.
+      `, "#f0fdf4", "#86efac")}
+      ${statRow([
+        { label: "Starter Pack", value: `$${(starterPkg.price / 100).toFixed(2)}` },
+        { label: "Votes", value: String(starterPkg.votes) },
+        { label: "Meals donated", value: "5+" },
+      ])}
+      ${ctaButton("Add My Pet Now", `${url}/pets/new`)}
+      ${ctaButton("Browse Active Contests", `${url}/contests`, "#71717a")}
+      <p style="margin-top:20px;font-size:14px;color:#16a34a;">🐾 Even your free daily votes help feed shelter animals. Thank you for joining!</p>
+    `, `Welcome to VoteToFeed — add your pet, enter a contest, and start climbing the ranks!`),
+    headers: {},
+  });
+}
+
+export async function sendNewUserNudge(
+  to: string,
+  firstName: string,
+  petName: string | null,
+  contestId: string | null,
+) {
+  const url = appUrl();
+  const starterPkg = VOTE_PACKAGES[0];
+  const hasPet = Boolean(petName && contestId);
+
+  const subject = hasPet
+    ? `${firstName}, ${petName} needs your first boost! 🐾`
+    : `${firstName}, your pet is waiting — enter a contest today! 🐾`;
+
+  const headline = hasPet
+    ? `${petName} is in the game — give them their first real boost!`
+    : `Your account is ready — now let's win something!`;
+
+  const bodyText = hasPet
+    ? `Hey ${firstName}, <strong>${petName}</strong> is entered and competing right now. Other pets are getting vote boosts from their owners. Even a small pack of ${starterPkg.votes} votes for $${(starterPkg.price / 100).toFixed(2)} can move ${petName} up several spots on the leaderboard.`
+    : `Hey ${firstName}, you signed up but haven't added a pet yet — and there are active contests running right now with real prizes. It takes 30 seconds to add your pet and enter for free.`;
+
+  const primaryCta = hasPet
+    ? ctaButton(`Boost ${petName} — ${starterPkg.votes} votes for $${(starterPkg.price / 100).toFixed(2)}`, `${url}/dashboard#votes`)
+    : ctaButton("Add My Pet & Enter Free", `${url}/pets/new`);
+
+  const secondaryCta = hasPet
+    ? ctaButton("See the Leaderboard", `${url}/contests/${contestId}`, "#71717a")
+    : ctaButton("Browse Active Contests", `${url}/contests`, "#71717a");
+
+  await sendEmail({
+    from: FROM_EMAIL,
+    to: [to],
+    subject,
+    html: emailShell(`
+      <p style="margin:0 0 6px;font-size:13px;font-weight:700;color:#dc2626;text-transform:uppercase;letter-spacing:1px;">Quick Reminder</p>
+      <h1 style="margin:0 0 20px;font-size:28px;font-weight:900;color:#18181b;line-height:1.2;">${headline}</h1>
+      <p style="margin:0 0 20px;color:#52525b;font-size:16px;">${bodyText}</p>
+      ${infoBox(`<strong>Why buy votes?</strong><br/><br/>• Jump the leaderboard instantly<br/>• Every paid vote donates a meal to a shelter pet 🐾<br/>• Top 3 winners get real prizes<br/>• Cheapest pack: just $${(starterPkg.price / 100).toFixed(2)} for ${starterPkg.votes} votes`)}
+      ${primaryCta}
+      ${secondaryCta}
+      <p style="margin-top:20px;font-size:14px;color:#16a34a;">🐾 Every vote — free or paid — makes a difference. Thank you for being here!</p>
+    `, hasPet ? `${petName} needs votes — even a small boost helps them climb!` : `You're one step away — add your pet and enter a free contest!`),
+    headers: {},
   });
 }

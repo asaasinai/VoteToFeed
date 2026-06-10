@@ -69,6 +69,7 @@ const config: Config = {
         "pulse-subtle": "pulseSubtle 2s infinite",
         "count-up": "countUp 0.6s ease-out",
         "glow-pulse": "glowPulse 2s ease-in-out infinite",
+        "confetti-fall": "confettiFall 1.8s ease-in forwards",
       },
       keyframes: {
         votePop: {
@@ -95,6 +96,11 @@ const config: Config = {
         glowPulse: {
           "0%, 100%": { boxShadow: "0 0 8px 2px rgb(239 68 68 / 0.4), 0 0 16px 4px rgb(239 68 68 / 0.2)" },
           "50%": { boxShadow: "0 0 16px 6px rgb(239 68 68 / 0.6), 0 0 32px 8px rgb(239 68 68 / 0.3)" },
+        },
+        confettiFall: {
+          "0%": { transform: "translateY(0) rotate(0deg)", opacity: "1" },
+          "80%": { opacity: "1" },
+          "100%": { transform: "translateY(220px) rotate(540deg)", opacity: "0" },
         },
       },
     },

@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
+import { trackPostHogEvent } from "@/lib/analytics";
 import { VOTE_PACKAGES, calculateMeals } from "@/lib/utils";
 
 type Props = {
@@ -67,19 +68,33 @@ export function ImpactModal({
   };
 
   const meals = voteCount; // 1 vote ≈ 1 meal for display purposes
-  const buyUrl = (tier: string) =>
-    isAuthenticated
-      ? `/dashboard?buy=${tier}&pet=${petId}`
-      : `/auth/signin?callbackUrl=/dashboard?buy=${tier}&pet=${petId}`;
+  const dashboardBuyUrl = (tier: string) => `/dashboard?buy=${tier}&pet=${petId}`;
+  const buyUrl = (tier: string) => {
+    const callbackUrl = dashboardBuyUrl(tier);
+    return isAuthenticated
+      ? callbackUrl
+      : `/auth/signin?callbackUrl=${encodeURIComponent(callbackUrl)}`;
+  };
+  const startCheckout = (tier: string) => {
+    trackPostHogEvent("buy_to_climb_click", {
+      source: "impact_modal",
+      pet_id: petId,
+      pet_name: petName,
+      package_tier: tier,
+      out_of_votes: outOfVotes,
+    });
+    setNavigating(tier);
+    window.location.href = buyUrl(tier);
+  };
 
-  const starter = VOTE_PACKAGES[0];  // STARTER
-  const friend = VOTE_PACKAGES[1];   // FRIEND
-  const supporter = VOTE_PACKAGES[2]; // SUPPORTER
-  const champion = VOTE_PACKAGES[3];  // CHAMPION
+  const starter = VOTE_PACKAGES.find((pkg) => pkg.tier === "STARTER") ?? VOTE_PACKAGES[0];
+  const friend = VOTE_PACKAGES.find((pkg) => pkg.tier === "FRIEND") ?? VOTE_PACKAGES[1];
+  const champion = VOTE_PACKAGES.find((pkg) => pkg.tier === "CHAMPION") ?? VOTE_PACKAGES[2];
+  const hero = VOTE_PACKAGES.find((pkg) => pkg.tier === "HERO") ?? champion;
   const starterMeals = calculateMeals(starter.price, mealRate);
   const friendMeals = calculateMeals(friend.price, mealRate);
-  const supporterMeals = calculateMeals(supporter.price, mealRate);
   const championMeals = calculateMeals(champion.price, mealRate);
+  const heroMeals = calculateMeals(hero.price, mealRate);
 
   return (
     <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
@@ -167,7 +182,7 @@ export function ImpactModal({
             {/* 3-column package grid */}
             <div className="grid grid-cols-3 gap-2">
               <button
-                onClick={() => { setNavigating(starter.tier); window.location.href = buyUrl(starter.tier); }}
+                onClick={() => startCheckout(starter.tier)}
                 disabled={!!navigating}
                 className="rounded-xl bg-gradient-to-b from-surface-50 to-surface-100 border border-surface-200 p-2.5 text-center hover:shadow-md hover:border-brand-300 transition-all active:scale-95 disabled:opacity-70"
               >
@@ -183,7 +198,7 @@ export function ImpactModal({
                 )}
               </button>
               <button
-                onClick={() => { setNavigating(friend.tier); window.location.href = buyUrl(friend.tier); }}
+                onClick={() => startCheckout(friend.tier)}
                 disabled={!!navigating}
                 className="rounded-xl bg-gradient-to-b from-brand-500 to-brand-600 text-white p-2.5 text-center hover:shadow-lg transition-all active:scale-95 ring-2 ring-brand-300 disabled:opacity-70"
               >
@@ -199,21 +214,21 @@ export function ImpactModal({
                 )}
               </button>
               <button
-                onClick={() => { setNavigating(supporter.tier); window.location.href = buyUrl(supporter.tier); }}
+                onClick={() => startCheckout(champion.tier)}
                 disabled={!!navigating}
                 className="rounded-xl bg-gradient-to-b from-amber-400 to-amber-500 text-white p-2.5 text-center hover:shadow-lg transition-all active:scale-95 relative disabled:opacity-70"
               >
-                {navigating === supporter.tier ? (
+                {navigating === champion.tier ? (
                   <div className="flex items-center justify-center py-4"><div className="w-5 h-5 rounded-full border-2 border-white border-t-transparent animate-spin" /></div>
                 ) : (
                   <>
                     <span className="absolute -top-2 left-1/2 -translate-x-1/2 px-2 py-0.5 rounded-full bg-red-500 text-[7px] font-black uppercase text-white whitespace-nowrap shadow-sm">
                       Best Value
                     </span>
-                    <p className="text-lg font-black">{supporter.votes}</p>
+                    <p className="text-lg font-black">{champion.votes}</p>
                     <p className="text-[9px] opacity-80 font-medium">votes</p>
-                    <p className="text-sm font-bold mt-1">${(supporter.price / 100).toFixed(2)}</p>
-                    <p className="text-[9px] mt-0.5 text-emerald-100">~{supporterMeals} meals 🐾</p>
+                    <p className="text-sm font-bold mt-1">${(champion.price / 100).toFixed(2)}</p>
+                    <p className="text-[9px] mt-0.5 text-emerald-100">~{championMeals} meals 🐾</p>
                   </>
                 )}
               </button>
@@ -222,14 +237,14 @@ export function ImpactModal({
             {/* Big CTA for out-of-votes state */}
             {outOfVotes && (
               <button
-                onClick={() => { setNavigating(champion.tier); window.location.href = buyUrl(champion.tier); }}
+                onClick={() => startCheckout(hero.tier)}
                 disabled={!!navigating}
                 className="flex items-center justify-center gap-2 w-full py-3 rounded-xl bg-gradient-to-r from-brand-500 to-brand-600 text-white font-bold text-sm hover:shadow-lg transition-all active:scale-[0.98] animate-pulse disabled:opacity-70"
               >
-                {navigating === champion.tier ? (
+                {navigating === hero.tier ? (
                   <div className="w-5 h-5 rounded-full border-2 border-white border-t-transparent animate-spin" />
                 ) : (
-                  <>🏆 Get {champion.votes} votes for ${(champion.price / 100).toFixed(2)} — feed ~{championMeals} pets!</>
+                  <>🏆 Get {hero.votes} votes for ${(hero.price / 100).toFixed(2)} — feed ~{heroMeals} pets!</>
                 )}
               </button>
             )}
@@ -237,7 +252,7 @@ export function ImpactModal({
 
           {/* Bottom link */}
           <div className="flex items-center justify-between pt-1">
-            <Link href="/dashboard#votes" className="text-[11px] text-brand-600 font-semibold hover:underline">
+            <Link href={`/dashboard?pet=${petId}#votes`} className="text-[11px] text-brand-600 font-semibold hover:underline">
               All packages →
             </Link>
             <button

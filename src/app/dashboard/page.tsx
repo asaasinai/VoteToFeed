@@ -5,67 +5,99 @@ type DashboardPageProps = {
   searchParams?: {
     purchase?: string;
     tier?: string;
+    buy?: string;
+    pet?: string;
+    firstBuyer?: string;
   };
 };
 import { authOptions } from "@/lib/auth";
 import { DashboardClient } from "@/components/dashboard/DashboardClient";
 import prisma from "@/lib/prisma";
 import { getCurrentWeekId } from "@/lib/utils";
-import { getMealRate, getAnimalType } from "@/lib/admin-settings";
+import { getMealRate, getAnimalType, getFirstTimeBuyerDiscount } from "@/lib/admin-settings";
 import { getStripeAsync } from "@/lib/stripe";
 
-export default async function DashboardPage({ searchParams }: DashboardPageProps) {
-  const session = await getServerSession(authOptions);
-  if (!session?.user) redirect("/auth/signin?callbackUrl=/dashboard");
+function getDashboardCallbackUrl(searchParams?: DashboardPageProps["searchParams"]) {
+  const params = new URLSearchParams();
+  for (const [key, value] of Object.entries(searchParams ?? {})) {
+    if (value) params.set(key, value);
+  }
 
-  const userId = (session.user as { id: string }).id;
-  const weekId = getCurrentWeekId();
+  const query = params.toString();
+  return `/dashboard${query ? `?${query}` : ""}`;
+}
 
-  // Always complete any stuck PENDING purchases for this user.
-  // This covers cases where the Stripe webhook failed or was delayed.
-  // Only completes purchases that Stripe confirms were actually paid.
-  const pendingPurchases = await prisma.purchase.findMany({
-    where: { userId, status: "PENDING" },
-  });
-  if (pendingPurchases.length > 0) {
+/**
+ * Reconciles any PENDING purchases against Stripe in the background.
+ * Fire-and-forget — errors are logged but never block the dashboard render.
+ */
+async function completePendingPurchasesInBackground(userId: string) {
+  try {
+    const pendingPurchases = await prisma.purchase.findMany({
+      where: { userId, status: "PENDING" },
+    });
+    if (pendingPurchases.length === 0) return;
+
     let stripe;
     try {
       stripe = await getStripeAsync();
     } catch {
-      // Stripe not configured — skip auto-completion
+      return;
     }
-    if (stripe) {
-      for (const p of pendingPurchases) {
-        try {
-          // Verify with Stripe that this checkout session was actually paid
-          if (!p.stripeSessionId) continue;
-          const stripeSession = await stripe.checkout.sessions.retrieve(p.stripeSessionId);
-          if (stripeSession.payment_status !== "paid") continue;
+    if (!stripe) return;
 
-          await prisma.$transaction(async (tx) => {
-            const result = await tx.purchase.updateMany({
-              where: { id: p.id, status: "PENDING" },
-              data: {
-                status: "COMPLETED",
-                stripePaymentId: typeof stripeSession.payment_intent === "string"
-                  ? stripeSession.payment_intent
-                  : undefined,
-              },
-            });
-            if (result.count === 0) return;
-            await tx.user.update({
-              where: { id: userId },
-              data: { paidVoteBalance: { increment: p.votes } },
-            });
+    for (const p of pendingPurchases) {
+      try {
+        if (!p.stripeSessionId) continue;
+        const stripeSession = await stripe.checkout.sessions.retrieve(p.stripeSessionId);
+        if (stripeSession.payment_status !== "paid") continue;
+
+        await prisma.$transaction(async (tx) => {
+          const result = await tx.purchase.updateMany({
+            where: { id: p.id, status: "PENDING" },
+            data: {
+              status: "COMPLETED",
+              stripePaymentId: typeof stripeSession.payment_intent === "string"
+                ? stripeSession.payment_intent
+                : undefined,
+            },
           });
-        } catch (err) {
-          console.error(`Dashboard: failed to complete pending purchase ${p.id}:`, err);
-        }
+          if (result.count === 0) return;
+          await tx.user.update({
+            where: { id: userId },
+            data: { paidVoteBalance: { increment: p.votes } },
+          });
+        });
+      } catch (err) {
+        console.error(`Dashboard: failed to complete pending purchase ${p.id}:`, err);
       }
     }
+  } catch (err) {
+    console.error("Dashboard: background pending purchase sync failed:", err);
+  }
+}
+
+export default async function DashboardPage({ searchParams }: DashboardPageProps) {
+  const session = await getServerSession(authOptions);
+  if (!session?.user) {
+    redirect(`/auth/signin?callbackUrl=${encodeURIComponent(getDashboardCallbackUrl(searchParams))}`);
   }
 
-  const [user, mealRate, animalType] = await Promise.all([
+  const userId = (session.user as { id: string }).id;
+  const weekId = getCurrentWeekId();
+
+  // If the user just returned from Stripe Checkout (?purchase=success),
+  // AWAIT reconciliation so the updated balance is visible on first paint —
+  // no refresh needed even if Stripe's webhook hasn't fired yet.
+  // Otherwise, fire-and-forget for instant dashboard load.
+  if (searchParams?.purchase === "success") {
+    await completePendingPurchasesInBackground(userId);
+  } else {
+    void completePendingPurchasesInBackground(userId);
+  }
+
+  const sourcePetId = searchParams?.pet;
+  const [user, mealRate, animalType, lifetimeAgg, totalVotesCast, purchasePet] = await Promise.all([
     prisma.user.findUnique({
       where: { id: userId },
       select: {
@@ -99,17 +131,22 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
     }),
     getMealRate(),
     getAnimalType(),
-  ]);
-
-  if (!user) redirect("/auth/signin");
-
-  const [lifetimeAgg, totalVotesCast] = await Promise.all([
     prisma.purchase.aggregate({
       where: { userId, status: "COMPLETED" },
       _sum: { mealsProvided: true, amount: true },
     }),
     prisma.vote.count({ where: { userId } }),
+    sourcePetId
+      ? prisma.pet.findUnique({
+          where: { id: sourcePetId },
+          select: { id: true, name: true, isActive: true },
+        })
+      : Promise.resolve(null),
   ]);
+
+  if (!user) redirect("/auth/signin");
+
+  const isFirstTimeBuyer = user.purchases.length === 0;
 
   return (
     <DashboardClient
@@ -148,10 +185,12 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
         quantity: v.quantity,
         createdAt: v.createdAt.toISOString(),
       }))}
+      isFirstTimeBuyer={isFirstTimeBuyer}
       purchaseStatus={searchParams?.purchase === "success" || searchParams?.purchase === "cancelled"
         ? searchParams.purchase
         : null}
       purchaseTier={searchParams?.tier ?? null}
+      purchasePet={purchasePet?.isActive ? { id: purchasePet.id, name: purchasePet.name } : null}
     />
   );
 }

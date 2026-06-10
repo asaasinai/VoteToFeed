@@ -18,6 +18,8 @@ type Overview = {
   totalMealsProvided: number;
   weeklyRevenueCents: number;
   weeklyPurchases: number;
+  monthToDateRevenueCents: number;
+  monthToDatePurchases: number;
 };
 
 type RecentUser = {
@@ -77,6 +79,8 @@ type Settings = {
   stripeSecretKey: string;
   stripePublishableKey: string;
   stripeWebhookSecret: string;
+  firstTimeBuyerDiscountEnabled: string;
+  firstTimeBuyerDiscountPct: string;
 };
 
 type Props = {
@@ -225,15 +229,20 @@ export function AdminDashboardClient({
               <MiniStat label="Active Pets" value={overview.totalPets.toLocaleString()} color="default" />
               <MiniStat label="Total Votes" value={overview.totalVotes.toLocaleString()} color="default" />
               <MiniStat label="Weekly Votes" value={overview.weeklyVotes.toLocaleString()} color="accent" />
-              <MiniStat label="Total Revenue" value={`$${(overview.totalRevenueCents / 100).toFixed(0)}`} color="brand" />
+              <MiniStat
+                label="Total Revenue"
+                value={`$${(overview.totalRevenueCents / 100).toFixed(0)}`}
+                color="brand"
+                sub={`Week $${(overview.weeklyRevenueCents / 100).toFixed(0)} | MTD $${(overview.monthToDateRevenueCents / 100).toFixed(0)}`}
+              />
               <MiniStat label="Shelter Pets Fed" value={`~${Math.round(overview.totalMealsProvided).toLocaleString()}`} color="accent" />
             </div>
 
             {/* Breakdown row */}
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-              {/* This Week */}
+              {/* Week to Date */}
               <div className="card p-5">
-                <h3 className="text-sm font-semibold text-surface-900 mb-4">This Week</h3>
+                <h3 className="text-sm font-semibold text-surface-900 mb-4">Week to Date</h3>
                 <div className="space-y-3">
                   <div className="flex items-center justify-between">
                     <span className="text-sm text-surface-500">Votes</span>
@@ -254,6 +263,14 @@ export function AdminDashboardClient({
                   <div className="flex items-center justify-between">
                     <span className="text-sm text-surface-500">Purchases</span>
                     <span className="text-sm font-semibold text-surface-900">{overview.weeklyPurchases}</span>
+                  </div>
+                  <div className="border-t border-surface-100 pt-3 flex items-center justify-between">
+                    <span className="text-sm text-surface-500">Month Revenue</span>
+                    <span className="text-sm font-bold text-brand-600">${(overview.monthToDateRevenueCents / 100).toFixed(2)}</span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm text-surface-500">Month Purchases</span>
+                    <span className="text-sm font-semibold text-surface-900">{overview.monthToDatePurchases}</span>
                   </div>
                 </div>
               </div>
@@ -683,10 +700,10 @@ export function AdminDashboardClient({
                             {[
                               { label: "Starter", price: 0.99, votes: 5 },
                               { label: "Friend", price: 4.99, votes: 30 },
-                              { label: "Supporter", price: 9.99, votes: 60 },
                               { label: "Champion", price: 24.99, votes: 150 },
-                              { label: "Hero", price: 49.99, votes: 300 },
-                              { label: "Legend", price: 99.99, votes: 600 },
+                              { label: "Hero", price: 99, votes: 750 },
+                              { label: "Legend", price: 249, votes: 2500 },
+                              { label: "Icon", price: 499, votes: 6000 },
                             ].map((pkg) => (
                               <tr key={pkg.label} className="border-t border-surface-100/50">
                                 <td className="py-1 font-medium">{pkg.label}</td>
@@ -852,6 +869,111 @@ export function AdminDashboardClient({
                         : "Stripe not configured — payments disabled. Set keys above or in .env file."
                       }
                     </div>
+                  </div>
+                </div>
+
+                {/* ── First-Time Buyer Discount ── */}
+                <div className="card p-5">
+                  <div className="flex items-center gap-2 mb-4">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-green-500"><path d="M9 14 4 9l5-5"/><path d="m15 10 5 5-5 5"/><line x1="4" y1="9" x2="20" y2="9"/><line x1="4" y1="15" x2="20" y2="15"/></svg>
+                    <h3 className="text-sm font-semibold text-surface-900">First-Time Buyer Discount</h3>
+                  </div>
+                  <p className="text-xs text-surface-400 mb-4">
+                    Automatically apply a percentage discount for users buying their first vote package. Changes take effect immediately for all new checkouts.
+                  </p>
+
+                  <div className="space-y-4">
+                    {/* Toggle */}
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <p className="text-sm font-medium text-surface-700">Enable discount</p>
+                        <p className="text-xs text-surface-400">When off, all users pay full price</p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const next = settings.firstTimeBuyerDiscountEnabled === "true" ? "false" : "true";
+                          setSettings({ ...settings, firstTimeBuyerDiscountEnabled: next });
+                          saveSetting("first_time_buyer_discount_enabled", next);
+                        }}
+                        disabled={saving}
+                        className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none ${
+                          settings.firstTimeBuyerDiscountEnabled === "true" ? "bg-accent-500" : "bg-surface-300"
+                        }`}
+                      >
+                        <span className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform ${
+                          settings.firstTimeBuyerDiscountEnabled === "true" ? "translate-x-6" : "translate-x-1"
+                        }`} />
+                      </button>
+                    </div>
+
+                    {/* Percentage input */}
+                    <div>
+                      <label className="block text-xs font-medium text-surface-600 mb-1">
+                        Discount percentage <span className="text-surface-400 font-normal">(1–99)</span>
+                      </label>
+                      <div className="flex items-center gap-2">
+                        <input
+                          type="number"
+                          min="1"
+                          max="99"
+                          value={settings.firstTimeBuyerDiscountPct}
+                          onChange={(e) => setSettings({ ...settings, firstTimeBuyerDiscountPct: e.target.value })}
+                          onBlur={() => {
+                            const pct = Math.max(1, Math.min(99, parseInt(settings.firstTimeBuyerDiscountPct) || 20));
+                            setSettings({ ...settings, firstTimeBuyerDiscountPct: pct.toString() });
+                            saveSetting("first_time_buyer_discount_pct", pct.toString());
+                          }}
+                          className="input-field w-24"
+                          disabled={saving || settings.firstTimeBuyerDiscountEnabled !== "true"}
+                        />
+                        <span className="text-sm text-surface-500 font-medium">%</span>
+                      </div>
+                    </div>
+
+                    {/* Live preview */}
+                    {settings.firstTimeBuyerDiscountEnabled === "true" && (
+                      <div className="p-3 rounded-lg bg-green-50 border border-green-200/60 text-[11px] text-green-800 space-y-1.5">
+                        <p className="font-semibold">Live discount preview ({settings.firstTimeBuyerDiscountPct}% off for first-time buyers):</p>
+                        <table className="w-full text-left mt-1">
+                          <thead>
+                            <tr className="text-[10px] uppercase text-green-600/70">
+                              <th className="py-1">Package</th>
+                              <th className="py-1">Full price</th>
+                              <th className="py-1">First-time price</th>
+                              <th className="py-1">Savings</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {[
+                              { label: "Starter", price: 0.99 },
+                              { label: "Friend", price: 4.99 },
+                              { label: "Champion", price: 24.99 },
+                              { label: "Hero", price: 99 },
+                              { label: "Legend", price: 249 },
+                              { label: "Icon", price: 499 },
+                            ].map((pkg) => {
+                              const pct = parseInt(settings.firstTimeBuyerDiscountPct) || 20;
+                              const discountedPrice = pkg.price * (1 - pct / 100);
+                              return (
+                                <tr key={pkg.label} className="border-t border-green-200/40">
+                                  <td className="py-1 font-medium">{pkg.label}</td>
+                                  <td className="py-1 line-through text-green-600/60">${pkg.price.toFixed(2)}</td>
+                                  <td className="py-1 font-semibold text-green-700">${discountedPrice.toFixed(2)}</td>
+                                  <td className="py-1 text-green-600">-${(pkg.price - discountedPrice).toFixed(2)}</td>
+                                </tr>
+                              );
+                            })}
+                          </tbody>
+                        </table>
+                      </div>
+                    )}
+
+                    {settings.firstTimeBuyerDiscountEnabled !== "true" && (
+                      <div className="p-3 rounded-lg bg-surface-50 border border-surface-200 text-xs text-surface-500">
+                        Discount is currently <strong>disabled</strong>. All users pay the standard price.
+                      </div>
+                    )}
                   </div>
                 </div>
               </div>
@@ -1701,14 +1823,19 @@ function AdminUsersTab({ totalUsers }: { totalUsers: number }) {
 type RevenuePurchase = {
   id: string; tier: string; votes: number; amount: number; meals: number;
   userName: string | null; userEmail: string | null; createdAt: string;
+  isFirstTimeBuyer?: boolean; originalAmount?: number; discountPct?: number;
 };
 type RevenueSummary = { totalRevenue: number; totalVotesSold: number; totalMeals: number; totalPurchases: number; avgOrder: number };
 type TierBreakdown = { tier: string; revenue: number; votes: number; count: number };
+
+type FixPendingResult = { fixed: number; skipped: number; errors: number; message: string };
 
 function AdminRevenueTab({ animalType }: { animalType: string }) {
   const [purchases, setPurchases] = useState<RevenuePurchase[]>([]);
   const [loading, setLoading] = useState(true);
   const [range, setRange] = useState("all");
+  const [dateFrom, setDateFrom] = useState("");
+  const [dateTo, setDateTo] = useState("");
   const [tier, setTier] = useState("");
   const [search, setSearch] = useState("");
   const [page, setPage] = useState(1);
@@ -1716,11 +1843,18 @@ function AdminRevenueTab({ animalType }: { animalType: string }) {
   const [total, setTotal] = useState(0);
   const [summary, setSummary] = useState<RevenueSummary>({ totalRevenue: 0, totalVotesSold: 0, totalMeals: 0, totalPurchases: 0, avgOrder: 0 });
   const [byTier, setByTier] = useState<TierBreakdown[]>([]);
+  const [pendingCount, setPendingCount] = useState(0);
+  const [fixingPending, setFixingPending] = useState(false);
+  const [fixResult, setFixResult] = useState<FixPendingResult | null>(null);
 
-  async function loadRevenue(p = page) {
+  async function loadRevenue(p = page, rangeOverride = range) {
     setLoading(true);
     try {
-      const params = new URLSearchParams({ page: String(p), limit: "25", range });
+      const params = new URLSearchParams({ page: String(p), limit: "25", range: rangeOverride });
+      if (rangeOverride === "custom") {
+        if (dateFrom) params.set("from", dateFrom);
+        if (dateTo) params.set("to", dateTo);
+      }
       if (tier) params.set("tier", tier);
       if (search) params.set("search", search);
       const res = await fetch(`/api/admin/revenue?${params}`);
@@ -1731,23 +1865,103 @@ function AdminRevenueTab({ animalType }: { animalType: string }) {
       setPage(data.page || 1);
       setSummary(data.summary || summary);
       setByTier(data.byTier || []);
+      setPendingCount(data.pendingCount ?? 0);
     } catch { /* */ }
     setLoading(false);
   }
 
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  useState(() => { loadRevenue(1); });
+  async function fixPending() {
+    setFixingPending(true);
+    setFixResult(null);
+    try {
+      const res = await fetch("/api/admin/fix-pending-purchases", { method: "POST" });
+      const data = await res.json();
+      setFixResult(data);
+      if (data.fixed > 0) loadRevenue(1);
+    } catch { setFixResult({ fixed: 0, skipped: 0, errors: 1, message: "Request failed" }); }
+    setFixingPending(false);
+  }
 
-  const rangeLabels: Record<string, string> = { all: "All Time", today: "Today", "7d": "Last 7 Days", "30d": "Last 30 Days", "90d": "Last 90 Days" };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => { loadRevenue(1); }, [range, tier]);
+
+  const rangeLabels: Record<string, string> = { all: "All Time", today: "Today", "7d": "Last 7 Days", "30d": "Last 30 Days", "90d": "Last 90 Days", custom: "Custom Dates" };
+  const formatDateLabel = (value: string) => new Date(`${value}T00:00:00`).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+  const customRangeLabel = dateFrom && dateTo
+    ? `${formatDateLabel(dateFrom)} to ${formatDateLabel(dateTo)}`
+    : dateFrom
+      ? `From ${formatDateLabel(dateFrom)}`
+      : dateTo
+        ? `Until ${formatDateLabel(dateTo)}`
+        : "Custom Dates";
+  const activeRangeLabel = range === "custom" ? customRangeLabel : rangeLabels[range];
+
+  function selectPreset(nextRange: string) {
+    setDateFrom("");
+    setDateTo("");
+    setRange(nextRange);
+    setPage(1);
+  }
+
+  function applyDateFilter() {
+    setPage(1);
+    if (range === "custom") loadRevenue(1, "custom");
+    else setRange("custom");
+  }
+
+  function clearDateFilter() {
+    setDateFrom("");
+    setDateTo("");
+    setRange("all");
+    setPage(1);
+  }
 
   return (
     <div className="space-y-6 animate-fade-in">
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
         <div>
           <h2 className="text-lg font-bold text-surface-900">Revenue & Purchases</h2>
-          <p className="text-sm text-surface-500">{rangeLabels[range]} — {total.toLocaleString()} purchases</p>
+          <p className="text-sm text-surface-500">{activeRangeLabel} - {total.toLocaleString()} purchases</p>
         </div>
       </div>
+
+      {/* Pending purchases recovery banner */}
+      {pendingCount > 0 && !fixResult && (
+        <div className="flex items-center justify-between gap-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3">
+          <div className="flex items-center gap-3">
+            <span className="flex h-8 w-8 items-center justify-center rounded-full bg-amber-100 text-amber-600 text-lg">⚠️</span>
+            <div>
+              <p className="text-sm font-semibold text-amber-900">{pendingCount} stuck PENDING {pendingCount === 1 ? "purchase" : "purchases"} detected</p>
+              <p className="text-xs text-amber-700">These may be completed Stripe payments that never got the webhook. Run the fix to recover them.</p>
+            </div>
+          </div>
+          <button
+            onClick={fixPending}
+            disabled={fixingPending}
+            className="shrink-0 rounded-lg bg-amber-500 px-4 py-2 text-xs font-bold text-white shadow-sm hover:bg-amber-600 disabled:opacity-60 transition-colors"
+          >
+            {fixingPending ? "Fixing…" : "Fix Now"}
+          </button>
+        </div>
+      )}
+
+      {/* Fix result */}
+      {fixResult && (
+        <div className={`flex items-center justify-between gap-4 rounded-xl border px-4 py-3 ${fixResult.fixed > 0 ? "border-green-200 bg-green-50" : "border-surface-200 bg-surface-50"}`}>
+          <div className="flex items-center gap-3">
+            <span className="text-lg">{fixResult.fixed > 0 ? "✅" : "ℹ️"}</span>
+            <div>
+              <p className="text-sm font-semibold text-surface-900">{fixResult.message}</p>
+              <p className="text-xs text-surface-500">
+                Fixed: <span className="font-bold text-green-600">{fixResult.fixed}</span>
+                {" · "}Skipped: <span className="font-medium">{fixResult.skipped}</span>
+                {fixResult.errors > 0 && <>{" · "}Errors: <span className="font-bold text-red-500">{fixResult.errors}</span></>}
+              </p>
+            </div>
+          </div>
+          <button onClick={() => setFixResult(null)} className="text-xs text-surface-400 hover:text-surface-600">Dismiss</button>
+        </div>
+      )}
 
       {/* Summary stats */}
       <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">
@@ -1781,7 +1995,7 @@ function AdminRevenueTab({ animalType }: { animalType: string }) {
             {byTier.map((t) => (
               <button
                 key={t.tier}
-                onClick={() => { setTier(tier === t.tier ? "" : t.tier); setTimeout(() => loadRevenue(1), 0); }}
+                onClick={() => { setTier(tier === t.tier ? "" : t.tier); }}
                 className={`p-3 rounded-xl text-center transition-all ${
                   tier === t.tier ? "bg-brand-50 border-2 border-brand-300 shadow-sm" : "bg-surface-50 border-2 border-transparent hover:border-surface-200"
                 }`}
@@ -1796,32 +2010,61 @@ function AdminRevenueTab({ animalType }: { animalType: string }) {
       )}
 
       {/* Filters */}
-      <div className="card p-4 flex flex-col sm:flex-row gap-3 items-stretch sm:items-center">
-        <div className="flex gap-1 overflow-x-auto hide-scrollbar">
-          {(["all", "today", "7d", "30d", "90d"] as const).map((r) => (
-            <button
-              key={r}
-              onClick={() => { setRange(r); setPage(1); setTimeout(() => loadRevenue(1), 0); }}
-              className={`px-3 py-1.5 rounded-lg text-xs font-medium whitespace-nowrap transition-all ${
-                range === r
-                  ? "bg-brand-500 text-white shadow-sm"
-                  : "bg-surface-100 text-surface-600 hover:bg-surface-200"
-              }`}
-            >
-              {rangeLabels[r]}
-            </button>
-          ))}
+      <div className="card p-4 space-y-3">
+        <div className="flex flex-col gap-3 lg:flex-row lg:items-center">
+          <div className="flex gap-1 overflow-x-auto hide-scrollbar">
+            {(["all", "today", "7d", "30d", "90d"] as const).map((r) => (
+              <button
+                key={r}
+                onClick={() => selectPreset(r)}
+                className={`px-3 py-1.5 rounded-lg text-xs font-medium whitespace-nowrap transition-all ${
+                  range === r
+                    ? "bg-brand-500 text-white shadow-sm"
+                    : "bg-surface-100 text-surface-600 hover:bg-surface-200"
+                }`}
+              >
+                {rangeLabels[r]}
+              </button>
+            ))}
+          </div>
+          <form onSubmit={(e) => { e.preventDefault(); loadRevenue(1); }} className="flex gap-2 lg:ml-auto">
+            <input
+              type="text"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Search buyer..."
+              className="input-field min-w-0 flex-1 text-sm sm:w-48"
+            />
+            <button type="submit" className="btn-secondary text-sm px-3 py-2">Go</button>
+          </form>
         </div>
-        <div className="flex-1" />
-        <form onSubmit={(e) => { e.preventDefault(); loadRevenue(1); }} className="flex gap-2">
-          <input
-            type="text"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search buyer..."
-            className="input-field text-sm w-40"
-          />
-          <button type="submit" className="btn-secondary text-sm px-3 py-2">Go</button>
+
+        <form
+          onSubmit={(e) => { e.preventDefault(); applyDateFilter(); }}
+          className={`grid grid-cols-1 gap-2 rounded-lg border p-3 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto_auto] sm:items-end ${
+            range === "custom" ? "border-brand-200 bg-brand-50/40" : "border-surface-200 bg-surface-50"
+          }`}
+        >
+          <label className="min-w-0">
+            <span className="mb-1 block text-[11px] font-bold uppercase tracking-wider text-surface-400">From</span>
+            <input
+              type="date"
+              value={dateFrom}
+              onChange={(e) => setDateFrom(e.target.value)}
+              className="input-field w-full text-sm"
+            />
+          </label>
+          <label className="min-w-0">
+            <span className="mb-1 block text-[11px] font-bold uppercase tracking-wider text-surface-400">To</span>
+            <input
+              type="date"
+              value={dateTo}
+              onChange={(e) => setDateTo(e.target.value)}
+              className="input-field w-full text-sm"
+            />
+          </label>
+          <button type="submit" className="btn-primary whitespace-nowrap px-4 py-2 text-sm">Apply</button>
+          <button type="button" onClick={clearDateFilter} className="btn-secondary whitespace-nowrap px-4 py-2 text-sm">Clear</button>
         </form>
       </div>
 
@@ -1852,10 +2095,24 @@ function AdminRevenueTab({ animalType }: { animalType: string }) {
                       <p className="text-[11px] text-surface-400">{p.userEmail}</p>
                     </td>
                     <td className="px-5 py-3">
-                      <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-brand-50 text-brand-600">{p.tier}</span>
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-brand-50 text-brand-600">{p.tier}</span>
+                        {p.isFirstTimeBuyer && (
+                          <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-green-100 text-green-700">🎉 {p.discountPct}% OFF</span>
+                        )}
+                      </div>
                     </td>
                     <td className="px-5 py-3 text-right font-medium text-surface-800">{p.votes}</td>
-                    <td className="px-5 py-3 text-right font-semibold text-surface-900">${(p.amount / 100).toFixed(2)}</td>
+                    <td className="px-5 py-3 text-right">
+                      {p.isFirstTimeBuyer && p.originalAmount ? (
+                        <div>
+                          <span className="text-[11px] text-surface-400 line-through block">${(p.originalAmount / 100).toFixed(2)}</span>
+                          <span className="font-semibold text-green-600">${(p.amount / 100).toFixed(2)}</span>
+                        </div>
+                      ) : (
+                        <span className="font-semibold text-surface-900">${(p.amount / 100).toFixed(2)}</span>
+                      )}
+                    </td>
                     <td className="px-5 py-3 text-right text-accent-600">~{Math.round(p.meals)} {animalType}</td>
                     <td className="px-5 py-3 text-right text-surface-400 text-xs">{new Date(p.createdAt).toLocaleDateString()}</td>
                   </tr>
@@ -1880,12 +2137,13 @@ function AdminRevenueTab({ animalType }: { animalType: string }) {
   );
 }
 
-function MiniStat({ label, value, color }: { label: string; value: string; color: "brand" | "accent" | "default" }) {
+function MiniStat({ label, value, color, sub }: { label: string; value: string; color: "brand" | "accent" | "default"; sub?: string }) {
   const colorMap = { brand: "text-brand-600", accent: "text-accent-600", default: "text-surface-900" };
   return (
     <div className="card p-4">
       <p className="text-[11px] font-medium text-surface-400 uppercase tracking-wider">{label}</p>
       <p className={`text-xl font-bold mt-1 ${colorMap[color]}`}>{value}</p>
+      {sub && <p className="mt-1 text-[11px] font-medium text-surface-500">{sub}</p>}
     </div>
   );
 }
@@ -2109,31 +2367,54 @@ type ContestData = {
   isRecurring: boolean;
   recurringInterval: string | null;
   recurringCounter: number;
+  isStoryteller: boolean;
   hasEnded: boolean;
   prizes?: { placement: number; title: string; value: number; items: string[] }[];
 };
 
 type ContestWinnerRecord = {
   id: string;
+  prizeId: string | null;
   contestId: string;
-  contestName: string;
-  contestEndedAt: string;
   placement: number;
-  title: string;
+  placementLabel: string;
+  rank: number;
   winnerPetId: string | null;
   winnerPetName: string;
+  petType: string | null;
+  petBreed: string | null;
+  petPhoto: string | null;
+  totalVotes: number;
+  ownerUserId: string | null;
   ownerUserName: string;
+  ownerEmail: string | null;
   ownerAddress: string;
+  prizeTitle: string;
+  prizeDescription: string | null;
+  prizeItems: string[];
+  prizeValue: number;
   prizeSent: boolean;
   fulfilledAt: string | null;
   awardedAt: string | null;
   status: string;
-  value: number;
+};
+
+type ContestWinnerGroup = {
+  contestId: string;
+  contestName: string;
+  contestType: string;
+  contestPetType: string;
+  contestEndedAt: string;
+  entryCount: number;
+  winners: ContestWinnerRecord[];
 };
 
 function ContestManager() {
   const [contests, setContests] = useState<ContestData[]>([]);
-  const [winners, setWinners] = useState<ContestWinnerRecord[]>([]);
+  const [winnerContests, setWinnerContests] = useState<ContestWinnerGroup[]>([]);
+  const [expandedWinnerContestId, setExpandedWinnerContestId] = useState<string | null>(null);
+  const [winnerReportOpen, setWinnerReportOpen] = useState(false);
+  const [selectedWinnerContestIds, setSelectedWinnerContestIds] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
   const [winnersLoading, setWinnersLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
@@ -2158,6 +2439,15 @@ function ContestManager() {
     isFeatured: false,
     isRecurring: false,
     recurringInterval: "biweekly",
+    isStoryteller: false,
+    // FLAGSHIP round fields
+    round2StartDate: "",
+    round3StartDate: "",
+    finaleStartDate: "",
+    currentPhase: "OPEN" as "OPEN" | "TOP100" | "TOP25" | "TOP5" | "ENDED",
+    top100CutSize: 100,
+    top25CutSize: 25,
+    top5CutSize: 5,
     prizes: [
       { placement: 1, title: "1st Place", value: "", items: "" },
       { placement: 2, title: "2nd Place", value: "", items: "" },
@@ -2179,9 +2469,17 @@ function ContestManager() {
     try {
       const res = await fetch("/api/admin/contest-winners");
       const data = await res.json();
-      setWinners(Array.isArray(data.winners) ? data.winners : []);
+      const groups = Array.isArray(data.winnerContests) ? data.winnerContests : [];
+      setWinnerContests(groups);
+      setSelectedWinnerContestIds((current) => {
+        const ids = groups.map((contest: ContestWinnerGroup) => contest.contestId);
+        if (ids.length === 0) return [];
+        const kept = current.filter((id) => ids.includes(id));
+        return kept.length > 0 ? kept : ids;
+      });
     } catch {
-      setWinners([]);
+      setWinnerContests([]);
+      setSelectedWinnerContestIds([]);
     } finally {
       setWinnersLoading(false);
     }
@@ -2230,6 +2528,7 @@ function ContestManager() {
       isFeatured: c.isFeatured, isActive: c.isActive,
       entryFee: c.entryFee || 0, maxEntries: c.maxEntries || "",
       isRecurring: c.isRecurring || false, recurringInterval: c.recurringInterval || "biweekly",
+      isStoryteller: c.isStoryteller || false,
       prizes: prizes,
     });
   }
@@ -2313,7 +2612,7 @@ function ContestManager() {
       if (res.ok) {
         setCreateMsg("Contest created!");
         setShowForm(false);
-        setCf({ name: "", type: "SEASONAL", petType: "DOG", startDate: new Date().toISOString().split("T")[0], endDate: "", description: "", rules: "", coverImage: "", prizeDescription: "", sponsorName: "", isFeatured: false, isRecurring: false, recurringInterval: "biweekly", prizes: [
+        setCf({ name: "", type: "SEASONAL", petType: "DOG", startDate: new Date().toISOString().split("T")[0], endDate: "", description: "", rules: "", coverImage: "", prizeDescription: "", sponsorName: "", isFeatured: false, isRecurring: false, recurringInterval: "biweekly", isStoryteller: false, round2StartDate: "", round3StartDate: "", finaleStartDate: "", currentPhase: "OPEN", top100CutSize: 100, top25CutSize: 25, top5CutSize: 5, prizes: [
           { placement: 1, title: "1st Place", value: "", items: "" },
           { placement: 2, title: "2nd Place", value: "", items: "" },
           { placement: 3, title: "3rd Place", value: "", items: "" },
@@ -2354,12 +2653,15 @@ function ContestManager() {
       if (!res.ok) {
         setWinnerMsg(data.error || "Failed to update prize status");
       } else {
-        setWinners((current) => current.map((winner) => winner.id === prizeId ? {
-          ...winner,
-          prizeSent: data.prizeSent,
-          fulfilledAt: data.fulfilledAt,
-          status: data.status,
-        } : winner));
+        setWinnerContests((current) => current.map((contest) => ({
+          ...contest,
+          winners: contest.winners.map((winner) => winner.prizeId === prizeId ? {
+            ...winner,
+            prizeSent: data.prizeSent,
+            fulfilledAt: data.fulfilledAt,
+            status: data.status,
+          } : winner),
+        })));
         setWinnerMsg(data.prizeSent ? "Prize marked as sent" : "Prize marked as not sent");
       }
     } catch {
@@ -2370,7 +2672,247 @@ function ContestManager() {
     }
   }
 
+  function toggleWinnerContestPdfSelection(contestId: string, checked: boolean) {
+    setSelectedWinnerContestIds((current) => {
+      if (checked) return current.includes(contestId) ? current : [...current, contestId];
+      return current.filter((id) => id !== contestId);
+    });
+  }
+
+  function selectAllWinnerContests() {
+    setSelectedWinnerContestIds(winnerContests.map((contest) => contest.contestId));
+  }
+
+  function clearWinnerContestSelection() {
+    setSelectedWinnerContestIds([]);
+  }
+
   const endedContests = contests.filter((contest) => contest.hasEnded);
+  const winners = winnerContests.flatMap((contest) =>
+    contest.winners.map((winner) => ({
+      ...winner,
+      id: winner.prizeId ?? winner.id,
+      contestName: contest.contestName,
+      contestEndedAt: contest.contestEndedAt,
+      title: winner.prizeTitle,
+    }))
+  );
+  const selectedWinnerContestSet = new Set(selectedWinnerContestIds);
+  const reportWinnerContests = winnerContests.filter((contest) => selectedWinnerContestSet.has(contest.contestId));
+  const reportWinners = reportWinnerContests.flatMap((contest) =>
+    contest.winners.map((winner) => ({
+      ...winner,
+      id: winner.prizeId ?? winner.id,
+      contestName: contest.contestName,
+      contestEndedAt: contest.contestEndedAt,
+      title: winner.prizeTitle,
+    }))
+  );
+  type WinnerListItem = (typeof winners)[number];
+  const winnerUserSummaries = Array.from(
+    reportWinners.reduce<Map<string, { key: string; ownerName: string; ownerEmail: string | null; wins: number; totalValue: number; prizes: WinnerListItem[] }>>((map, winner) => {
+      const key = winner.ownerEmail || winner.ownerUserId || winner.ownerUserName || winner.winnerPetName;
+      const current = map.get(key) || {
+        key,
+        ownerName: winner.ownerUserName,
+        ownerEmail: winner.ownerEmail,
+        wins: 0,
+        totalValue: 0,
+        prizes: [],
+      };
+      current.wins += 1;
+      current.totalValue += winner.prizeValue || 0;
+      current.prizes.push(winner);
+      map.set(key, current);
+      return map;
+    }, new Map()).values()
+  ).sort((a, b) => b.totalValue - a.totalValue || b.wins - a.wins);
+
+  function escapePrintHtml(value: unknown) {
+    return String(value ?? "")
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;")
+      .replace(/'/g, "&#039;");
+  }
+
+  function formatPrizeMoney(cents: number) {
+    return cents > 0 ? `$${(cents / 100).toLocaleString()}` : "-";
+  }
+
+  function prizeDetailsHtml(winner: ContestWinnerRecord | WinnerListItem) {
+    const description = winner.prizeDescription
+      ? `<p class="muted">${escapePrintHtml(winner.prizeDescription)}</p>`
+      : "";
+    const items = winner.prizeItems.length > 0
+      ? `<ul>${winner.prizeItems.map((item) => `<li>${escapePrintHtml(item)}</li>`).join("")}</ul>`
+      : "";
+    return `
+      <strong>${escapePrintHtml(winner.prizeTitle)}</strong>
+      ${description}
+      ${items}
+    `;
+  }
+
+  function printSelectedWinnerReport() {
+    if (reportWinnerContests.length === 0) {
+      setWinnerMsg("Select at least one contest before printing the PDF");
+      setTimeout(() => setWinnerMsg(""), 3000);
+      return;
+    }
+
+    const origin = window.location.origin;
+    const generatedAt = new Date().toLocaleString();
+    const contestsHtml = reportWinnerContests.map((contest) => {
+      const contestUrl = `${origin}/contests/${contest.contestId}`;
+      const rows = contest.winners.map((winner) => `
+        <tr>
+          <td class="place">#${winner.placement}</td>
+          <td>
+            <strong>${escapePrintHtml(winner.winnerPetName)}</strong>
+            <span>${winner.totalVotes.toLocaleString()} votes${winner.petBreed ? ` - ${escapePrintHtml(winner.petBreed)}` : ""}</span>
+          </td>
+          <td>
+            <strong>${escapePrintHtml(winner.ownerUserName)}</strong>
+            <span>${escapePrintHtml(winner.ownerEmail || "No email")}</span>
+            <span>${escapePrintHtml(winner.ownerAddress)}</span>
+          </td>
+          <td>${prizeDetailsHtml(winner)}</td>
+          <td class="money">${formatPrizeMoney(winner.prizeValue)}</td>
+          <td class="status">${winner.prizeSent ? "Sent" : "Not sent"}</td>
+        </tr>
+      `).join("");
+
+      return `
+        <section class="contest">
+          <div class="contest-head">
+            <div>
+              <h2>${escapePrintHtml(contest.contestName)}</h2>
+              <p>Ended ${new Date(contest.contestEndedAt).toLocaleDateString()} - ${contest.entryCount.toLocaleString()} entries</p>
+              <p class="link">Contest link: ${escapePrintHtml(contestUrl)}</p>
+            </div>
+          </div>
+          <table>
+            <thead>
+              <tr>
+                <th>Place</th>
+                <th>Pet</th>
+                <th>Owner / shipping</th>
+                <th>What they won</th>
+                <th>Value</th>
+                <th>Sent</th>
+              </tr>
+            </thead>
+            <tbody>${rows}</tbody>
+          </table>
+        </section>
+      `;
+    }).join("");
+
+    const usersHtml = winnerUserSummaries.map((user) => `
+      <div class="user-card">
+        <div class="user-head">
+          <div>
+            <strong>${escapePrintHtml(user.ownerName)}</strong>
+            <span>${escapePrintHtml(user.ownerEmail || "No email")}</span>
+          </div>
+          <div class="user-total">${user.wins} wins / ${formatPrizeMoney(user.totalValue)}</div>
+        </div>
+        <ul>
+          ${user.prizes.map((winner) => `
+            <li>
+              <strong>#${winner.placement} ${escapePrintHtml(winner.prizeTitle)} ${winner.prizeValue > 0 ? `(${formatPrizeMoney(winner.prizeValue)})` : ""}</strong>
+              <span>${escapePrintHtml(winner.contestName)} / ${escapePrintHtml(winner.winnerPetName)}</span>
+              ${winner.prizeItems.length > 0 ? `<span>${escapePrintHtml(winner.prizeItems.join(", "))}</span>` : ""}
+            </li>
+          `).join("")}
+        </ul>
+      </div>
+    `).join("");
+
+    const html = `<!doctype html>
+      <html>
+        <head>
+          <meta charset="utf-8" />
+          <title>VoteToFeed Winners Report</title>
+          <style>
+            @page { margin: 18mm; }
+            body { font-family: Arial, sans-serif; color: #172033; margin: 0; }
+            h1, h2, h3, p { margin: 0; }
+            .header { border-bottom: 2px solid #d8dee8; padding-bottom: 14px; margin-bottom: 18px; }
+            .eyebrow { color: #ef4444; font-size: 11px; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; }
+            h1 { font-size: 24px; margin-top: 4px; }
+            .summary { color: #657083; font-size: 12px; margin-top: 6px; }
+            .contest { border-top: 2px solid #cfd6e3; padding-top: 16px; margin-top: 18px; page-break-inside: avoid; }
+            .contest:first-of-type { border-top: 0; margin-top: 0; padding-top: 0; }
+            .contest-head { display: flex; justify-content: space-between; gap: 16px; margin-bottom: 10px; }
+            h2 { font-size: 17px; }
+            .contest-head p { color: #657083; font-size: 12px; margin-top: 3px; }
+            .link { color: #ef4444 !important; font-weight: 700; word-break: break-all; }
+            table { width: 100%; border-collapse: collapse; font-size: 11px; }
+            th { background: #f4f6f8; color: #7b8493; font-size: 10px; text-transform: uppercase; letter-spacing: .05em; text-align: left; padding: 8px; border-bottom: 1px solid #d8dee8; }
+            td { vertical-align: top; padding: 9px 8px; border-bottom: 1px solid #edf0f4; }
+            td span, .muted { display: block; color: #657083; font-size: 10px; margin-top: 2px; }
+            ul { margin: 4px 0 0 16px; padding: 0; color: #657083; font-size: 10px; }
+            .place { color: #ef4444; font-weight: 800; white-space: nowrap; }
+            .money, .status { white-space: nowrap; font-weight: 700; }
+            .users { margin-top: 24px; border-top: 2px solid #d8dee8; padding-top: 14px; }
+            .users h3 { font-size: 16px; margin-bottom: 10px; }
+            .user-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+            .user-card { border: 1px solid #d8dee8; border-radius: 8px; padding: 10px; page-break-inside: avoid; }
+            .user-head { display: flex; justify-content: space-between; gap: 10px; }
+            .user-head span { display: block; color: #657083; font-size: 10px; margin-top: 2px; word-break: break-all; }
+            .user-total { color: #ef4444; font-size: 11px; font-weight: 800; white-space: nowrap; }
+            .user-card li { margin-bottom: 5px; }
+            .user-card li span { display: block; }
+            @media print {
+              .user-grid { grid-template-columns: 1fr 1fr; }
+            }
+          </style>
+        </head>
+        <body>
+          <div class="header">
+            <p class="eyebrow">VoteToFeed Winners Report</p>
+            <h1>Closed Contest Winners</h1>
+            <p class="summary">${reportWinnerContests.length} selected contests - ${reportWinners.length} winner records - generated ${escapePrintHtml(generatedAt)}</p>
+          </div>
+          ${contestsHtml}
+          <section class="users">
+            <h3>Winnings by User</h3>
+            <div class="user-grid">${usersHtml}</div>
+          </section>
+        </body>
+      </html>`;
+
+    const iframe = document.createElement("iframe");
+    iframe.style.position = "fixed";
+    iframe.style.right = "0";
+    iframe.style.bottom = "0";
+    iframe.style.width = "0";
+    iframe.style.height = "0";
+    iframe.style.border = "0";
+    document.body.appendChild(iframe);
+
+    const frameWindow = iframe.contentWindow;
+    const frameDocument = frameWindow?.document;
+    if (!frameWindow || !frameDocument) {
+      iframe.remove();
+      setWinnerMsg("Could not prepare the selected PDF report");
+      setTimeout(() => setWinnerMsg(""), 3000);
+      return;
+    }
+
+    frameDocument.open();
+    frameDocument.write(html);
+    frameDocument.close();
+
+    setTimeout(() => {
+      frameWindow.focus();
+      frameWindow.print();
+      setTimeout(() => iframe.remove(), 1000);
+    }, 250);
+  }
 
   return (
     <div>
@@ -2396,6 +2938,7 @@ function ContestManager() {
               <div>
                 <label className="block text-xs font-medium text-surface-500 mb-1">Type *</label>
                 <select value={cf.type} onChange={(e) => setCf((f) => ({ ...f, type: e.target.value }))} className="input-field">
+                  <option value="FLAGSHIP">👑 Flagship (Multi-Round)</option>
                   <option value="NATIONAL">National (Weekly)</option>
                   <option value="SEASONAL">Seasonal</option>
                   <option value="CHARITY">Charity</option>
@@ -2407,8 +2950,10 @@ function ContestManager() {
               <div>
                 <label className="block text-xs font-medium text-surface-500 mb-1">Pet Type *</label>
                 <select value={cf.petType} onChange={(e) => setCf((f) => ({ ...f, petType: e.target.value }))} className="input-field">
+                  <option value="ALL">🐶🐱 Dog + Cat (Combined)</option>
                   <option value="DOG">Dog</option>
                   <option value="CAT">Cat</option>
+                  <option value="OTHER">Other</option>
                 </select>
               </div>
             </div>
@@ -2588,6 +3133,52 @@ function ContestManager() {
               </details>
             </div>
           </div>
+          {/* Round configuration — only for FLAGSHIP */}
+          {cf.type === "FLAGSHIP" && (
+            <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 space-y-3">
+              <p className="text-xs font-bold text-amber-800 uppercase tracking-wider">👑 Round Configuration</p>
+              <p className="text-[11px] text-amber-700 -mt-1">⚠️ <strong>Entry Deadline = Round 2 Start date.</strong> After that date the cron advances the phase to TOP100 and new pets can no longer be enrolled.</p>
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                <div>
+                  <label className="block text-[10px] font-medium text-surface-600 mb-1">Entry Deadline / Round 2 Start (Top 100)</label>
+                  <input type="date" value={cf.round2StartDate || ""} onChange={(e) => setCf((f) => ({ ...f, round2StartDate: e.target.value }))} className="input-field text-xs" />
+                </div>
+                <div>
+                  <label className="block text-[10px] font-medium text-surface-600 mb-1">Round 3 Start (Top 25)</label>
+                  <input type="date" value={cf.round3StartDate || ""} onChange={(e) => setCf((f) => ({ ...f, round3StartDate: e.target.value }))} className="input-field text-xs" />
+                </div>
+                <div>
+                  <label className="block text-[10px] font-medium text-surface-600 mb-1">Finale Start (Top 5)</label>
+                  <input type="date" value={cf.finaleStartDate || ""} onChange={(e) => setCf((f) => ({ ...f, finaleStartDate: e.target.value }))} className="input-field text-xs" />
+                </div>
+                <div>
+                  <label className="block text-[10px] font-medium text-surface-600 mb-1">Current Phase</label>
+                  <select value={cf.currentPhase || "OPEN"} onChange={(e) => setCf((f) => ({ ...f, currentPhase: e.target.value as typeof cf.currentPhase }))} className="input-field text-xs">
+                    <option value="OPEN">OPEN (All entries)</option>
+                    <option value="TOP100">TOP 100</option>
+                    <option value="TOP25">TOP 25</option>
+                    <option value="TOP5">TOP 5 Finale</option>
+                    <option value="ENDED">ENDED</option>
+                  </select>
+                </div>
+              </div>
+              <div className="grid grid-cols-3 gap-3">
+                <div>
+                  <label className="block text-[10px] font-medium text-surface-600 mb-1">Top 100 cut size</label>
+                  <input type="number" min="1" value={cf.top100CutSize ?? 100} onChange={(e) => setCf((f) => ({ ...f, top100CutSize: parseInt(e.target.value) }))} className="input-field text-xs" />
+                </div>
+                <div>
+                  <label className="block text-[10px] font-medium text-surface-600 mb-1">Top 25 cut size</label>
+                  <input type="number" min="1" value={cf.top25CutSize ?? 25} onChange={(e) => setCf((f) => ({ ...f, top25CutSize: parseInt(e.target.value) }))} className="input-field text-xs" />
+                </div>
+                <div>
+                  <label className="block text-[10px] font-medium text-surface-600 mb-1">Top 5 cut size</label>
+                  <input type="number" min="1" value={cf.top5CutSize ?? 5} onChange={(e) => setCf((f) => ({ ...f, top5CutSize: parseInt(e.target.value) }))} className="input-field text-xs" />
+                </div>
+              </div>
+            </div>
+          )}
+
           <div className="flex flex-wrap gap-4">
             <label className="flex items-center gap-2 cursor-pointer">
               <input type="checkbox" checked={cf.isFeatured} onChange={(e) => setCf((f) => ({ ...f, isFeatured: e.target.checked }))} className="w-4 h-4 rounded border-surface-300 text-brand-600" />
@@ -2596,6 +3187,10 @@ function ContestManager() {
             <label className="flex items-center gap-2 cursor-pointer">
               <input type="checkbox" checked={cf.isRecurring} onChange={(e) => setCf((f) => ({ ...f, isRecurring: e.target.checked }))} className="w-4 h-4 rounded border-surface-300 text-brand-600" />
               <span className="text-sm text-surface-700">Recurring</span>
+            </label>
+            <label className="flex items-center gap-2 cursor-pointer">
+              <input type="checkbox" checked={cf.isStoryteller} onChange={(e) => setCf((f) => ({ ...f, isStoryteller: e.target.checked }))} className="w-4 h-4 rounded border-surface-300 text-brand-600" />
+              <span className="text-sm text-surface-700">Storyteller Mode</span>
             </label>
             {cf.isRecurring && (
               <select value={cf.recurringInterval} onChange={(e) => setCf((f) => ({ ...f, recurringInterval: e.target.value }))} className="input-field text-sm w-auto">
@@ -2632,6 +3227,7 @@ function ContestManager() {
                     <div>
                       <label className="block text-[10px] font-medium text-surface-500 mb-0.5">Type</label>
                       <select value={editForm.type as string} onChange={e => setEditForm(f => ({...f, type: e.target.value}))} className="input-field text-sm">
+                        <option value="FLAGSHIP">👑 Flagship</option>
                         <option value="NATIONAL">National</option><option value="SEASONAL">Seasonal</option>
                         <option value="CHARITY">Charity</option><option value="CALENDAR">Calendar</option>
                         <option value="BREED">Breed</option><option value="STATE">State</option>
@@ -2640,7 +3236,7 @@ function ContestManager() {
                     <div>
                       <label className="block text-[10px] font-medium text-surface-500 mb-0.5">Pet Type</label>
                       <select value={editForm.petType as string} onChange={e => setEditForm(f => ({...f, petType: e.target.value}))} className="input-field text-sm">
-                        <option value="DOG">Dog</option><option value="CAT">Cat</option><option value="OTHER">Other</option>
+                        <option value="ALL">Dog + Cat</option><option value="DOG">Dog</option><option value="CAT">Cat</option><option value="OTHER">Other</option>
                       </select>
                     </div>
                   </div>
@@ -2741,6 +3337,7 @@ function ContestManager() {
                     <label className="flex items-center gap-1.5 cursor-pointer text-xs"><input type="checkbox" checked={editForm.isFeatured as boolean} onChange={e => setEditForm(f => ({...f, isFeatured: e.target.checked}))} className="w-3.5 h-3.5 rounded" /> Featured</label>
                     <label className="flex items-center gap-1.5 cursor-pointer text-xs"><input type="checkbox" checked={editForm.isActive as boolean} onChange={e => setEditForm(f => ({...f, isActive: e.target.checked}))} className="w-3.5 h-3.5 rounded" /> Active</label>
                     <label className="flex items-center gap-1.5 cursor-pointer text-xs"><input type="checkbox" checked={editForm.isRecurring as boolean} onChange={e => setEditForm(f => ({...f, isRecurring: e.target.checked}))} className="w-3.5 h-3.5 rounded" /> Recurring</label>
+                    <label className="flex items-center gap-1.5 cursor-pointer text-xs"><input type="checkbox" checked={Boolean(editForm.isStoryteller)} onChange={e => setEditForm(f => ({...f, isStoryteller: e.target.checked}))} className="w-3.5 h-3.5 rounded" /> Storyteller Mode</label>
                     {Boolean(editForm.isRecurring) && (
                       <select value={editForm.recurringInterval as string} onChange={e => setEditForm(f => ({...f, recurringInterval: e.target.value}))} className="input-field text-xs w-auto py-0.5">
                         <option value="weekly">Weekly</option><option value="biweekly">Biweekly</option><option value="monthly">Monthly</option>
@@ -2779,6 +3376,9 @@ function ContestManager() {
                     </div>
                   </div>
                   <div className="flex items-center gap-1 shrink-0">
+                    <Link href={`/contests/${c.id}`} title="Open contest" className="px-2 py-1.5 rounded-lg bg-surface-100 text-surface-600 hover:bg-brand-50 hover:text-brand-600 text-xs font-semibold transition">
+                      Open
+                    </Link>
                     <button onClick={() => toggleField(c.id, "isFeatured", !c.isFeatured)} title={c.isFeatured ? "Unfeature" : "Feature"} className={`p-1.5 rounded-lg text-xs transition ${c.isFeatured ? "bg-yellow-100 text-yellow-700" : "text-surface-400 hover:bg-surface-100"}`}>⭐</button>
                     <button onClick={() => toggleField(c.id, "isActive", !c.isActive)} title={c.isActive ? "Deactivate" : "Activate"} className={`p-1.5 rounded-lg text-xs transition ${c.isActive ? "bg-green-100 text-green-700" : "bg-surface-100 text-surface-400"}`}>{c.isActive ? "✅" : "⏸"}</button>
                     <button onClick={() => startEdit(c)} title="Edit" className="p-1.5 rounded-lg text-surface-400 hover:bg-surface-100 hover:text-surface-700 text-xs transition">✏️</button>
@@ -2792,12 +3392,44 @@ function ContestManager() {
       )}
 
       <div className="mt-8">
-        <div className="flex items-center justify-between mb-4">
+        <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <h3 className="text-lg font-bold text-surface-900">Winners</h3>
             <p className="text-sm text-surface-500 mt-1">Closed contest winners and fulfillment tracking.</p>
           </div>
-          <span className="text-xs font-medium text-surface-400">{endedContests.length} ended contests</span>
+          <div className="flex flex-wrap items-center gap-2 print:hidden">
+            <span className="rounded-full bg-surface-100 px-3 py-1 text-xs font-medium text-surface-500">{endedContests.length} ended contests</span>
+            <span className="rounded-full bg-brand-50 px-3 py-1 text-xs font-bold text-brand-600">{selectedWinnerContestIds.length} selected for PDF</span>
+            <button
+              type="button"
+              onClick={selectAllWinnerContests}
+              className="rounded-lg bg-white px-3 py-2 text-xs font-bold text-surface-700 ring-1 ring-surface-200 transition hover:bg-surface-50"
+            >
+              Select all
+            </button>
+            <button
+              type="button"
+              onClick={clearWinnerContestSelection}
+              className="rounded-lg bg-white px-3 py-2 text-xs font-bold text-surface-700 ring-1 ring-surface-200 transition hover:bg-surface-50"
+            >
+              Clear
+            </button>
+            <button
+              type="button"
+              onClick={() => setWinnerReportOpen((open) => !open)}
+              className={`rounded-lg px-3 py-2 text-xs font-bold transition ${winnerReportOpen ? "bg-surface-900 text-white" : "bg-white text-surface-700 ring-1 ring-surface-200 hover:bg-surface-50"}`}
+            >
+              {winnerReportOpen ? "Hide PDF view" : "PDF view"}
+            </button>
+            <button
+              type="button"
+              onClick={printSelectedWinnerReport}
+              disabled={reportWinnerContests.length === 0}
+              className="rounded-lg bg-brand-500 px-3 py-2 text-xs font-bold text-white shadow-sm transition hover:bg-brand-600 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              Print / Save PDF
+            </button>
+          </div>
         </div>
 
         {winnerMsg && (
@@ -2808,21 +3440,283 @@ function ContestManager() {
 
         {winnersLoading ? (
           <div className="card p-5 text-sm text-surface-400">Loading winners...</div>
-        ) : winners.length === 0 ? (
+        ) : winnerContests.length === 0 ? (
           <div className="card p-5 text-sm text-surface-500">
             {endedContests.length === 0
               ? "No ended contests yet. Winners will appear here once contests close."
-              : "No prizes or winners have been assigned for ended contests yet."}
+              : "No contest entries found for ended contests yet."}
           </div>
         ) : (
-          <div className="card p-0 overflow-hidden">
+          <div className="space-y-3">
+            <div className={`${winnerReportOpen ? "block" : "hidden print:block"} rounded-xl border border-surface-200 bg-white p-5 shadow-sm print:border-0 print:p-0 print:shadow-none`}>
+              <div className="mb-5 flex flex-col gap-2 border-b border-surface-200 pb-4 sm:flex-row sm:items-end sm:justify-between">
+                <div>
+                  <p className="text-xs font-bold uppercase tracking-wider text-brand-600">VoteToFeed Winners Report</p>
+                  <h4 className="mt-1 text-xl font-extrabold text-surface-900">Closed Contest Winners</h4>
+                  <p className="mt-1 text-sm text-surface-500">
+                    {reportWinnerContests.length} selected contests - {reportWinners.length} winner records - generated {new Date().toLocaleDateString()}
+                  </p>
+                </div>
+                <p className="text-xs font-semibold text-surface-400">Prize fulfillment and user winnings</p>
+              </div>
+
+              {reportWinnerContests.length === 0 ? (
+                <div className="rounded-lg border border-dashed border-surface-300 bg-surface-50 p-5 text-sm font-medium text-surface-500">
+                  Select at least one contest to include in the PDF.
+                </div>
+              ) : (
+                <div className="space-y-5">
+                  {reportWinnerContests.map((contest) => (
+                    <section key={contest.contestId} className="border-t-2 border-surface-300 pt-4 first:border-t-0 first:pt-0 print:break-inside-avoid">
+                      <div className="mb-3 flex flex-col gap-1 sm:flex-row sm:items-start sm:justify-between">
+                        <div>
+                          <h5 className="text-base font-extrabold text-surface-900">{contest.contestName}</h5>
+                          <p className="text-xs text-surface-500">
+                            Ended {new Date(contest.contestEndedAt).toLocaleDateString()} - {contest.entryCount} entries
+                          </p>
+                          <p className="mt-1 break-all text-[11px] font-semibold text-brand-600">Contest link: /contests/{contest.contestId}</p>
+                        </div>
+                        <Link href={`/contests/${contest.contestId}`} className="print:hidden rounded-lg bg-white px-3 py-2 text-xs font-bold text-surface-700 ring-1 ring-surface-200 transition hover:bg-brand-50 hover:text-brand-600">
+                          Open contest
+                        </Link>
+                      </div>
+
+                      <div className="overflow-x-auto">
+                        <table className="w-full text-left text-xs">
+                          <thead>
+                            <tr className="border-b border-surface-200 bg-surface-50 text-[10px] uppercase tracking-wider text-surface-400">
+                              <th className="px-3 py-2">Place</th>
+                              <th className="px-3 py-2">Pet</th>
+                              <th className="px-3 py-2">Owner</th>
+                              <th className="px-3 py-2">Prize Won</th>
+                              <th className="px-3 py-2 text-right">Value</th>
+                              <th className="px-3 py-2 text-center">Sent</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-surface-100">
+                            {contest.winners.map((winner) => (
+                              <tr key={`${contest.contestId}-${winner.id}-${winner.placement}`} className="align-top">
+                                <td className="px-3 py-2 font-extrabold text-brand-600">#{winner.placement}</td>
+                                <td className="px-3 py-2">
+                                  <p className="font-semibold text-surface-800">{winner.winnerPetName}</p>
+                                  <p className="text-[10px] text-surface-400">{winner.totalVotes.toLocaleString()} votes</p>
+                                </td>
+                                <td className="px-3 py-2">
+                                  <p className="font-semibold text-surface-800">{winner.ownerUserName}</p>
+                                  <p className="break-all text-[10px] text-surface-400">{winner.ownerEmail || "No email"}</p>
+                                </td>
+                                <td className="px-3 py-2 text-surface-700">
+                                  <p className="font-semibold text-surface-900">{winner.prizeTitle}</p>
+                                  {winner.prizeDescription && <p className="mt-1 text-[11px] text-surface-500">{winner.prizeDescription}</p>}
+                                  {winner.prizeItems.length > 0 && (
+                                    <ul className="mt-1 space-y-0.5 text-[11px] text-surface-500">
+                                      {winner.prizeItems.map((item) => (
+                                        <li key={item}>- {item}</li>
+                                      ))}
+                                    </ul>
+                                  )}
+                                </td>
+                                <td className="px-3 py-2 text-right font-semibold text-surface-900">
+                                  {winner.prizeValue > 0 ? `$${(winner.prizeValue / 100).toLocaleString()}` : "-"}
+                                </td>
+                                <td className="px-3 py-2 text-center">
+                                  <span className={`rounded-full px-2 py-0.5 text-[10px] font-bold ${winner.prizeSent ? "bg-green-100 text-green-700" : "bg-surface-100 text-surface-500"}`}>
+                                    {winner.prizeSent ? "Sent" : "Not sent"}
+                                  </span>
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </section>
+                  ))}
+                </div>
+              )}
+
+              <div className="mt-6">
+                <h5 className="text-sm font-extrabold text-surface-900">Winnings by User</h5>
+                {winnerUserSummaries.length === 0 ? (
+                  <div className="mt-3 rounded-lg border border-dashed border-surface-300 bg-surface-50 p-4 text-sm text-surface-500">
+                    Select contests to see user winnings.
+                  </div>
+                ) : (
+                  <div className="mt-3 grid gap-3 lg:grid-cols-2">
+                    {winnerUserSummaries.map((user) => (
+                    <div key={user.key} className="rounded-lg border border-surface-200 bg-surface-50 p-3">
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0">
+                          <p className="truncate text-sm font-bold text-surface-900">{user.ownerName}</p>
+                          <p className="break-all text-[11px] text-surface-500">{user.ownerEmail || "No email"}</p>
+                        </div>
+                        <div className="shrink-0 text-right">
+                          <p className="text-xs font-bold text-brand-600">{user.wins} wins</p>
+                          <p className="text-[11px] font-semibold text-surface-500">
+                            {user.totalValue > 0 ? `$${(user.totalValue / 100).toLocaleString()}` : "No value"}
+                          </p>
+                        </div>
+                      </div>
+                      <ul className="mt-3 space-y-1.5 text-xs text-surface-700">
+                        {user.prizes.map((winner) => (
+                          <li key={`${user.key}-${winner.contestId}-${winner.placement}`} className="flex gap-2">
+                            <span className="font-bold text-brand-600">#{winner.placement}</span>
+                            <span className="min-w-0">
+                              <span className="font-semibold">{winner.prizeTitle}</span>
+                              {winner.prizeValue > 0 && <span className="text-surface-400"> (${(winner.prizeValue / 100).toLocaleString()})</span>}
+                              <span className="text-surface-400"> - {winner.contestName} / {winner.winnerPetName}</span>
+                              {winner.prizeItems.length > 0 && (
+                                <span className="block text-[11px] text-surface-500">{winner.prizeItems.join(", ")}</span>
+                              )}
+                            </span>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {winnerContests.map((contest) => {
+              const isOpen = expandedWinnerContestId === contest.contestId;
+              const topWinner = contest.winners[0];
+              const sentCount = contest.winners.filter((winner) => winner.prizeSent).length;
+
+              return (
+                <div key={contest.contestId} className="overflow-hidden rounded-lg border border-surface-200 bg-white shadow-sm print:hidden">
+                  <div className="flex flex-col gap-3 px-4 py-4 transition hover:bg-surface-50 sm:flex-row sm:items-center sm:justify-between">
+                    <label className="inline-flex w-fit shrink-0 items-center gap-2 rounded-lg bg-surface-50 px-3 py-2 text-xs font-bold text-surface-700 ring-1 ring-surface-200">
+                      <input
+                        type="checkbox"
+                        checked={selectedWinnerContestSet.has(contest.contestId)}
+                        onChange={(e) => toggleWinnerContestPdfSelection(contest.contestId, e.target.checked)}
+                        className="h-4 w-4 rounded border-surface-300 text-brand-600"
+                      />
+                      PDF
+                    </label>
+                    <button
+                      type="button"
+                      onClick={() => setExpandedWinnerContestId(isOpen ? null : contest.contestId)}
+                      className="flex min-w-0 flex-1 items-center gap-3 text-left"
+                    >
+                      <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg bg-brand-50 text-sm font-extrabold text-brand-600 ring-1 ring-brand-100">
+                        {contest.winners.length}
+                      </div>
+                      <div className="min-w-0">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <h4 className="truncate text-sm font-bold text-surface-900">{contest.contestName}</h4>
+                          <span className={`text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full ${contestTypeBadge(contest.contestType)}`}>
+                            {contestTypeLabel(contest.contestType)}
+                          </span>
+                          <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-surface-100 text-surface-500">
+                            {contest.contestPetType === "DOG" ? "Dogs" : contest.contestPetType === "CAT" ? "Cats" : contest.contestPetType === "ALL" ? "All pets" : "Other"}
+                          </span>
+                        </div>
+                        <p className="mt-1 text-xs text-surface-500">
+                          Ended {new Date(contest.contestEndedAt).toLocaleDateString()} - {contest.entryCount} entries
+                          {topWinner ? ` - winner ${topWinner.winnerPetName} with ${topWinner.totalVotes.toLocaleString()} votes` : ""}
+                        </p>
+                      </div>
+                    </button>
+                    <div className="flex items-center gap-3 sm:justify-end">
+                      <span className="rounded-full bg-surface-100 px-3 py-1 text-xs font-semibold text-surface-600">
+                        {sentCount}/{contest.winners.length} sent
+                      </span>
+                      <Link href={`/contests/${contest.contestId}`} className="rounded-lg bg-white px-3 py-2 text-xs font-bold text-surface-700 ring-1 ring-surface-200 transition hover:bg-brand-50 hover:text-brand-600">
+                        Open contest
+                      </Link>
+                      <button
+                        type="button"
+                        onClick={() => setExpandedWinnerContestId(isOpen ? null : contest.contestId)}
+                        className="rounded-lg bg-brand-500 px-3 py-2 text-xs font-bold text-white shadow-sm transition hover:bg-brand-600"
+                      >
+                        {isOpen ? "Hide top 3" : "View top 3"}
+                      </button>
+                    </div>
+                  </div>
+
+                  {isOpen && (
+                    <div className="space-y-2 border-t border-surface-100 bg-surface-50/60 p-3">
+                      {contest.winners.map((winner) => {
+                        const prizeId = winner.prizeId;
+
+                        return (
+                          <div key={winner.id} className="grid gap-3 rounded-lg border border-surface-200 bg-white p-3 shadow-sm sm:grid-cols-[96px_minmax(180px,1fr)_minmax(220px,1.2fr)_minmax(170px,0.8fr)] sm:items-center">
+                            <div className="relative h-24 w-24 overflow-hidden rounded-lg bg-surface-100">
+                              {winner.petPhoto ? (
+                                <img src={winner.petPhoto} alt="" className="h-full w-full object-cover" />
+                              ) : (
+                                <div className="flex h-full w-full items-center justify-center text-sm font-semibold text-surface-400">
+                                  No photo
+                                </div>
+                              )}
+                              <div className="absolute left-3 top-3 rounded-full bg-white/95 px-3 py-1 text-xs font-extrabold text-brand-600 shadow-sm">
+                                #{winner.placement}
+                              </div>
+                            </div>
+
+                            <div className="min-w-0">
+                              <p className="truncate text-base font-extrabold text-surface-900">{winner.winnerPetName}</p>
+                              <p className="mt-0.5 text-xs font-medium text-surface-500">
+                                {winner.totalVotes.toLocaleString()} votes - {winner.petBreed || winner.petType || "Pet"}
+                              </p>
+                              <p className="mt-2 truncate text-xs font-semibold text-surface-800">{winner.prizeTitle}</p>
+                              <p className="text-[11px] text-surface-400">
+                                {winner.prizeValue > 0 ? `$${(winner.prizeValue / 100).toLocaleString()}` : "No prize value"}
+                              </p>
+                              {winner.prizeDescription && (
+                                <p className="mt-1 line-clamp-2 text-[11px] text-surface-500">{winner.prizeDescription}</p>
+                              )}
+                              {winner.prizeItems.length > 0 && (
+                                <ul className="mt-1 space-y-0.5 text-[11px] text-surface-500">
+                                  {winner.prizeItems.slice(0, 3).map((item) => (
+                                    <li key={item} className="truncate">- {item}</li>
+                                  ))}
+                                </ul>
+                              )}
+                            </div>
+
+                            <div className="grid gap-2 text-xs sm:grid-cols-2">
+                              <div className="rounded-lg bg-surface-50 p-2">
+                                <p className="font-semibold uppercase tracking-wider text-surface-400">Owner</p>
+                                <p className="mt-0.5 font-semibold text-surface-800">{winner.ownerUserName}</p>
+                                <p className="mt-0.5 break-all text-surface-500">{winner.ownerEmail || "No email"}</p>
+                              </div>
+
+                              <div className="rounded-lg bg-surface-50 p-2">
+                                <p className="font-semibold uppercase tracking-wider text-surface-400">Shipping Address</p>
+                                <p className="mt-0.5 text-surface-700">{winner.ownerAddress}</p>
+                              </div>
+                            </div>
+
+                            <label className="inline-flex items-center justify-center gap-2 rounded-lg border border-surface-200 px-3 py-2 text-xs font-medium text-surface-700">
+                              <input
+                                type="checkbox"
+                                checked={winner.prizeSent}
+                                disabled={!prizeId || togglingPrizeId === prizeId}
+                                onChange={(e) => prizeId && togglePrizeSent(prizeId, e.target.checked)}
+                                className="h-4 w-4 rounded border-surface-300 text-brand-600"
+                              />
+                              {!prizeId ? "No prize" : togglingPrizeId === prizeId ? "Saving" : winner.prizeSent ? "Sent" : "Not sent"}
+                            </label>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+            {false && (
+            <div className="hidden">
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b border-surface-100 bg-surface-50">
                     <th className="px-4 py-3 text-left text-[11px] font-medium uppercase tracking-wider text-surface-400">Contest</th>
                     <th className="px-4 py-3 text-left text-[11px] font-medium uppercase tracking-wider text-surface-400">Winner Pet</th>
-                    <th className="px-4 py-3 text-left text-[11px] font-medium uppercase tracking-wider text-surface-400">Owner Name</th>
+                    <th className="px-4 py-3 text-left text-[11px] font-medium uppercase tracking-wider text-surface-400">Owner / Contact</th>
                     <th className="px-4 py-3 text-left text-[11px] font-medium uppercase tracking-wider text-surface-400">Shipping Address</th>
                     <th className="px-4 py-3 text-center text-[11px] font-medium uppercase tracking-wider text-surface-400">Prize / Product Sent</th>
                   </tr>
@@ -2839,21 +3733,26 @@ function ContestManager() {
                       <td className="px-4 py-3">
                         <div>
                           <p className="font-semibold text-surface-900">{winner.winnerPetName}</p>
-                          <p className="text-[11px] text-surface-400">{winner.title}</p>
+                          <p className="text-[11px] text-surface-400">{winner.totalVotes.toLocaleString()} votes · {winner.title}</p>
                         </div>
                       </td>
-                      <td className="px-4 py-3 text-surface-700">{winner.ownerUserName}</td>
+                      <td className="px-4 py-3 text-surface-700">
+                        <div>
+                          <p className="font-medium text-surface-800">{winner.ownerUserName}</p>
+                          <p className="mt-0.5 break-all text-[11px] text-surface-400">{winner.ownerEmail || "No email"}</p>
+                        </div>
+                      </td>
                       <td className="px-4 py-3 text-surface-700 max-w-xs whitespace-normal">{winner.ownerAddress}</td>
                       <td className="px-4 py-3 text-center">
                         <label className="inline-flex items-center justify-center gap-2 rounded-lg border border-surface-200 px-3 py-2 text-xs font-medium text-surface-700">
                           <input
                             type="checkbox"
                             checked={winner.prizeSent}
-                            disabled={togglingPrizeId === winner.id}
-                            onChange={(e) => togglePrizeSent(winner.id, e.target.checked)}
+                            disabled={!winner.prizeId || togglingPrizeId === winner.id}
+                            onChange={(e) => winner.prizeId && togglePrizeSent(winner.prizeId, e.target.checked)}
                             className="h-4 w-4 rounded border-surface-300 text-brand-600"
                           />
-                          {togglingPrizeId === winner.id ? "Saving..." : winner.prizeSent ? "Sent" : "Not sent"}
+                          {!winner.prizeId ? "No prize" : togglingPrizeId === winner.id ? "Saving..." : winner.prizeSent ? "Sent" : "Not sent"}
                         </label>
                       </td>
                     </tr>
@@ -2861,6 +3760,8 @@ function ContestManager() {
                 </tbody>
               </table>
             </div>
+          </div>
+            )}
           </div>
         )}
       </div>

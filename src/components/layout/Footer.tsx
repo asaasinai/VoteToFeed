@@ -29,7 +29,7 @@ export function Footer() {
             <ul className="space-y-2.5 text-sm">
               <li><Link href="/leaderboard/DOG" className="hover:text-white transition-colors">Dog Contest</Link></li>
               <li><Link href="/leaderboard/CAT" className="hover:text-white transition-colors">Cat Contest</Link></li>
-              <li><Link href="/winners" className="hover:text-white transition-colors">Winners</Link></li>
+
             </ul>
           </div>
           <div>

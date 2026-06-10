@@ -6,7 +6,7 @@ import { authOptions } from "@/lib/auth";
 import { getStripeAsync } from "@/lib/stripe";
 import prisma from "@/lib/prisma";
 import { VOTE_PACKAGES, calculateMeals } from "@/lib/utils";
-import { getMealRate } from "@/lib/admin-settings";
+import { getMealRate, getFirstTimeBuyerDiscount } from "@/lib/admin-settings";
 
 const VTF_BRAND = "votetofeed";
 const VTF_SITE = "votetofeed.com";
@@ -21,7 +21,8 @@ export async function POST(req: NextRequest) {
     }
 
     const userId = (session.user as Record<string, unknown>).id as string;
-    const { tier } = await req.json();
+    const { tier, petId } = await req.json();
+    const sourcePetId = typeof petId === "string" && petId.trim() ? petId.trim() : null;
 
     const pkg = VOTE_PACKAGES.find((p) => p.tier === tier);
     if (!pkg) {
@@ -29,6 +30,20 @@ export async function POST(req: NextRequest) {
         { error: "Invalid package tier" },
         { status: 400 }
       );
+    }
+
+    if (sourcePetId) {
+      const sourcePet = await prisma.pet.findUnique({
+        where: { id: sourcePetId },
+        select: { id: true, isActive: true },
+      });
+
+      if (!sourcePet?.isActive) {
+        return NextResponse.json(
+          { error: "Selected pet is no longer available" },
+          { status: 400 }
+        );
+      }
     }
 
     // Validate Stripe configuration before creating a pending purchase.
@@ -44,6 +59,7 @@ export async function POST(req: NextRequest) {
     }
 
     const mealRate = await getMealRate();
+    const discount = await getFirstTimeBuyerDiscount();
     const meals = calculateMeals(pkg.price, mealRate);
     const appUrl = process.env.NEXT_PUBLIC_APP_URL || "https://votetofeed.com";
 
@@ -53,7 +69,7 @@ export async function POST(req: NextRequest) {
         userId,
         packageTier: tier,
         votes: pkg.votes,
-        amount: pkg.price,
+        amount: pkg.price,   // will be updated to final price after discount check
         status: "PENDING",
         mealsProvided: meals,
         mealRateAtPurchase: mealRate,
@@ -71,7 +87,45 @@ export async function POST(req: NextRequest) {
       amount: pkg.price.toString(),
       mealRate: mealRate.toString(),
       meals: meals.toString(),
+      ...(sourcePetId ? { petId: sourcePetId } : {}),
     };
+
+    // Check if first-time buyer — include PENDING to block the race condition
+    // where two parallel tabs both create PENDING purchases before either completes,
+    // and both incorrectly qualify for the 20% discount.
+    const previousPurchase = await prisma.purchase.findFirst({
+      where: { userId, status: { in: ["COMPLETED", "PENDING"] }, id: { not: purchase.id } },
+    });
+    const isFirstTimeBuyer = !previousPurchase;
+
+    // 3DS required for $249+ transactions
+    const requires3DS = pkg.price >= 24900;
+
+    // Apply first-time buyer discount if enabled
+    const discountMultiplier = (discount.enabled && isFirstTimeBuyer)
+      ? (100 - discount.pct) / 100
+      : 1;
+    const finalPrice = Math.round(pkg.price * discountMultiplier);
+    const appliedDiscount = discount.enabled && isFirstTimeBuyer;
+
+    const successParams = new URLSearchParams({ purchase: "success", tier });
+    const cancelParams = new URLSearchParams({ purchase: "cancelled", tier });
+    if (appliedDiscount) successParams.set("firstBuyer", "1");
+    if (sourcePetId) {
+      successParams.set("pet", sourcePetId);
+      cancelParams.set("pet", sourcePetId);
+    }
+
+    // Update purchase record with final price and discount info
+    await prisma.purchase.update({
+      where: { id: purchase.id },
+      data: {
+        amount: finalPrice,
+        isFirstTimeBuyer: appliedDiscount,
+        originalAmount: appliedDiscount ? pkg.price : 0,
+        discountPct: appliedDiscount ? discount.pct : 0,
+      },
+    });
 
     const checkoutSession = await stripe.checkout.sessions.create({
       payment_method_types: ["card"],
@@ -88,19 +142,31 @@ export async function POST(req: NextRequest) {
                 site: VTF_SITE,
               },
             },
-            unit_amount: pkg.price,
+            unit_amount: finalPrice,
           },
           quantity: 1,
         },
       ],
       mode: "payment",
-      success_url: `${appUrl}/dashboard?purchase=success&tier=${tier}`,
-      cancel_url: `${appUrl}/dashboard?purchase=cancelled&tier=${tier}`,
-      metadata,
+      success_url: `${appUrl}/dashboard?${successParams.toString()}`,
+      cancel_url: `${appUrl}/dashboard?${cancelParams.toString()}`,
+      metadata: {
+        ...metadata,
+        isFirstTimeBuyer: (discount.enabled && isFirstTimeBuyer) ? "1" : "0",
+        discountPct: (discount.enabled && isFirstTimeBuyer) ? discount.pct.toString() : "0",
+        originalAmount: pkg.price.toString(),
+      },
       payment_intent_data: {
         metadata,
         description: `VoteToFeed ${pkg.label} vote pack (${pkg.votes} votes)`,
       },
+      ...(requires3DS && {
+        payment_method_options: {
+          card: {
+            request_three_d_secure: "any",
+          },
+        },
+      }),
     });
 
     await prisma.purchase.update({

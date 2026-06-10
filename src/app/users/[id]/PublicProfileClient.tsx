@@ -1,10 +1,14 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
+import { createPortal } from "react-dom";
 import Link from "next/link";
 import { FollowButton } from "@/components/shared/FollowButton";
 import { BadgeGrid } from "@/components/shared/BadgeGrid";
 import { FollowersList } from "@/components/shared/FollowersList";
+import { formatUserName, timeAgo as timeAgoUtil } from "@/lib/utils";
+import { MediaCarousel } from "@/components/shared/MediaCarousel";
+import { CreateStoryModal } from "@/components/shared/CreateStoryModal";
 
 type Badge = {
   id: string;
@@ -24,6 +28,28 @@ type Pet = {
   photos: string[];
   createdAt: string;
   totalVotes: number;
+  contests: { id: string; name: string; isActive: boolean }[];
+};
+
+// A pet "group" merges clones (same name + type + first photo for the same owner)
+// so a re-added pet shows as ONE card with multiple contest chips.
+type PetGroup = {
+  // Latest pet id (used for /pets/[id] link — points to the most recent entry)
+  id: string;
+  name: string;
+  type: string;
+  breed: string | null;
+  photos: string[];
+  totalVotes: number;       // summed across all clones
+  petCount: number;         // number of underlying Pet records
+  contests: { id: string; name: string; isActive: boolean }[]; // deduped
+  // One row per underlying Pet record + the contests it's entered in
+  // (used for the picker shown when a pet has multiple entries)
+  entries: Array<{
+    petId: string;
+    totalVotes: number;
+    contests: { id: string; name: string; isActive: boolean }[];
+  }>;
 };
 
 type Profile = {
@@ -47,6 +73,15 @@ type Profile = {
 
 type Tab = "pets" | "badges" | "posts";
 
+type ProfileStory = {
+  id: string;
+  mediaUrl: string;
+  mediaType: string;
+  caption: string | null;
+  createdAt: string;
+  expiresAt: string;
+};
+
 type PostComment = {
   id: string;
   content: string;
@@ -64,8 +99,261 @@ type UserPost = {
   likeCount: number;
   commentCount: number;
   isLiked: boolean;
+  myReaction: string | null;
+  reactions: { HEART: number; HAHA: number; WOW: number };
   comments: PostComment[];
 };
+
+/**
+ * Group pets that are clones of each other (same name + type + first photo).
+ * A pet that's re-added to a new contest produces a clone Pet record;
+ * we merge those into a single card showing combined votes and all contest chips.
+ * Pets must be sorted newest-first when passed in (server returns desc).
+ */
+function parseMedia(imageUrl: string | null): string[] {
+  if (!imageUrl) return [];
+  if (imageUrl.startsWith("[")) {
+    try {
+      const parsed: unknown = JSON.parse(imageUrl);
+      if (Array.isArray(parsed)) return parsed.filter((u): u is string => typeof u === "string");
+    } catch { /* fall through */ }
+    return [imageUrl];
+  }
+  return [imageUrl];
+}
+
+function isVideo(url: string): boolean {
+  return /\.(mp4|webm|mov|ogg|avi)(\?.*)?$/i.test(url);
+}
+
+function groupPets(pets: Pet[]): PetGroup[] {
+  const map = new Map<string, PetGroup>();
+  for (const p of pets) {
+    const sig = `${p.name.trim().toLowerCase()}|${p.type}|${p.photos[0] ?? ""}`;
+    const entry = { petId: p.id, totalVotes: p.totalVotes, contests: p.contests };
+    const existing = map.get(sig);
+    if (existing) {
+      existing.totalVotes += p.totalVotes;
+      existing.petCount += 1;
+      existing.entries.push(entry);
+      for (const c of p.contests) {
+        if (!existing.contests.some((x) => x.id === c.id)) existing.contests.push(c);
+      }
+    } else {
+      map.set(sig, {
+        id: p.id, // newest because input is desc
+        name: p.name,
+        type: p.type,
+        breed: p.breed,
+        photos: p.photos,
+        totalVotes: p.totalVotes,
+        petCount: 1,
+        contests: [...p.contests],
+        entries: [entry],
+      });
+    }
+  }
+  // Sort active-contest cards first, then by votes
+  return Array.from(map.values()).sort((a, b) => {
+    const aActive = a.contests.some((c) => c.isActive) ? 1 : 0;
+    const bActive = b.contests.some((c) => c.isActive) ? 1 : 0;
+    if (aActive !== bActive) return bActive - aActive;
+    return b.totalVotes - a.totalVotes;
+  });
+}
+
+/* ─── Profile Story Viewer ─── */
+function ProfileStoryViewer({
+  stories,
+  user,
+  initialIdx,
+  isOwn,
+  onClose,
+  onDeleted,
+  onAddStory,
+}: {
+  stories: ProfileStory[];
+  user: { id: string; name: string; image: string | null };
+  initialIdx: number;
+  isOwn: boolean;
+  onClose: () => void;
+  onDeleted: (id: string) => void;
+  onAddStory: () => void;
+}) {
+  const [idx, setIdx] = useState(initialIdx);
+  const [progress, setProgress] = useState(0);
+  const progressRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const [viewersOpen, setViewersOpen] = useState(false);
+  const [viewers, setViewers] = useState<{ id: string; name: string | null; image: string | null; viewedAt: string }[]>([]);
+  const [viewersLoading, setViewersLoading] = useState(false);
+  const DURATION = 5000;
+  const TICK = 50;
+
+  const story = stories[idx];
+
+  // Record view
+  useEffect(() => {
+    if (!story) return;
+    fetch(`/api/stories/${story.id}/view`, { method: "POST" }).catch(() => {});
+  }, [story?.id]);
+
+  // Fetch viewers for own stories
+  useEffect(() => {
+    if (!story || !isOwn) { setViewers([]); return; }
+    setViewersLoading(true);
+    fetch(`/api/stories/${story.id}/views`)
+      .then((r) => r.json())
+      .then((d) => setViewers(d.viewers || []))
+      .catch(() => {})
+      .finally(() => setViewersLoading(false));
+  }, [story?.id, isOwn]);
+
+  // Auto-advance
+  useEffect(() => {
+    if (viewersOpen) return;
+    setProgress(0);
+    if (progressRef.current) clearInterval(progressRef.current);
+    progressRef.current = setInterval(() => {
+      setProgress((p) => {
+        const next = p + (TICK / DURATION) * 100;
+        if (next >= 100) {
+          if (idx < stories.length - 1) setIdx((i) => i + 1);
+          else onClose();
+          return 0;
+        }
+        return next;
+      });
+    }, TICK);
+    return () => { if (progressRef.current) clearInterval(progressRef.current); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [idx, viewersOpen]);
+
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => { setMounted(true); }, []);
+
+  if (!story || !mounted) return null;
+
+  async function deleteStory() {
+    if (!confirm("Delete this story?")) return;
+    await fetch(`/api/stories/${story.id}`, { method: "DELETE" }).catch(() => {});
+    onDeleted(story.id);
+  }
+
+  return createPortal(
+    <div className="fixed inset-0 z-[60] bg-black flex flex-col select-none">
+      {/* Progress bars */}
+      <div className="absolute top-0 left-0 right-0 z-20 flex gap-1 px-3" style={{ paddingTop: "max(env(safe-area-inset-top), 12px)" }}>
+        {stories.map((s, i) => (
+          <div key={s.id} className="flex-1 h-[3px] rounded-full bg-white/30 overflow-hidden">
+            <div
+              className="h-full bg-white rounded-full"
+              style={{ width: i < idx ? "100%" : i === idx ? `${Math.min(progress, 100)}%` : "0%" }}
+            />
+          </div>
+        ))}
+      </div>
+
+      {/* Header */}
+      <div
+        className="absolute top-0 left-0 right-0 z-30 flex items-center gap-3 px-4 pb-4 bg-gradient-to-b from-black/60 to-transparent pointer-events-none"
+        style={{ paddingTop: "max(env(safe-area-inset-top), 44px)" }}
+      >
+        <div className="flex items-center gap-2 flex-1 min-w-0">
+          <div className="w-9 h-9 rounded-full overflow-hidden ring-2 ring-white/60 flex-shrink-0">
+            {user.image ? (
+              <img src={user.image} alt="" className="w-full h-full object-cover" />
+            ) : (
+              <div className="w-full h-full bg-brand-500 flex items-center justify-center">
+                <span className="text-sm font-bold text-white">{(user.name || "?")[0].toUpperCase()}</span>
+              </div>
+            )}
+          </div>
+          <div>
+            <p className="text-sm font-bold text-white leading-tight">{user.name || "User"}</p>
+            <p className="text-[11px] text-white/70">{timeAgoUtil(new Date(story.createdAt))}</p>
+          </div>
+        </div>
+        {isOwn && (
+          <>
+            <button onClick={onAddStory} className="pointer-events-auto w-8 h-8 rounded-full bg-white/20 flex items-center justify-center text-white hover:bg-white/30 transition-colors" title="Add story">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+            </button>
+            <button onClick={deleteStory} className="pointer-events-auto w-8 h-8 rounded-full bg-white/10 flex items-center justify-center text-white/80 hover:bg-white/20 transition-colors" title="Delete story">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4a1 1 0 011-1h4a1 1 0 011 1v2"/></svg>
+            </button>
+          </>
+        )}
+        <button onClick={onClose} className="pointer-events-auto w-8 h-8 rounded-full bg-white/10 flex items-center justify-center text-white hover:bg-white/20 transition-colors">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+        </button>
+      </div>
+
+      {/* Media */}
+      <div className="flex-1 relative overflow-hidden">
+        <button className="absolute left-0 top-0 w-1/3 h-full z-10" onClick={() => idx > 0 && setIdx((i) => i - 1)} aria-label="Previous" />
+        <button className="absolute right-0 top-0 w-1/3 h-full z-10" onClick={() => { if (idx < stories.length - 1) setIdx((i) => i + 1); else onClose(); }} aria-label="Next" />
+        {story.mediaType === "video" ? (
+          <video key={story.id} src={story.mediaUrl} className="absolute inset-0 w-full h-full object-contain" style={{ height: "100%" }} autoPlay playsInline />
+        ) : (
+          <img key={story.id} src={story.mediaUrl} alt="" className="absolute inset-0 w-full object-contain" style={{ height: "100%" }} />
+        )}
+      </div>
+
+      {/* Caption */}
+      {story.caption && !viewersOpen && (
+        <div className="absolute bottom-16 left-0 right-0 px-5 pb-4 pt-12 bg-gradient-to-t from-black/70 to-transparent pointer-events-none">
+          <p className="text-white text-sm text-center font-medium leading-relaxed">{story.caption}</p>
+        </div>
+      )}
+
+      {/* Views bar (own story) */}
+      {isOwn && (
+        <div className="absolute bottom-0 left-0 right-0 z-20" style={{ paddingBottom: "max(env(safe-area-inset-bottom), 12px)" }}>
+          {viewersOpen && (
+            <div className="bg-white/10 backdrop-blur-md mx-3 mb-2 rounded-2xl overflow-hidden">
+              <div className="flex items-center justify-between px-4 py-3 border-b border-white/10">
+                <p className="text-white font-semibold text-sm">Viewers · {viewers.length}</p>
+                <button onClick={() => setViewersOpen(false)} className="text-white/70 hover:text-white">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                </button>
+              </div>
+              <div className="max-h-48 overflow-y-auto">
+                {viewersLoading ? (
+                  <div className="flex justify-center py-4"><div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" /></div>
+                ) : viewers.length === 0 ? (
+                  <p className="text-white/50 text-sm text-center py-4">No views yet</p>
+                ) : viewers.map((v) => (
+                  <div key={v.id} className="flex items-center gap-3 px-4 py-2.5">
+                    <div className="w-8 h-8 rounded-full overflow-hidden flex-shrink-0 bg-white/20">
+                      {v.image ? <img src={v.image} alt="" className="w-full h-full object-cover" /> : (
+                        <div className="w-full h-full flex items-center justify-center">
+                          <span className="text-white text-xs font-bold">{(v.name || "?")[0].toUpperCase()}</span>
+                        </div>
+                      )}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-white text-sm font-medium truncate">{v.name || "User"}</p>
+                      <p className="text-white/50 text-[11px]">{timeAgoUtil(new Date(v.viewedAt))}</p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+          <button
+            onClick={() => setViewersOpen((o) => !o)}
+            className="mx-auto flex items-center gap-2 bg-white/15 backdrop-blur-sm rounded-full px-4 py-2 hover:bg-white/25 transition-colors"
+          >
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+            <span className="text-white text-sm font-semibold">{viewersLoading ? "…" : viewers.length} view{viewers.length !== 1 ? "s" : ""}</span>
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.5" strokeLinecap="round" style={{ transform: viewersOpen ? "rotate(180deg)" : undefined, transition: "transform 0.2s" }}><polyline points="6 9 12 15 18 9"/></svg>
+          </button>
+        </div>
+      )}
+    </div>,
+    document.body
+  );
+}
 
 export function PublicProfileClient({
   profile,
@@ -76,24 +364,107 @@ export function PublicProfileClient({
   isLoggedIn: boolean;
   currentUserId?: string;
 }) {
-  const [tab, setTab] = useState<Tab>("pets");
+  const [tab, setTab] = useState<Tab>("posts");
   const [followerCount, setFollowerCount] = useState(profile.followerCount);
   const [showFollowers, setShowFollowers] = useState<"followers" | "following" | null>(null);
+
+  // Group clones (e.g., "Buddy" entered in 2 contests) into one card
+  const petGroups = groupPets(profile.pets);
+  // Picker modal — when a grouped pet has multiple underlying records, click
+  // opens this picker so the user chooses which contest entry to view.
+  const [pickerGroup, setPickerGroup] = useState<PetGroup | null>(null);
+
+  // Stories state
+  const [profileStories, setProfileStories] = useState<ProfileStory[]>([]);
+  const [storiesLoaded, setStoriesLoaded] = useState(false);
+  const [storyViewerOpen, setStoryViewerOpen] = useState(false);
+  const [viewingStoryIdx, setViewingStoryIdx] = useState(0);
+  const [createStoryOpen, setCreateStoryOpen] = useState(false);
 
   // Posts state
   const [posts, setPosts] = useState<UserPost[]>([]);
   const [postsLoaded, setPostsLoaded] = useState(false);
   const [postText, setPostText] = useState("");
-  const [postImageFile, setPostImageFile] = useState<File | null>(null);
-  const [postImagePreview, setPostImagePreview] = useState<string | null>(null);
+  const [mediaFiles, setMediaFiles] = useState<File[]>([]);
+  const [mediaPreviews, setMediaPreviews] = useState<string[]>([]);
+  const [uploadError, setUploadError] = useState<string | null>(null);
   const [posting, setPosting] = useState(false);
   const [showCompose, setShowCompose] = useState(false);
+  const MAX_POST_MEDIA = 3;
   // Likes & comments state
   const [likingPost, setLikingPost] = useState<string | null>(null);
+  const [reactionPickerPostId, setReactionPickerPostId] = useState<string | null>(null);
+  const reactionHoverTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const longPressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [likingComment, setLikingComment] = useState<string | null>(null);
   const [expandedComments, setExpandedComments] = useState<Set<string>>(new Set());
   const [commentTexts, setCommentTexts] = useState<Record<string, string>>({});
   const [submittingComment, setSubmittingComment] = useState<string | null>(null);
+  const [likesModalPostId, setLikesModalPostId] = useState<string | null>(null);
+  // Emoji picker — single global fixed picker
+  const [emojiPickerFor, setEmojiPickerFor] = useState<string | null>(null);
+  const [emojiPickerPos, setEmojiPickerPos] = useState<{ top: number; left: number }>({ top: 0, left: 0 });
+  const EMOJIS = [
+    "😊","😂","😍","🥰","😘","😉","😎","🤔",
+    "😭","🙌","👏","👍","👎","👋","👌","💪",
+    "❤️","🧡","💛","💚","💙","💜","🖤","💔",
+    "🔥","✨","⭐","🌟","🎉","🎊","🎁","🎂",
+    "🐶","🐱","🐰","🦊","🐻","🐨","🐯","🦁",
+    "🐾","🦴","🐂","🐴","🐮","🐖","🐑","🐔",
+    "🌺","🌸","🌻","🌼","🍂","🍀","🌲","🌳",
+  ];
+  function openEmojiPicker(target: string, e: React.MouseEvent<HTMLButtonElement>) {
+    if (emojiPickerFor === target) { setEmojiPickerFor(null); return; }
+    const rect = e.currentTarget.getBoundingClientRect();
+    const pickerW = 256;
+    const left = Math.min(rect.left, window.innerWidth - pickerW - 8);
+    const top = rect.bottom + 6;
+    setEmojiPickerPos({ top, left });
+    setEmojiPickerFor(target);
+  }
+  function insertEmoji(emoji: string) {
+    if (!emojiPickerFor) return;
+    if (emojiPickerFor === "post") {
+      setPostText((t) => t + emoji);
+    } else if (emojiPickerFor.startsWith("comment-")) {
+      const pid = emojiPickerFor.replace("comment-", "");
+      setCommentTexts((prev) => ({ ...prev, [pid]: (prev[pid] || "") + emoji }));
+    }
+  }
+
+  // Load stories for this profile user
+  useEffect(() => {
+    fetch(`/api/stories?userId=${profile.id}`)
+      .then((r) => r.json())
+      .then((data: Array<{ user: { id: string }; stories: ProfileStory[] }>) => {
+        const entry = data.find((u) => u.user.id === profile.id);
+        setProfileStories(entry?.stories || []);
+      })
+      .catch(() => {})
+      .finally(() => setStoriesLoaded(true));
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [profile.id]);
+
+  // Scroll to post from URL hash (notification deep-link)
+  useEffect(() => {
+    // Default tab is "posts" — load them on mount
+    loadPosts();
+    const hash = window.location.hash;
+    if (!hash.startsWith("#post-")) return;
+    const postId = hash.replace("#post-", "");
+    setTab("posts");
+    loadPosts().then(() => {
+      setTimeout(() => {
+        const el = document.getElementById(`post-${postId}`);
+        if (el) {
+          el.scrollIntoView({ behavior: "smooth", block: "center" });
+          el.classList.add("ring-2", "ring-brand-400", "ring-offset-2");
+          setTimeout(() => el.classList.remove("ring-2", "ring-brand-400", "ring-offset-2"), 3000);
+        }
+      }, 400);
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   async function loadPosts() {
     if (postsLoaded) return;
@@ -108,43 +479,63 @@ export function PublicProfileClient({
     if (t === "posts") loadPosts();
   }
 
-  function pickImage(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    setPostImageFile(file);
-    setPostImagePreview(URL.createObjectURL(file));
+  function pickMedia(e: React.ChangeEvent<HTMLInputElement>) {
+    const files = Array.from(e.target.files || []);
+    if (!files.length) return;
+    setUploadError(null);
+    const remaining = MAX_POST_MEDIA - mediaFiles.length;
+    const toAdd = files.slice(0, remaining);
+    if (files.length > remaining) {
+      setUploadError(`Maximum ${MAX_POST_MEDIA} files per post.`);
+    }
+    setMediaFiles((prev) => [...prev, ...toAdd]);
+    setMediaPreviews((prev) => [...prev, ...toAdd.map((f) => URL.createObjectURL(f))]);
+    e.target.value = "";
   }
 
-  function removeImage() {
-    setPostImageFile(null);
-    if (postImagePreview) URL.revokeObjectURL(postImagePreview);
-    setPostImagePreview(null);
+  function removeMedia(idx: number) {
+    URL.revokeObjectURL(mediaPreviews[idx]);
+    setMediaFiles((prev) => prev.filter((_, i) => i !== idx));
+    setMediaPreviews((prev) => prev.filter((_, i) => i !== idx));
+  }
+
+  function clearAllMedia() {
+    mediaPreviews.forEach((p) => URL.revokeObjectURL(p));
+    setMediaFiles([]);
+    setMediaPreviews([]);
+    setUploadError(null);
   }
 
   async function submitPost() {
     if (!postText.trim()) return;
     setPosting(true);
+    setUploadError(null);
     try {
-      let imageUrl: string | null = null;
-      if (postImageFile) {
+      const mediaUrls: string[] = [];
+      if (mediaFiles.length > 0) {
         const fd = new FormData();
-        fd.append("photos", postImageFile);
+        mediaFiles.forEach((f) => fd.append("photos", f));
         const up = await fetch("/api/upload", { method: "POST", body: fd });
         if (up.ok) {
           const { urls } = await up.json();
-          imageUrl = urls?.[0] ?? null;
+          mediaUrls.push(...(urls || []));
+        } else {
+          const err = await up.json().catch(() => ({}));
+          setUploadError(err.error || "Upload failed.");
+          setPosting(false);
+          return;
         }
       }
       const res = await fetch(`/api/users/${profile.id}/posts`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ content: postText.trim(), imageUrl }),
+        body: JSON.stringify({ content: postText.trim(), mediaUrls }),
       });
       if (res.ok) {
         const newPost = await res.json();
-        setPosts((prev) => [{ ...newPost, likeCount: 0, isLiked: false, comments: [], commentCount: 0 }, ...prev]);
+        setPosts((prev) => [{ ...newPost, likeCount: 0, isLiked: false, myReaction: null, reactions: { HEART: 0, HAHA: 0, WOW: 0 }, comments: [], commentCount: 0 }, ...prev]);
         setPostText("");
-        removeImage();
+        clearAllMedia();
         setShowCompose(false);
       }
     } finally {
@@ -163,14 +554,22 @@ export function PublicProfileClient({
     }
   }
 
-  async function toggleLike(postId: string) {
+  async function toggleLike(postId: string, reaction = "HEART") {
     if (likingPost) return;
     setLikingPost(postId);
     try {
-      const res = await fetch(`/api/users/${profile.id}/posts/${postId}/like`, { method: "POST" });
+      const res = await fetch(`/api/users/${profile.id}/posts/${postId}/like`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ reaction }),
+      });
       if (res.ok) {
-        const { liked, likeCount } = await res.json();
-        setPosts((prev) => prev.map((p) => p.id === postId ? { ...p, isLiked: liked, likeCount } : p));
+        const { liked, reaction: newReaction, likeCount, reactions } = await res.json();
+        setPosts((prev) => prev.map((p) =>
+          p.id === postId
+            ? { ...p, isLiked: liked, myReaction: newReaction, likeCount, reactions: reactions ?? p.reactions }
+            : p
+        ));
       }
     } finally {
       setLikingPost(null);
@@ -243,13 +642,13 @@ export function PublicProfileClient({
     <div className="max-w-3xl mx-auto px-4 py-8 sm:py-12 animate-profile-fade-in">
       {/* Back */}
       <Link
-        href="/pets"
+        href="/feed"
         className="inline-flex items-center gap-2 text-sm text-surface-400 hover:text-surface-700 transition-all mb-6 group"
       >
         <span className="w-8 h-8 rounded-full bg-white border border-surface-200 shadow-sm flex items-center justify-center group-hover:-translate-x-1 transition-transform">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M19 12H5M12 19l-7-7 7-7"/></svg>
         </span>
-        Back to pets
+        Back to feed
       </Link>
 
       {/* ─── Profile Header Card ─── */}
@@ -294,7 +693,7 @@ export function PublicProfileClient({
 
               <div className="pb-1 sm:pb-3">
                 <h1 className="text-2xl sm:text-3xl font-extrabold text-surface-900 tracking-tight">
-                  {profile.name}
+                  {formatUserName(profile.name)}
                 </h1>
                 {location && (
                   <p className="text-sm text-surface-500 flex items-center gap-1.5 mt-1">
@@ -406,6 +805,83 @@ export function PublicProfileClient({
         </div>
       </div>
 
+      {/* ─── Stories Bar ─── */}
+      {storiesLoaded && (profileStories.length > 0 || profile.isOwnProfile) && (
+        <div className="bg-white rounded-2xl border border-surface-200/60 shadow-sm px-5 py-4 mb-4 flex items-center gap-4">
+          {/* Story circle */}
+          <button
+            onClick={() => {
+              if (profileStories.length > 0) {
+                setViewingStoryIdx(0);
+                setStoryViewerOpen(true);
+              } else if (profile.isOwnProfile) {
+                setCreateStoryOpen(true);
+              }
+            }}
+            className="flex flex-col items-center gap-1.5 flex-shrink-0"
+          >
+            <div
+              className={`w-16 h-16 rounded-full p-[3px] ${
+                profileStories.length > 0
+                  ? "bg-gradient-to-br from-brand-500 via-purple-500 to-rose-500"
+                  : "bg-surface-200"
+              }`}
+            >
+              <div className="w-full h-full rounded-full border-2 border-white overflow-hidden bg-surface-100 flex items-center justify-center relative">
+                {profile.image ? (
+                  <img src={profile.image} alt="" className="w-full h-full object-cover" />
+                ) : (
+                  <span className="text-xl font-bold text-surface-500">{(profile.name || "?")[0].toUpperCase()}</span>
+                )}
+                {profile.isOwnProfile && profileStories.length === 0 && (
+                  <div className="absolute inset-0 flex items-center justify-center bg-black/30">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="white" stroke="white" strokeWidth="2.5" strokeLinecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                  </div>
+                )}
+              </div>
+            </div>
+            <span className="text-[11px] font-semibold text-surface-600 leading-tight text-center">
+              {profile.isOwnProfile
+                ? profileStories.length > 0
+                  ? "Your Story"
+                  : "Add Story"
+                : profile.name?.split(" ")[0] || "Story"}
+            </span>
+          </button>
+
+          {/* Story info / timestamps */}
+          <div className="flex-1 min-w-0">
+            {profileStories.length > 0 ? (
+              <div>
+                <p className="text-sm font-semibold text-surface-800">
+                  {profileStories.length} stor{profileStories.length !== 1 ? "ies" : "y"}
+                </p>
+                <p className="text-xs text-surface-400 mt-0.5">
+                  Latest {timeAgoUtil(new Date(profileStories[0].createdAt))} · expires in{" "}
+                  {Math.max(0, Math.ceil((new Date(profileStories[0].expiresAt).getTime() - Date.now()) / (1000 * 60 * 60)))}h
+                </p>
+              </div>
+            ) : (
+              <div>
+                <p className="text-sm font-semibold text-surface-800">Share a Story</p>
+                <p className="text-xs text-surface-400 mt-0.5">Stories disappear after 24 hours</p>
+              </div>
+            )}
+          </div>
+
+          {/* Action button */}
+          {profile.isOwnProfile && (
+            <button
+              onClick={() => setCreateStoryOpen(true)}
+              className="flex-shrink-0 flex items-center gap-1.5 px-3 py-2 rounded-xl bg-brand-50 text-brand-600 text-xs font-bold hover:bg-brand-100 transition-colors"
+            >
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+              Add
+            </button>
+          )}
+        </div>
+      )}
+
       {/* ─── Tabs ─── */}
       <div className="flex gap-1.5 p-1.5 bg-surface-100/80 backdrop-blur-sm rounded-2xl mb-8 border border-surface-200/50">
         <button
@@ -416,7 +892,7 @@ export function PublicProfileClient({
               : "text-surface-500 hover:text-surface-700 hover:bg-white/50"
           }`}
         >
-          🐾 Pets ({profile.pets.length})
+          🐾 Pets ({petGroups.length})
         </button>
         <button
           onClick={() => handleTabChange("posts")}
@@ -443,20 +919,20 @@ export function PublicProfileClient({
       {/* ─── Pets Grid ─── */}
       {tab === "pets" && (
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
-          {profile.pets.length === 0 ? (
+          {petGroups.length === 0 ? (
             <div className="col-span-full text-center py-16 bg-white rounded-2xl border border-surface-200/60">
               <div className="text-5xl mb-3 animate-bounce">🐾</div>
               <p className="font-bold text-surface-700 text-lg">No pets yet</p>
               <p className="text-sm text-surface-400 mt-1">This user hasn&apos;t added any pets.</p>
             </div>
           ) : (
-            profile.pets.map((pet, i) => (
-              <Link
-                key={pet.id}
-                href={`/pets/${pet.id}`}
-                className="bg-white rounded-2xl border border-surface-200/60 shadow-sm overflow-hidden hover:shadow-xl hover:shadow-surface-200/50 hover:-translate-y-1 transition-all duration-300 group"
-                style={{ animationDelay: `${i * 100}ms` }}
-              >
+            petGroups.map((pet, i) => {
+              const activeContests = pet.contests.filter((c) => c.isActive);
+              const endedContests = pet.contests.filter((c) => !c.isActive);
+              const isMulti = pet.petCount > 1;
+              const cardClass = "block text-left w-full bg-white rounded-2xl border border-surface-200/60 shadow-sm overflow-hidden hover:shadow-xl hover:shadow-surface-200/50 hover:-translate-y-1 transition-all duration-300 group";
+              const cardInner = (
+                <>
                 <div className="aspect-[4/3] overflow-hidden bg-surface-100 relative">
                   {pet.photos[0] ? (
                     <img
@@ -478,15 +954,76 @@ export function PublicProfileClient({
                   <div className="absolute bottom-3 left-3 px-2.5 py-1 rounded-lg bg-black/60 backdrop-blur-sm text-white text-[10px] font-bold uppercase tracking-wider">
                     {pet.type === "DOG" ? "🐕 Dog" : pet.type === "CAT" ? "🐈 Cat" : "🐾 Pet"}
                   </div>
-                </div>
-                <div className="p-4">
-                  <h3 className="font-bold text-lg text-surface-900 group-hover:text-brand-600 transition-colors">{pet.name}</h3>
-                  {pet.breed && (
-                    <p className="text-sm text-surface-400 mt-0.5">{pet.breed}</p>
+                  {/* "Participating in N contests" pill */}
+                  {activeContests.length > 0 && (
+                    <div className="absolute top-3 left-3 px-2.5 py-1 rounded-lg bg-brand-500 text-white text-[10px] font-bold uppercase tracking-wider shadow-lg flex items-center gap-1">
+                      🏆 {activeContests.length === 1 ? "In contest" : `In ${activeContests.length} contests`}
+                    </div>
                   )}
                 </div>
-              </Link>
-            ))
+                <div className="p-4">
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="min-w-0">
+                      <h3 className="font-bold text-lg text-surface-900 group-hover:text-brand-600 transition-colors truncate">{pet.name}</h3>
+                      {pet.breed && (
+                        <p className="text-sm text-surface-400 mt-0.5 truncate">{pet.breed}</p>
+                      )}
+                    </div>
+                    {isMulti && (
+                      <span className="shrink-0 mt-0.5 inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-amber-50 text-amber-700 text-[10px] font-bold uppercase tracking-wider border border-amber-100">
+                        {pet.petCount}× entries
+                      </span>
+                    )}
+                  </div>
+                  {/* Contest chips */}
+                  {(activeContests.length > 0 || endedContests.length > 0) && (
+                    <div className="mt-2.5 flex flex-wrap gap-1.5">
+                      {activeContests.slice(0, 2).map((c) => (
+                        <span key={c.id} className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-brand-50 text-brand-700 text-[11px] font-semibold border border-brand-100 max-w-full">
+                          <span>🏆</span>
+                          <span className="truncate">{c.name}</span>
+                        </span>
+                      ))}
+                      {endedContests.slice(0, Math.max(0, 2 - activeContests.length)).map((c) => (
+                        <span key={c.id} className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-surface-100 text-surface-500 text-[11px] font-semibold border border-surface-200 max-w-full">
+                          <span>📋</span>
+                          <span className="truncate">{c.name}</span>
+                        </span>
+                      ))}
+                      {pet.contests.length > 2 && (
+                        <span className="inline-flex items-center px-2 py-0.5 rounded-md bg-surface-50 text-surface-500 text-[11px] font-semibold">
+                          +{pet.contests.length - 2} more
+                        </span>
+                      )}
+                    </div>
+                  )}
+                  {isMulti && (
+                    <p className="mt-2 text-[11px] text-surface-400 italic">Click to choose which contest entry to view →</p>
+                  )}
+                </div>
+                </>
+              );
+              return isMulti ? (
+                <button
+                  key={pet.id}
+                  type="button"
+                  onClick={() => setPickerGroup(pet)}
+                  className={cardClass}
+                  style={{ animationDelay: `${i * 100}ms` }}
+                >
+                  {cardInner}
+                </button>
+              ) : (
+                <Link
+                  key={pet.id}
+                  href={`/pets/${pet.id}`}
+                  className={cardClass}
+                  style={{ animationDelay: `${i * 100}ms` }}
+                >
+                  {cardInner}
+                </Link>
+              );
+            })
           )}
         </div>
       )}
@@ -505,7 +1042,7 @@ export function PublicProfileClient({
                   <div className="w-9 h-9 rounded-full bg-gradient-to-br from-brand-500 to-brand-600 flex items-center justify-center text-white text-sm font-bold flex-shrink-0">
                     {profile.name[0]?.toUpperCase()}
                   </div>
-                  <span className="text-surface-400 text-sm flex-1">Share something with your followers...</span>
+                  <span className="text-surface-400 text-sm flex-1">✨ Share something with your followers...</span>
                   <span className="text-xs font-bold text-brand-500 bg-brand-50 px-3 py-1.5 rounded-full border border-brand-200/60">+ Post</span>
                 </button>
               ) : (
@@ -513,32 +1050,71 @@ export function PublicProfileClient({
                   <textarea
                     value={postText}
                     onChange={(e) => setPostText(e.target.value)}
-                    placeholder="Share something with your followers..."
+                    placeholder="✨ What's on your mind? Share a moment with your followers..."
                     rows={3}
                     maxLength={1000}
                     autoFocus
                     className="w-full resize-none text-sm text-surface-900 placeholder:text-surface-400 focus:outline-none leading-relaxed"
                   />
-                  <div className="mt-3 flex items-center gap-3">
+                  <div className="mt-3 flex items-center gap-3 flex-wrap">
                     <label className="inline-flex items-center gap-2 cursor-pointer px-3 py-2 rounded-xl border border-surface-200 text-xs text-surface-500 hover:border-brand-400 hover:text-brand-500 transition-colors">
                       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
-                      {postImageFile ? postImageFile.name.slice(0, 20) + (postImageFile.name.length > 20 ? "…" : "") : "Add photo"}
-                      <input type="file" accept="image/*" className="hidden" onChange={pickImage} />
+                      {mediaFiles.length > 0 ? `${mediaFiles.length}/${MAX_POST_MEDIA} added` : "Add photo / video"}
+                      <input
+                        type="file"
+                        accept="image/*,video/*"
+                        multiple
+                        className="hidden"
+                        onChange={pickMedia}
+                        disabled={mediaFiles.length >= MAX_POST_MEDIA}
+                      />
                     </label>
-                    {postImageFile && (
-                      <button onClick={removeImage} className="text-xs text-red-400 hover:text-red-600 transition-colors">Remove</button>
+                    {/* Emoji picker button */}
+                    <button
+                      type="button"
+                      onClick={(e) => openEmojiPicker("post", e)}
+                      className={`inline-flex items-center gap-2 px-3 py-2 rounded-xl border text-xs transition-colors ${
+                        emojiPickerFor === "post"
+                          ? "border-amber-400 text-amber-500 bg-amber-50"
+                          : "border-surface-200 text-surface-500 hover:border-amber-400 hover:text-amber-500"
+                      }`}
+                    >
+                      <span className="text-base leading-none">😊</span>
+                      Emoji
+                    </button>
+                    {mediaFiles.length > 0 && (
+                      <button onClick={clearAllMedia} className="text-xs text-red-400 hover:text-red-600 transition-colors">Clear all</button>
                     )}
+                    <span className="text-xs text-surface-400">{mediaFiles.length}/{MAX_POST_MEDIA}</span>
                   </div>
-                  {postImagePreview && (
-                    <div className="mt-3 rounded-xl overflow-hidden border border-surface-200 relative">
-                      <img src={postImagePreview} alt="Preview" className="w-full h-auto block" />
+                  {uploadError && (
+                    <p className="mt-2 text-xs text-red-500">{uploadError}</p>
+                  )}
+                  {mediaPreviews.length > 0 && (
+                    <div className="mt-3 grid grid-cols-3 gap-2">
+                      {mediaPreviews.map((src, i) => (
+                        <div key={i} className="relative rounded-xl overflow-hidden border border-surface-200 aspect-square bg-black">
+                          {isVideo(mediaFiles[i]?.name || "") ? (
+                            <video src={src} className="w-full h-full object-cover" muted playsInline />
+                          ) : (
+                            <img src={src} alt={`Preview ${i + 1}`} className="w-full h-full object-cover" />
+                          )}
+                          <button
+                            onClick={() => removeMedia(i)}
+                            className="absolute top-1 right-1 w-6 h-6 rounded-full bg-black/70 hover:bg-black text-white flex items-center justify-center text-xs"
+                            aria-label="Remove"
+                          >
+                            ×
+                          </button>
+                        </div>
+                      ))}
                     </div>
                   )}
                   <div className="flex items-center justify-between mt-4 pt-3 border-t border-surface-100">
                     <span className="text-xs text-surface-400">{postText.length}/1000</span>
                     <div className="flex gap-2">
                       <button
-                        onClick={() => { setShowCompose(false); setPostText(""); removeImage(); }}
+                        onClick={() => { setShowCompose(false); setPostText(""); clearAllMedia(); }}
                         className="px-4 py-2 text-sm font-semibold text-surface-600 hover:bg-surface-100 rounded-xl transition-colors"
                       >
                         Cancel
@@ -579,7 +1155,8 @@ export function PublicProfileClient({
             posts.map((post, i) => (
               <div
                 key={post.id}
-                className="bg-white rounded-2xl border border-surface-200/60 shadow-sm overflow-hidden animate-profile-slide-up"
+                id={`post-${post.id}`}
+                className="bg-white rounded-2xl border border-surface-200/60 shadow-sm overflow-hidden animate-profile-slide-up transition-all"
                 style={{ animationDelay: `${i * 60}ms` }}
               >
                 {/* Post header */}
@@ -595,7 +1172,7 @@ export function PublicProfileClient({
                       )}
                     </div>
                     <div>
-                      <p className="text-sm font-bold text-surface-900">{profile.name}</p>
+                      <p className="text-sm font-bold text-surface-900">{formatUserName(profile.name)}</p>
                       <p className="text-[11px] text-surface-400">
                         {new Date(post.createdAt).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
                       </p>
@@ -615,34 +1192,128 @@ export function PublicProfileClient({
                 <p className="px-5 pb-3 text-sm text-surface-800 leading-relaxed whitespace-pre-wrap">
                   {post.content}
                 </p>
-                {/* Image */}
-                {post.imageUrl && (
-                  <div className="mx-5 mb-3 rounded-xl overflow-hidden border border-surface-100">
-                    <img src={post.imageUrl} alt="Post image" className="w-full h-auto block" />
+                {/* Media (photos / video — supports multi) */}
+                {post.imageUrl && (() => {
+                  const media = parseMedia(post.imageUrl);
+                  if (media.length === 0) return null;
+                  if (media.length === 1) {
+                    const url = media[0];
+                    return (
+                      <div className="mx-5 mb-3 rounded-xl overflow-hidden border border-surface-100 bg-black">
+                        {isVideo(url) ? (
+                          <video src={url} className="w-full max-h-[600px] object-contain block" controls playsInline preload="metadata" />
+                        ) : (
+                          <img src={url} alt="Post media" className="w-full max-h-[600px] object-contain block" />
+                        )}
+                      </div>
+                    );
+                  }
+                  return (
+                    <MediaCarousel media={media} />
+                  );
+                })()}
+                {/* Engagement Stats Bar */}
+                {(post.likeCount > 0 || post.commentCount > 0) && (
+                  <div className="flex items-center justify-between px-5 py-2 text-xs text-surface-400">
+                    {post.likeCount > 0 && (
+                      <button
+                        onClick={() => setLikesModalPostId(post.id)}
+                        className="flex items-center gap-1 hover:text-surface-600 transition-colors"
+                      >
+                        <span className="flex -space-x-0.5">
+                          {post.reactions.HEART > 0 && <span className="w-4 h-4 rounded-full bg-red-500 flex items-center justify-center text-[9px]">❤️</span>}
+                          {post.reactions.HAHA > 0 && <span className="w-4 h-4 rounded-full bg-yellow-400 flex items-center justify-center text-[9px]">😂</span>}
+                          {post.reactions.WOW > 0 && <span className="w-4 h-4 rounded-full bg-blue-400 flex items-center justify-center text-[9px]">😮</span>}
+                          {post.reactions.HEART === 0 && post.reactions.HAHA === 0 && post.reactions.WOW === 0 && (
+                            <span className="w-4 h-4 rounded-full bg-red-500 flex items-center justify-center">
+                              <svg width="8" height="8" viewBox="0 0 24 24" fill="white"><path d="M20.84 4.61a5.5 5.5 0 00-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 00-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 000-7.78z"/></svg>
+                            </span>
+                          )}
+                        </span>
+                        {post.likeCount} {post.likeCount === 1 ? "like" : "likes"}
+                      </button>
+                    )}
+                    {post.commentCount > 0 && (
+                      <button
+                        onClick={() => setExpandedComments((s) => { const n = new Set(s); n.has(post.id) ? n.delete(post.id) : n.add(post.id); return n; })}
+                        className="hover:text-surface-600 transition-colors ml-auto"
+                      >
+                        {post.commentCount} {post.commentCount === 1 ? "comment" : "comments"}
+                      </button>
+                    )}
                   </div>
                 )}
-                {/* Actions: like + comment */}
-                <div className="px-5 pb-4 flex items-center gap-4 border-t border-surface-100 pt-3">
-                  <button
-                    onClick={() => isLoggedIn ? toggleLike(post.id) : undefined}
-                    disabled={likingPost === post.id || !isLoggedIn}
-                    className={`inline-flex items-center gap-1.5 text-sm font-semibold transition-all active:scale-95 ${
-                      post.isLiked
-                        ? "text-red-500"
-                        : "text-surface-400 hover:text-red-400"
-                    } disabled:opacity-50`}
-                  >
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill={post.isLiked ? "currentColor" : "none"} stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                      <path d="M20.84 4.61a5.5 5.5 0 00-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 00-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 000-7.78z"/>
-                    </svg>
-                    {post.likeCount > 0 && <span>{post.likeCount}</span>}
-                  </button>
+                {/* Action Buttons */}
+                <div className="grid grid-cols-2 border-t border-surface-100">
+                  {/* Reaction Button with picker */}
+                  <div className="relative">
+                    {reactionPickerPostId === post.id && isLoggedIn && (
+                      <div
+                        className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 flex items-center gap-1 px-2 py-1.5 bg-white rounded-full shadow-xl border border-surface-200 z-20 animate-[heart-pop_0.2s_ease-out]"
+                        onMouseEnter={() => { if (reactionHoverTimerRef.current) clearTimeout(reactionHoverTimerRef.current); }}
+                        onMouseLeave={() => { reactionHoverTimerRef.current = setTimeout(() => setReactionPickerPostId(null), 200); }}
+                      >
+                        {(["HEART", "HAHA", "WOW"] as const).map((r) => (
+                          <button
+                            key={r}
+                            onClick={() => { setReactionPickerPostId(null); toggleLike(post.id, r); }}
+                            className={`w-9 h-9 rounded-full flex items-center justify-center text-xl transition-transform hover:scale-125 active:scale-95 ${post.myReaction === r ? "bg-surface-100 ring-2 ring-brand-400" : "hover:bg-surface-50"}`}
+                            title={r === "HEART" ? "Love" : r === "HAHA" ? "Haha" : "Wow"}
+                          >
+                            {r === "HEART" ? "❤️" : r === "HAHA" ? "😂" : "😮"}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                    <button
+                      onClick={() => isLoggedIn ? toggleLike(post.id, post.myReaction || "HEART") : undefined}
+                      onMouseEnter={() => {
+                        if (!isLoggedIn) return;
+                        if (reactionHoverTimerRef.current) clearTimeout(reactionHoverTimerRef.current);
+                        reactionHoverTimerRef.current = setTimeout(() => setReactionPickerPostId(post.id), 400);
+                      }}
+                      onMouseLeave={() => {
+                        if (reactionHoverTimerRef.current) clearTimeout(reactionHoverTimerRef.current);
+                        reactionHoverTimerRef.current = setTimeout(() => setReactionPickerPostId(null), 300);
+                      }}
+                      onTouchStart={() => {
+                        if (!isLoggedIn) return;
+                        longPressTimerRef.current = setTimeout(() => setReactionPickerPostId(post.id), 500);
+                      }}
+                      onTouchEnd={() => { if (longPressTimerRef.current) clearTimeout(longPressTimerRef.current); }}
+                      disabled={likingPost === post.id || !isLoggedIn}
+                      className={`w-full flex items-center justify-center gap-2 py-3 text-sm font-semibold transition-all active:scale-95 ${
+                        post.isLiked
+                          ? post.myReaction === "HAHA" ? "text-yellow-500"
+                          : post.myReaction === "WOW" ? "text-blue-500"
+                          : "text-red-500"
+                          : "text-surface-500 hover:text-red-400 hover:bg-red-50/50"
+                      } disabled:opacity-60`}
+                    >
+                      {post.isLiked ? (
+                        <span className="text-base leading-none">
+                          {post.myReaction === "HAHA" ? "😂" : post.myReaction === "WOW" ? "😮" : "❤️"}
+                        </span>
+                      ) : (
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                          <path d="M20.84 4.61a5.5 5.5 0 00-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 00-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 000-7.78z"/>
+                        </svg>
+                      )}
+                      {post.isLiked
+                        ? post.myReaction === "HAHA" ? "Haha"
+                        : post.myReaction === "WOW" ? "Wow"
+                        : "Liked"
+                        : "Like"}
+                    </button>
+                  </div>
                   <button
                     onClick={() => setExpandedComments((s) => { const n = new Set(s); n.has(post.id) ? n.delete(post.id) : n.add(post.id); return n; })}
-                    className="inline-flex items-center gap-1.5 text-sm font-semibold text-surface-400 hover:text-brand-500 transition-colors"
+                    className="flex items-center justify-center gap-2 py-3 text-sm font-semibold text-surface-500 hover:text-brand-500 hover:bg-brand-50/50 transition-all"
                   >
-                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/></svg>
-                    {post.commentCount > 0 && <span>{post.commentCount}</span>}
+                    <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/>
+                    </svg>
+                    Comment
                   </button>
                 </div>
                 {/* Comments section */}
@@ -660,7 +1331,7 @@ export function PublicProfileClient({
                         </div>
                         <div className="flex-1 bg-surface-50 rounded-2xl px-3 py-2">
                           <div className="flex items-baseline gap-2">
-                            <span className="text-xs font-bold text-surface-800">{c.user.name || "User"}</span>
+                            <span className="text-xs font-bold text-surface-800">{formatUserName(c.user.name)}</span>
                             <span className="text-[10px] text-surface-400">
                               {new Date(c.createdAt).toLocaleDateString("en-US", { month: "short", day: "numeric" })}
                             </span>
@@ -697,11 +1368,24 @@ export function PublicProfileClient({
                           value={commentTexts[post.id] || ""}
                           onChange={(e) => setCommentTexts((prev) => ({ ...prev, [post.id]: e.target.value }))}
                           onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); submitComment(post.id); } }}
-                          placeholder="Write a comment..."
+                          placeholder="💬 Write a comment..."
                           rows={1}
                           maxLength={500}
                           className="flex-1 resize-none text-xs text-surface-900 placeholder:text-surface-400 bg-surface-50 rounded-2xl px-3 py-2 focus:outline-none focus:ring-2 focus:ring-brand-400/30 border border-transparent focus:border-brand-300 transition-colors leading-relaxed"
                         />
+                        {/* Emoji picker for comment */}
+                        <button
+                          type="button"
+                          onClick={(e) => openEmojiPicker(`comment-${post.id}`, e)}
+                          className={`w-8 h-8 flex-shrink-0 rounded-full flex items-center justify-center transition-colors ${
+                            emojiPickerFor === `comment-${post.id}`
+                              ? "bg-amber-100 text-amber-600"
+                              : "bg-surface-100 text-surface-600 hover:bg-amber-100 hover:text-amber-600"
+                          }`}
+                          aria-label="Add emoji"
+                        >
+                          <span className="text-base leading-none">😊</span>
+                        </button>
                         <button
                           onClick={() => submitComment(post.id)}
                           disabled={submittingComment === post.id || !(commentTexts[post.id] || "").trim()}
@@ -734,6 +1418,217 @@ export function PublicProfileClient({
           onClose={() => setShowFollowers(null)}
         />
       )}
+
+      {/* ─── Likes Modal ─── */}
+      {likesModalPostId && (
+        <LikesModal
+          postId={likesModalPostId}
+          postUserId={profile.id}
+          onClose={() => setLikesModalPostId(null)}
+        />
+      )}
+
+      {/* ─── Global Emoji Picker (fixed, escapes overflow-hidden) ─── */}
+      {emojiPickerFor && (
+        <>
+          <div className="fixed inset-0 z-40" onClick={() => setEmojiPickerFor(null)} />
+          <div
+            className="fixed z-50 bg-white border border-surface-200 rounded-2xl shadow-2xl p-3 w-64 grid grid-cols-8 gap-1"
+            style={{ top: emojiPickerPos.top, left: emojiPickerPos.left }}
+          >
+            {EMOJIS.map((em) => (
+              <button
+                key={em}
+                type="button"
+                onClick={() => insertEmoji(em)}
+                className="text-xl hover:bg-amber-50 rounded-lg aspect-square flex items-center justify-center transition-colors"
+              >
+                {em}
+              </button>
+            ))}
+          </div>
+        </>
+      )}
+
+      {/* ─── Profile Story Viewer ─── */}
+      {storyViewerOpen && profileStories.length > 0 && (
+        <ProfileStoryViewer
+          stories={profileStories}
+          user={profile}
+          initialIdx={viewingStoryIdx}
+          isOwn={profile.isOwnProfile}
+          onClose={() => setStoryViewerOpen(false)}
+          onAddStory={() => setCreateStoryOpen(true)}
+          onDeleted={(id) => {
+            setProfileStories((prev) => prev.filter((s) => s.id !== id));
+            setStoryViewerOpen(false);
+          }}
+        />
+      )}
+
+      {/* ─── Create Story Modal ─── */}
+      {createStoryOpen && (
+        <CreateStoryModal
+          onClose={() => setCreateStoryOpen(false)}
+          onCreated={() => {
+            setCreateStoryOpen(false);
+            // Reload stories
+            fetch(`/api/stories?userId=${profile.id}`)
+              .then((r) => r.json())
+              .then((data: Array<{ user: { id: string }; stories: ProfileStory[] }>) => {
+                const entry = data.find((u) => u.user.id === profile.id);
+                setProfileStories(entry?.stories || []);
+              })
+              .catch(() => {});
+          }}
+        />
+      )}
+
+      {/* ─── Pet Entry Picker (multi-contest pets) ─── */}
+      {pickerGroup && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4"
+          onClick={() => setPickerGroup(null)}
+        >
+          <div
+            className="w-full max-w-md bg-white rounded-2xl shadow-2xl overflow-hidden"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="p-5 border-b border-surface-100 flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <h3 className="font-bold text-lg text-surface-900 truncate">
+                  {pickerGroup.name} — choose a contest entry
+                </h3>
+                <p className="text-xs text-surface-500 mt-0.5">
+                  {(() => {
+                    const total = pickerGroup.entries.reduce((s, e) => s + e.contests.length, 0) || pickerGroup.entries.length;
+                    return `${pickerGroup.name} has ${total} contest ${total === 1 ? "entry" : "entries"}. Pick which one to view.`;
+                  })()}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setPickerGroup(null)}
+                className="shrink-0 w-8 h-8 rounded-full hover:bg-surface-100 flex items-center justify-center text-surface-500"
+                aria-label="Close"
+              >
+                ✕
+              </button>
+            </div>
+            <div className="max-h-[60vh] overflow-y-auto divide-y divide-surface-100">
+              {pickerGroup.entries.flatMap((entry) =>
+                entry.contests.length > 0
+                  ? entry.contests.map((c) => ({ contest: c, petId: entry.petId, totalVotes: entry.totalVotes }))
+                  : [{ contest: null as null | { id: string; name: string; isActive: boolean }, petId: entry.petId, totalVotes: entry.totalVotes }]
+              ).map((row, idx) => (
+                <Link
+                  key={`${row.petId}-${row.contest?.id ?? "no-contest"}-${idx}`}
+                  href={`/pets/${row.petId}`}
+                  onClick={() => setPickerGroup(null)}
+                  className="flex items-center gap-3 p-4 hover:bg-surface-50 transition-colors"
+                >
+                  <div className="w-14 h-14 shrink-0 rounded-xl overflow-hidden bg-surface-100">
+                    {pickerGroup.photos[0] ? (
+                      <img src={pickerGroup.photos[0]} alt={pickerGroup.name} className="w-full h-full object-cover" />
+                    ) : (
+                      <div className="w-full h-full flex items-center justify-center text-2xl">
+                        {pickerGroup.type === "DOG" ? "🐕" : pickerGroup.type === "CAT" ? "🐈" : "🐾"}
+                      </div>
+                    )}
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      {row.contest ? (
+                        row.contest.isActive ? (
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-brand-50 text-brand-700 text-[11px] font-bold border border-brand-100 max-w-full">
+                            <span>🏆</span>
+                            <span className="truncate">{row.contest.name}</span>
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-surface-100 text-surface-600 text-[11px] font-bold border border-surface-200 max-w-full">
+                            <span>📋</span>
+                            <span className="truncate">{row.contest.name}</span>
+                            <span className="opacity-60">(ended)</span>
+                          </span>
+                        )
+                      ) : (
+                        <span className="text-[11px] text-surface-400 italic">No contest</span>
+                      )}
+                    </div>
+                    <p className="text-xs text-surface-500 mt-1">
+                      {row.totalVotes} vote{row.totalVotes === 1 ? "" : "s"} in this entry
+                    </p>
+                  </div>
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className="text-surface-400 shrink-0"><path d="M9 18l6-6-6-6"/></svg>
+                </Link>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
+  );
+}
+
+/* ─── Reactions Modal ─── */
+function LikesModal({ postId, postUserId, onClose }: { postId: string; postUserId: string; onClose: () => void }) {
+  const [users, setUsers] = useState<{ id: string; name: string | null; image: string | null; reaction: string }[]>([]);
+  const [loading, setLoading] = useState(true);
+  const REACTION_EMOJI: Record<string, string> = { HEART: "❤️", HAHA: "😂", WOW: "😮" };
+
+  useEffect(() => {
+    fetch(`/api/users/${postUserId}/posts/${postId}/like`)
+      .then((r) => r.json())
+      .then((data) => { const raw = Array.isArray(data?.users) ? data.users : []; setUsers(raw); })
+      .catch(() => {})
+      .finally(() => setLoading(false));
+  }, [postId, postUserId]);
+
+  return createPortal(
+    <div className="fixed inset-0 z-[70] flex items-center justify-center p-4 animate-modal-backdrop" onClick={onClose}>
+      <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" />
+      <div
+        className="relative bg-white rounded-3xl shadow-2xl w-full max-w-xs overflow-hidden animate-modal-slide-up"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-center justify-between px-5 py-4 border-b border-surface-100">
+          <h3 className="text-base font-bold text-surface-900">Reactions</h3>
+          <button onClick={onClose} className="w-8 h-8 rounded-full hover:bg-surface-100 flex items-center justify-center transition-colors">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+          </button>
+        </div>
+        <div className="max-h-72 overflow-y-auto">
+          {loading ? (
+            <div className="flex justify-center py-8">
+              <div className="w-7 h-7 border-2 border-brand-500 border-t-transparent rounded-full animate-spin" />
+            </div>
+          ) : users.length === 0 ? (
+            <p className="text-center text-sm text-surface-500 py-8">No reactions yet.</p>
+          ) : (
+            users.map((u) => (
+              <Link
+                key={u.id}
+                href={`/users/${u.id}`}
+                onClick={onClose}
+                className="flex items-center gap-3 px-5 py-3 hover:bg-surface-50 transition-colors"
+              >
+                <div className="relative flex-shrink-0">
+                  <div className="w-9 h-9 rounded-full overflow-hidden bg-brand-50 flex items-center justify-center">
+                    {u.image ? (
+                      <img src={u.image} alt="" className="w-full h-full object-cover" />
+                    ) : (
+                      <span className="text-sm font-bold text-brand-600">{(u.name || "?")[0].toUpperCase()}</span>
+                    )}
+                  </div>
+                  <span className="absolute -bottom-0.5 -right-0.5 text-base leading-none">{REACTION_EMOJI[u.reaction] ?? "❤️"}</span>
+                </div>
+                <span className="text-sm font-semibold text-surface-800">{u.name || "User"}</span>
+              </Link>
+            ))
+          )}
+        </div>
+      </div>
+    </div>,
+    document.body
   );
 }

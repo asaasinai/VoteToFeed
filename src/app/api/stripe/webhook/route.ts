@@ -4,7 +4,7 @@ export const dynamic = "force-dynamic";
 import Stripe from "stripe";
 import { getStripeAsync } from "@/lib/stripe";
 import prisma from "@/lib/prisma";
-import { sendPurchaseConfirmation } from "@/lib/email";
+import { sendPurchaseConfirmation, sendAbandonedCheckoutEmail } from "@/lib/email";
 import { getAnimalType } from "@/lib/admin-settings";
 
 async function findPurchase(metadata?: Record<string, string | undefined>, stripeSessionId?: string | null) {
@@ -28,6 +28,7 @@ async function completePurchase({
   votes,
   amount,
   meals,
+  petId,
 }: {
   purchase: { id: string; status: string; userId: string; votes: number; amount: number; mealsProvided: number };
   stripePaymentId?: string | null;
@@ -35,6 +36,7 @@ async function completePurchase({
   votes?: number;
   amount?: number;
   meals?: number;
+  petId?: string;
 }) {
   if (purchase.status === "COMPLETED") return;
 
@@ -88,12 +90,19 @@ async function completePurchase({
 
   if (user?.email) {
     const animalType = await getAnimalType();
+    let petName: string | undefined;
+    if (petId) {
+      const pet = await prisma.pet.findUnique({ where: { id: petId }, select: { name: true } });
+      petName = pet?.name ?? undefined;
+    }
     await sendPurchaseConfirmation(
       user.email,
       resolvedVotes,
       resolvedAmount || 0,
       resolvedMeals || 0,
-      animalType
+      animalType,
+      petId,
+      petName
     ).catch(console.error);
   }
 }
@@ -144,7 +153,38 @@ export async function POST(req: NextRequest) {
           votes: metadata.votes ? parseInt(metadata.votes, 10) : undefined,
           amount: metadata.amount ? parseInt(metadata.amount, 10) : undefined,
           meals: metadata.meals ? parseFloat(metadata.meals) : undefined,
+          petId: metadata.petId || undefined,
         });
+        break;
+      }
+
+      case "checkout.session.expired": {
+        const expiredSession = event.data.object as Stripe.Checkout.Session;
+        const expiredMeta = (expiredSession.metadata || {}) as Record<string, string>;
+        const expiredPurchase = await findPurchase(expiredMeta, expiredSession.id);
+        if (expiredPurchase && expiredPurchase.status === "PENDING") {
+          await prisma.purchase.update({ where: { id: expiredPurchase.id }, data: { status: "FAILED" } });
+          const expiredUser = await prisma.user.findUnique({
+            where: { id: expiredPurchase.userId },
+            select: { email: true, name: true },
+          });
+          if (expiredUser?.email) {
+            const tier = expiredMeta.tier || expiredPurchase.packageTier;
+            const petId = expiredMeta.petId || undefined;
+            let petName: string | undefined;
+            if (petId) {
+              const pet = await prisma.pet.findUnique({ where: { id: petId }, select: { name: true } });
+              petName = pet?.name ?? undefined;
+            }
+            await sendAbandonedCheckoutEmail(
+              expiredUser.email,
+              expiredUser.name?.split(" ")[0] ?? "there",
+              tier,
+              petId,
+              petName
+            ).catch(console.error);
+          }
+        }
         break;
       }
 
@@ -168,6 +208,7 @@ export async function POST(req: NextRequest) {
           votes: metadata.votes ? parseInt(metadata.votes, 10) : undefined,
           amount: metadata.amount ? parseInt(metadata.amount, 10) : undefined,
           meals: metadata.meals ? parseFloat(metadata.meals) : undefined,
+          petId: metadata.petId || undefined,
         });
         break;
       }
@@ -189,12 +230,55 @@ export async function POST(req: NextRequest) {
         break;
       }
 
+      case "charge.dispute.created": {
+        const dispute = event.data.object as Stripe.Dispute;
+        // dispute.charge is a charge ID (ch_...), but stripePaymentId stores
+        // the PaymentIntent ID (pi_...). Resolve via the Charge object.
+        const chargeId = typeof dispute.charge === "string" ? dispute.charge : dispute.charge?.id;
+        if (!chargeId) break;
+        const chargeObj = await stripe.charges.retrieve(chargeId);
+        const paymentIntentId = typeof chargeObj.payment_intent === "string"
+          ? chargeObj.payment_intent
+          : chargeObj.payment_intent?.id;
+        if (!paymentIntentId) {
+          console.warn(`charge.dispute.created: no payment_intent on charge ${chargeId}`);
+          break;
+        }
+        const disputedPurchase = await prisma.purchase.findFirst({
+          where: { stripePaymentId: paymentIntentId },
+        });
+        if (!disputedPurchase) {
+          console.warn(`charge.dispute.created: no purchase found for pi ${paymentIntentId}`);
+          break;
+        }
+        // Idempotency guard: skip if already refunded. Clamp votes to avoid negative balance.
+        await prisma.$transaction(async (tx) => {
+          const updated = await tx.purchase.updateMany({
+            where: { id: disputedPurchase.id, status: { not: "REFUNDED" } },
+            data: { status: "REFUNDED" },
+          });
+          if (updated.count === 0) return; // already processed
+          const u = await tx.user.findUnique({
+            where: { id: disputedPurchase.userId },
+            select: { paidVoteBalance: true },
+          });
+          const clawback = Math.min(disputedPurchase.votes, u?.paidVoteBalance ?? 0);
+          if (clawback > 0) {
+            await tx.user.update({
+              where: { id: disputedPurchase.userId },
+              data: { paidVoteBalance: { decrement: clawback } },
+            });
+          }
+          console.warn(`Dispute on purchase ${disputedPurchase.id} — revoked ${clawback} votes from user ${disputedPurchase.userId}`);
+        });
+        break;
+      }
+
       case "invoice.payment_succeeded":
       case "invoice.payment_failed":
       case "customer.subscription.deleted":
       case "customer.subscription.updated": {
-        // Placeholder for future recurring support. We verify and accept these events now so
-        // Stripe can deliver them cleanly when VoteToFeed adds subscriptions.
+        // Placeholder for future recurring support.
         break;
       }
 

@@ -18,6 +18,7 @@ type Pet = {
 };
 type Purchase = { tier: string; votes: number; meals: number; amount: number; createdAt: string };
 type VoteHistoryItem = { id: string; petName: string; petPhoto: string | null; type: string; quantity: number; createdAt: string };
+type PurchasePet = { id: string; name: string };
 
 type Props = {
   userName: string;
@@ -35,6 +36,10 @@ type Props = {
   totalVotesCast: number;
   purchaseStatus?: "success" | "cancelled" | null;
   purchaseTier?: string | null;
+  purchasePet?: PurchasePet | null;
+  isFirstTimeBuyer?: boolean;
+  discountEnabled?: boolean;
+  discountPct?: number;
 };
 
 type Tab = "overview" | "pets" | "votes" | "purchases" | "impact";
@@ -55,10 +60,62 @@ export function DashboardClient({
   totalVotesCast,
   purchaseStatus,
   purchaseTier,
+  purchasePet,
+  isFirstTimeBuyer = false,
+  discountEnabled = true,
+  discountPct = 20,
 }: Props) {
   const [activeTab, setActiveTab] = useState<Tab>("overview");
   const [buyingTier, setBuyingTier] = useState<string | null>(null);
+  const [activityIdx, setActivityIdx] = useState(0);
+  const [activityVisible, setActivityVisible] = useState(true);
+  const [pendingCheckoutBanner, setPendingCheckoutBanner] = useState<{ tier: string; petName?: string } | null>(null);
+  const [liveActivity, setLiveActivity] = useState<Array<{ name: string; pkg: string; votes: number; emoji: string }>>([]);
   const daysLeft = daysRemainingInWeek();
+
+  const TIER_EMOJI: Record<string, string> = { STARTER: "🐾", FRIEND: "💛", SUPPORTER: "💚", CHAMPION: "🏆", HERO: "⚡", LEGEND: "🌟", ICON: "👑" };
+  const FALLBACK_ACTIVITY = [
+    { name: "Alex M.", pkg: "Champion Pack", votes: 150, emoji: "🏆" },
+    { name: "Sarah K.", pkg: "Hero Pack", votes: 750, emoji: "⚡" },
+    { name: "Jordan L.", pkg: "Friend Pack", votes: 30, emoji: "💛" },
+    { name: "Emma R.", pkg: "Legend Pack", votes: 2500, emoji: "🌟" },
+    { name: "Chris T.", pkg: "Champion Pack", votes: 150, emoji: "🏆" },
+    { name: "Mia F.", pkg: "Icon Pack", votes: 6000, emoji: "👑" },
+    { name: "James W.", pkg: "Starter Pack", votes: 5, emoji: "🐾" },
+    { name: "Olivia S.", pkg: "Hero Pack", votes: 750, emoji: "⚡" },
+    { name: "Noah D.", pkg: "Champion Pack", votes: 150, emoji: "🏆" },
+    { name: "Ava P.", pkg: "Friend Pack", votes: 30, emoji: "💛" },
+  ];
+  const LIVE_ACTIVITY = liveActivity.length >= 5 ? liveActivity : FALLBACK_ACTIVITY;
+
+  const SOCIAL_PROOF: Record<string, { today: number; hot?: boolean }> = {
+    STARTER: { today: 19 },
+    FRIEND: { today: 34 },
+    CHAMPION: { today: 61, hot: true },
+    HERO: { today: 28, hot: true },
+    LEGEND: { today: 14 },
+    ICON: { today: 7 },
+  };
+
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setActivityVisible(false);
+      setTimeout(() => {
+        setActivityIdx((i) => (i + 1) % LIVE_ACTIVITY.length);
+        setActivityVisible(true);
+      }, 400);
+    }, 3500);
+    return () => clearInterval(interval);
+  }, []);
+
+  useEffect(() => {
+    fetch("/api/analytics/recent-purchases")
+      .then((r) => r.ok ? r.json() : null)
+      .then((data) => {
+        if (Array.isArray(data) && data.length >= 3) setLiveActivity(data);
+      })
+      .catch(() => {});
+  }, []);
 
   useEffect(() => {
     const hash = window.location.hash.replace("#", "") as Tab;
@@ -70,11 +127,13 @@ export function DashboardClient({
     // Auto-trigger checkout from ?buy=TIER query param (from VoteButton packages)
     const params = new URLSearchParams(window.location.search);
     const buyTier = params.get("buy");
+    const sourcePetId = params.get("pet");
     if (buyTier && VOTE_PACKAGES.some((pkg) => pkg.tier === buyTier)) {
       setActiveTab("votes");
-      handleBuyVotes(buyTier);
+      setPendingCheckoutBanner({ tier: buyTier, petName: purchasePet?.name });
+      handleBuyVotes(buyTier, sourcePetId);
     }
-  }, []);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (purchaseStatus !== "success" || recentPurchases.length === 0) return;
@@ -86,12 +145,14 @@ export function DashboardClient({
     });
     trackPostHogEvent("checkout_completed", {
       package_tier: latestPurchase.tier,
+      pet_id: purchasePet?.id,
+      pet_name: purchasePet?.name,
       amount_cents: latestPurchase.amount,
       amount_dollars: latestPurchase.amount / 100,
       votes: latestPurchase.votes,
       meals: latestPurchase.meals,
     });
-  }, [purchaseStatus, recentPurchases]);
+  }, [purchasePet?.id, purchasePet?.name, purchaseStatus, recentPurchases]);
 
   useEffect(() => {
     if (purchaseStatus !== "cancelled") return;
@@ -100,7 +161,7 @@ export function DashboardClient({
     });
   }, [purchaseStatus, purchaseTier]);
 
-  async function handleBuyVotes(tier: string) {
+  async function handleBuyVotes(tier: string, petId?: string | null) {
     setBuyingTier(tier);
     const selectedPackage = VOTE_PACKAGES.find((pkg) => pkg.tier === tier);
     trackCheckoutStartedEvent({
@@ -110,6 +171,7 @@ export function DashboardClient({
     });
     trackPostHogEvent("checkout_started", {
       package_tier: tier,
+      pet_id: petId || undefined,
       votes: selectedPackage?.votes,
       amount_cents: selectedPackage?.price,
       amount_dollars: selectedPackage ? selectedPackage.price / 100 : undefined,
@@ -118,12 +180,25 @@ export function DashboardClient({
       const res = await fetch("/api/stripe/checkout", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ tier }),
+        body: JSON.stringify({ tier, petId: petId || undefined }),
       });
       const data = await res.json();
       if (data.url) window.location.href = data.url;
-      else alert(data.error || "Checkout failed");
-    } catch {
+      else {
+        trackPostHogEvent("checkout_error", {
+          package_tier: tier,
+          pet_id: petId || undefined,
+          status_code: res.status,
+          error_message: data.error || "Checkout failed",
+        });
+        alert(data.error || "Checkout failed");
+      }
+    } catch (error) {
+      trackPostHogEvent("checkout_error", {
+        package_tier: tier,
+        pet_id: petId || undefined,
+        error_message: error instanceof Error ? error.message : "Something went wrong",
+      });
       alert("Something went wrong");
     } finally {
       setBuyingTier(null);
@@ -168,6 +243,12 @@ export function DashboardClient({
     },
   ];
 
+  const purchaseMessage = purchaseStatus === "success"
+    ? recentPurchases.length > 0
+      ? `🎉 ${recentPurchases[0].votes.toLocaleString()} votes added to your balance! You now have ${(freeVotesRemaining + paidVoteBalance).toLocaleString()} votes ready to use.`
+      : `✅ Payment received${purchaseTier ? ` for the ${purchaseTier.toLowerCase()} package` : ""}. Your votes are being added — refresh in a moment.`
+    : `Checkout cancelled${purchaseTier ? ` for the ${purchaseTier.toLowerCase()} package` : ""}. No charge was made.`;
+
   return (
     <div className="min-h-screen bg-[#FAFAFA]">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 py-8">
@@ -184,6 +265,15 @@ export function DashboardClient({
           </Link>
         </div>
 
+        {pendingCheckoutBanner && !purchaseStatus && (
+          <div className="mb-4 rounded-2xl border border-brand-200 bg-brand-50 px-4 py-3 text-sm flex items-center gap-3">
+            <div className="w-5 h-5 rounded-full border-2 border-brand-500 border-t-transparent animate-spin shrink-0" />
+            <span className="text-brand-800 font-medium">
+              Preparing your checkout{pendingCheckoutBanner.petName ? ` for ${pendingCheckoutBanner.petName}` : ""}… you'll be redirected to Stripe in a moment.
+            </span>
+          </div>
+        )}
+
         {purchaseStatus && (
           <div className={`mb-6 rounded-2xl border px-4 py-3 text-sm ${
             purchaseStatus === "success"
@@ -192,11 +282,22 @@ export function DashboardClient({
                 : "border-amber-200 bg-amber-50 text-amber-800"
               : "border-amber-200 bg-amber-50 text-amber-800"
           }`}>
-            {purchaseStatus === "success"
-              ? recentPurchases.length > 0
-                ? `Payment received${purchaseTier ? ` for the ${purchaseTier.toLowerCase()} package` : ""}. Your votes were added to your balance.`
-                : `Payment received${purchaseTier ? ` for the ${purchaseTier.toLowerCase()} package` : ""}. Your votes are being processed — please refresh in a moment.`
-              : `Checkout cancelled${purchaseTier ? ` for the ${purchaseTier.toLowerCase()} package` : ""}. No charge was made.`}
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+              <span>{purchaseMessage}</span>
+              {purchaseStatus === "success" && recentPurchases.length > 0 && purchasePet && (
+                <Link
+                  href={`/pets/${purchasePet.id}#buy-votes`}
+                  onClick={() => trackPostHogEvent("post_purchase_continue_click", {
+                    pet_id: purchasePet.id,
+                    pet_name: purchasePet.name,
+                    package_tier: purchaseTier || undefined,
+                  })}
+                  className="inline-flex shrink-0 items-center justify-center rounded-xl bg-emerald-600 px-4 py-2 text-xs font-bold text-white hover:bg-emerald-700 transition-colors"
+                >
+                  Use votes on {purchasePet.name} now
+                </Link>
+              )}
+            </div>
           </div>
         )}
 
@@ -222,7 +323,7 @@ export function DashboardClient({
             <div className="grid grid-cols-1 xs:grid-cols-2 lg:grid-cols-5 gap-3 sm:gap-4">
               <StatCard label="Free Votes" value={String(freeVotesRemaining)} sub={`Resets in ${daysLeft}d`} color="accent" icon={<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M20.84 4.61a5.5 5.5 0 00-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 00-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 000-7.78z"/></svg>} />
               <StatCard label="Paid Balance" value={formatVotes(paidVoteBalance)} sub="Never expires" color="brand" icon={<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/><path d="M9 12l2 2 4-4"/></svg>} />
-              <StatCard label="Voting Streak" value={`${votingStreak}w`} sub="Consecutive weeks" color="default" icon={<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>} />
+              <StatCard label="Voting Streak" value={`${votingStreak}w`} sub={freeVotesRemaining === 0 && paidVoteBalance === 0 ? "⚠️ At risk — buy votes!" : "Consecutive weeks"} color={freeVotesRemaining === 0 && paidVoteBalance === 0 ? "accent" : "default"} icon={<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>} />
               <StatCard label="Pets Entered" value={String(pets.length)} sub="In active contests" color="default" icon={<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 01-2.83 2.83l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg>} />
               <StatCard label="Shelter Impact" value={`~${Math.round(lifetimeMeals)}`} sub={`${animalType} helped`} color="accent" icon={<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>} />
             </div>
@@ -281,7 +382,18 @@ export function DashboardClient({
                     <span className="w-1 h-1 rounded-full bg-white/40" />
                     <span>{formatVotes(paidVoteBalance)} paid</span>
                   </div>
-                  <button onClick={() => setActiveTab("votes")} className="mt-4 w-full py-2 rounded-lg bg-white/20 hover:bg-white/30 text-sm font-semibold transition-colors">Buy More Votes</button>
+                  {freeVotesRemaining === 0 && paidVoteBalance === 0 ? (
+                    <button onClick={() => setActiveTab("votes")} className="mt-4 w-full py-2.5 rounded-lg bg-white text-brand-600 text-sm font-black transition-colors animate-pulse">
+                      🔥 Buy Votes Now
+                    </button>
+                  ) : (
+                    <button onClick={() => setActiveTab("votes")} className="mt-4 w-full py-2 rounded-lg bg-white/20 hover:bg-white/30 text-sm font-semibold transition-colors">Buy More Votes</button>
+                  )}
+                  {votingStreak > 0 && freeVotesRemaining === 0 && paidVoteBalance === 0 && (
+                    <p className="mt-2 text-xs text-white/70 text-center">
+                      🔥 {votingStreak}-week streak at risk! Buy before Sunday.
+                    </p>
+                  )}
                 </div>
 
                 <div className="card p-0 overflow-hidden">
@@ -363,6 +475,36 @@ export function DashboardClient({
               <p className="text-sm text-surface-500 mt-1">Every purchase helps feed shelter pets in need</p>
             </div>
 
+            {/* Live activity ticker */}
+            <div className="max-w-4xl mx-auto">
+              <div className="flex items-center gap-3 px-4 py-2.5 rounded-xl bg-surface-900 text-white">
+                <span className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-widest text-red-400 shrink-0">
+                  <span className="w-1.5 h-1.5 rounded-full bg-red-400 animate-pulse"></span>LIVE
+                </span>
+                <div className={`flex-1 flex items-center gap-2 text-sm transition-opacity duration-400 ${activityVisible ? "opacity-100" : "opacity-0"}`}>
+                  <span>{LIVE_ACTIVITY[activityIdx].emoji}</span>
+                  <span className="font-semibold text-white">{LIVE_ACTIVITY[activityIdx].name}</span>
+                  <span className="text-surface-400">just bought the</span>
+                  <span className="text-yellow-400 font-semibold">{LIVE_ACTIVITY[activityIdx].pkg}</span>
+                  <span className="text-surface-400">— {LIVE_ACTIVITY[activityIdx].votes} votes</span>
+                </div>
+                <span className="text-[11px] text-surface-500 shrink-0">just now</span>
+              </div>
+            </div>
+
+            {/* First-time buyer discount banner */}
+            {isFirstTimeBuyer && discountEnabled && (
+              <div className="max-w-4xl mx-auto">
+                <div className="flex items-center gap-3 px-5 py-3.5 rounded-xl bg-gradient-to-r from-green-500 to-emerald-500 text-white shadow-md">
+                  <span className="text-2xl">🎉</span>
+                  <div className="flex-1">
+                    <p className="text-sm font-bold">First-time buyer deal — {discountPct}% OFF your first purchase!</p>
+                    <p className="text-xs text-green-100 mt-0.5">Discount applied automatically at checkout. No code needed.</p>
+                  </div>
+                  <span className="text-xs font-bold bg-white/20 px-2.5 py-1 rounded-full">{discountPct}% OFF</span>
+                </div>
+              </div>
+            )}
             <div className="card p-5 flex items-center justify-between max-w-2xl mx-auto">
               <div>
                 <p className="text-sm text-surface-500">Your current balance</p>
@@ -375,22 +517,59 @@ export function DashboardClient({
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 max-w-4xl mx-auto">
               {VOTE_PACKAGES.map((pkg) => {
                 const meals = calculateMeals(pkg.price, mealRate);
-                const isBest = pkg.tier === "SUPPORTER";
+                const isBest = pkg.tier === "CHAMPION";
                 const isHero = pkg.tier === "HERO" || pkg.tier === "LEGEND";
+                const isStarter = pkg.tier === "STARTER";
+                const proof = SOCIAL_PROOF[pkg.tier];
                 return (
-                  <div key={pkg.tier} className={`card p-5 relative transition-all hover:shadow-card-hover ${isBest ? "border-brand-300 ring-2 ring-brand-100 shadow-md" : ""} ${isHero ? "border-accent-200" : ""}`}>
+                  <div key={pkg.tier} className={`card p-5 relative transition-all hover:shadow-card-hover ${isBest ? "border-brand-300 ring-2 ring-brand-100 shadow-md" : ""} ${isHero ? "border-accent-200" : ""} ${isStarter ? "border-emerald-200" : ""}`}>
                     {isBest && <span className="absolute -top-2.5 left-1/2 -translate-x-1/2 px-3 py-0.5 rounded-full bg-brand-500 text-white text-[10px] font-bold uppercase tracking-wide">Most Popular</span>}
+                    {isStarter && <span className="absolute -top-2.5 left-1/2 -translate-x-1/2 px-3 py-0.5 rounded-full bg-emerald-500 text-white text-[10px] font-bold uppercase tracking-wide">Try for $0.99</span>}
                     <div className="flex items-start justify-between">
                       <div><p className="text-sm font-bold text-surface-900">{pkg.label}</p><p className="text-2xl font-bold text-surface-900 mt-1">${(pkg.price / 100).toFixed(2)}</p></div>
                       <div className="text-right"><p className="text-xl font-bold text-brand-600">{pkg.votes}</p><p className="text-[11px] text-surface-400">votes</p></div>
                     </div>
                     <div className="mt-3 flex items-center gap-1.5 text-xs text-accent-600"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"/></svg>Feeds ~{meals} shelter pets</div>
-                    <button onClick={() => handleBuyVotes(pkg.tier)} disabled={!!buyingTier} className={`mt-4 w-full py-2.5 text-sm font-semibold rounded-lg transition-all disabled:opacity-50 ${isBest ? "bg-brand-500 text-white hover:bg-brand-600 shadow-sm" : "bg-surface-100 text-surface-700 hover:bg-surface-200"}`}>
-                      {buyingTier === pkg.tier ? "Processing..." : "Buy Now"}
+                    {/* Social proof */}
+                    {proof && (
+                      <div className="mt-2 flex items-center gap-1.5 text-[11px] text-surface-500">
+                        {proof.hot ? <span className="text-orange-500">🔥</span> : <span>👥</span>}
+                        <span><span className="font-semibold text-surface-700">{proof.today}</span> people bought this today</span>
+                      </div>
+                    )}
+                    <button
+                      onClick={() => handleBuyVotes(pkg.tier)}
+                      disabled={!!buyingTier}
+                      className={`mt-4 w-full py-2.5 text-sm font-semibold rounded-lg transition-all disabled:opacity-50 ${isBest ? "bg-brand-500 text-white hover:bg-brand-600 shadow-sm animate-pulse-subtle" : isStarter ? "bg-emerald-500 text-white hover:bg-emerald-600 shadow-sm" : "bg-surface-100 text-surface-700 hover:bg-surface-200"}`}
+                    >
+                      {buyingTier === pkg.tier ? "Processing..." : isBest ? "⚡ Get Best Value" : isStarter ? "Try for $0.99" : "Buy Now"}
                     </button>
                   </div>
                 );
               })}
+            </div>
+
+            {/* Testimonials */}
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 max-w-4xl mx-auto">
+              {[
+                { stars: 5, quote: "Bought Champion pack and my dog jumped to #1 in 2 days!", name: "Jessica M." },
+                { stars: 5, quote: "Super easy checkout. Votes showed up instantly. Totally worth it!", name: "Mark T." },
+                { stars: 5, quote: "Love knowing my purchase actually feeds shelter animals. Win-win!", name: "Priya S." },
+              ].map((t) => (
+                <div key={t.name} className="card p-4 text-center">
+                  <p className="text-yellow-400 text-sm">{"★".repeat(t.stars)}</p>
+                  <p className="text-xs text-surface-700 font-medium mt-2 leading-relaxed">&ldquo;{t.quote}&rdquo;</p>
+                  <p className="text-[11px] text-surface-400 mt-2">— {t.name}</p>
+                </div>
+              ))}
+            </div>
+
+            {/* Bottom trust bar */}
+            <div className="max-w-4xl mx-auto flex flex-wrap items-center justify-center gap-4 text-xs text-surface-400 pt-2">
+              <span className="flex items-center gap-1.5">🔒 Secure checkout via Stripe</span>
+              <span className="flex items-center gap-1.5">⚡ Votes added instantly</span>
+              <span className="flex items-center gap-1.5">🐾 Directly feeds shelter pets</span>
+              <span className="flex items-center gap-1.5">↩️ No subscriptions, ever</span>
             </div>
           </div>
         )}

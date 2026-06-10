@@ -6,7 +6,7 @@ import { getCurrentWeekId } from "@/lib/utils";
 
 export const dynamic = "force-dynamic";
 
-// GET /api/admin/engagement/auto-vote?contestId=xxx — Return demo pets (optionally filtered by contest)
+// GET /api/admin/engagement/auto-vote?contestId=xxx&realPets=true — Return pets (demo or real) filtered by contest
 export async function GET(req: NextRequest) {
   const session = await getServerSession(authOptions);
   const role = (session?.user as Record<string, unknown>)?.role;
@@ -16,6 +16,7 @@ export async function GET(req: NextRequest) {
 
   const { searchParams } = new URL(req.url);
   const contestId = searchParams.get("contestId") || null;
+  const realPets = searchParams.get("realPets") === "true";
 
   const seedAccounts = await prisma.user.findMany({
     where: { email: { contains: "@iheartdogs.com" } },
@@ -25,7 +26,9 @@ export async function GET(req: NextRequest) {
 
   const pets = await prisma.pet.findMany({
     where: {
-      userId: { in: seedAccountIds },
+      ...(realPets
+        ? { userId: { notIn: seedAccountIds } }
+        : { userId: { in: seedAccountIds } }),
       isActive: true,
       ...(contestId ? { contestEntries: { some: { contestId } } } : {}),
     },
@@ -35,13 +38,16 @@ export async function GET(req: NextRequest) {
       type: true,
       breed: true,
       photos: true,
+      user: { select: { name: true } },
       weeklyStats: {
         orderBy: { weekId: "desc" },
         take: 1,
         select: { totalVotes: true, rank: true },
       },
     },
-    orderBy: { name: "asc" },
+    orderBy: realPets
+      ? [{ weeklyStats: { _count: "desc" } }, { name: "asc" }]
+      : [{ name: "asc" }],
   });
 
   // Also return all active contests for the dropdown
@@ -58,6 +64,7 @@ export async function GET(req: NextRequest) {
       type: p.type,
       breed: p.breed,
       photo: p.photos[0] || null,
+      ownerName: p.user?.name ?? null,
       weekVotes: p.weeklyStats[0]?.totalVotes ?? 0,
       weekRank: p.weeklyStats[0]?.rank ?? null,
     })),

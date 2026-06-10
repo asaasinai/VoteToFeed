@@ -56,6 +56,13 @@ function emptyRecipient(): Recipient {
 
 type Tab = "manual" | "existing" | "autoadd";
 
+type SavedTemplate = {
+  id: string;
+  name: string;
+  subject: string;
+  html: string;
+};
+
 export function NominateClient() {
   const [tab, setTab] = useState<Tab>("manual");
   const [contests, setContests] = useState<Contest[]>([]);
@@ -79,9 +86,15 @@ export function NominateClient() {
   const [selectedOwnerIds, setSelectedOwnerIds] = useState<Set<string>>(new Set());
   const [loadingOwners, setLoadingOwners] = useState(false);
 
+  // Template state
+  const [savedTemplates, setSavedTemplates] = useState<SavedTemplate[]>([]);
+  const [selectedTemplateId, setSelectedTemplateId] = useState("");
+
   // Auto-Add state
   const [autoContestId, setAutoContestId] = useState("");
   const [autoPetType, setAutoPetType] = useState<string>("");
+  const [autoFromContestId, setAutoFromContestId] = useState(""); // re-add mode: source contest
+  const [allContests, setAllContests] = useState<Contest[]>([]); // includes ended for re-add picker
   const [autoOwners, setAutoOwners] = useState<PetOwner[]>([]);
   const [autoSelectedIds, setAutoSelectedIds] = useState<Set<string>>(new Set());
   const [autoLoadingOwners, setAutoLoadingOwners] = useState(false);
@@ -92,6 +105,10 @@ export function NominateClient() {
   useEffect(() => {
     fetchContests();
     fetchNominations();
+    fetch("/api/admin/emails/templates")
+      .then((r) => (r.ok ? r.json() : []))
+      .then((data: SavedTemplate[]) => setSavedTemplates(data))
+      .catch(() => null);
   }, []);
 
   // Restore persisted send job on mount (survives page refresh) — reads from DB
@@ -128,16 +145,24 @@ export function NominateClient() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [filterPetType, existContestId]);
 
-  // Auto-Add: fetch pet owners when contest + pet type selected
+  // Auto-Add: fetch pet owners when contest + (pet type OR fromContestId) selected
   useEffect(() => {
-    if (autoContestId && autoPetType) {
+    if (autoContestId && (autoPetType || autoFromContestId)) {
       fetchAutoOwners();
     } else {
       setAutoOwners([]);
       setAutoSelectedIds(new Set());
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [autoContestId, autoPetType]);
+  }, [autoContestId, autoPetType, autoFromContestId]);
+
+  // Load full contest list (including ended) for the "Re-add from" picker
+  useEffect(() => {
+    fetch("/api/contests?includeEnded=true&includeNotStarted=true")
+      .then((r) => (r.ok ? r.json() : []))
+      .then((data: Contest[]) => setAllContests(data))
+      .catch(() => null);
+  }, []);
 
   async function fetchContests() {
     try {
@@ -203,8 +228,10 @@ export function NominateClient() {
     setAutoSelectedIds(new Set());
     setAutoResult(null);
     try {
-      const params = new URLSearchParams({ petType: autoPetType });
+      const params = new URLSearchParams();
+      if (autoPetType) params.set("petType", autoPetType);
       if (autoContestId) params.set("contestId", autoContestId);
+      if (autoFromContestId) params.set("fromContestId", autoFromContestId);
       const res = await fetch(`/api/admin/nominations/pet-owners?${params}`);
       if (res.ok) {
         const data: PetOwner[] = await res.json();
@@ -229,6 +256,8 @@ export function NominateClient() {
           petType: autoPetType || undefined,
           userIds: Array.from(autoSelectedIds),
           sendEmail: autoSendEmail,
+          templateId: selectedTemplateId || undefined,
+          fromContestId: autoFromContestId || undefined,
         }),
       });
       const data = await res.json();
@@ -477,7 +506,11 @@ export function NominateClient() {
         const res = await fetch("/api/admin/nominations", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ contestId: targetContestId, recipients: batch }),
+          body: JSON.stringify({
+            contestId: targetContestId,
+            recipients: batch,
+            templateId: selectedTemplateId || undefined,
+          }),
         });
         const data = await res.json();
         if (res.ok) {
@@ -831,6 +864,28 @@ export function NominateClient() {
               <p className="mt-2 text-xs text-surface-400">No recipient limit — auto-batched in groups of 50 with 2s delay between emails.</p>
             </div>
 
+            {/* Template picker */}
+            <div className="max-w-md">
+              <label className="block text-sm font-medium text-surface-700 mb-1">
+                Email Template <span className="text-surface-400 font-normal">(optional)</span>
+              </label>
+              <select
+                value={selectedTemplateId}
+                onChange={(e) => setSelectedTemplateId(e.target.value)}
+                className="w-full rounded-lg border border-surface-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-red-500/20 focus:border-red-500"
+              >
+                <option value="">Use default nomination email</option>
+                {savedTemplates.map((t) => (
+                  <option key={t.id} value={t.id}>{t.name}</option>
+                ))}
+              </select>
+              {selectedTemplateId && (
+                <p className="mt-1.5 text-xs text-surface-400">
+                  Variables replaced automatically: <code className="font-mono">{"{{name}}"}</code>, <code className="font-mono">{"{{petName}}"}</code>, <code className="font-mono">{"{{contestName}}"}</code>, <code className="font-mono">{"{{daysLeft}}"}</code>
+                </p>
+              )}
+            </div>
+
             {message && tab === "manual" && (
               <div className={`rounded-lg px-4 py-3 text-sm ${
                 message.type === "success"
@@ -991,6 +1046,28 @@ export function NominateClient() {
               </div>
             )}
 
+            {/* Template picker */}
+            <div className="max-w-md">
+              <label className="block text-sm font-medium text-surface-700 mb-1">
+                Email Template <span className="text-surface-400 font-normal">(optional)</span>
+              </label>
+              <select
+                value={selectedTemplateId}
+                onChange={(e) => setSelectedTemplateId(e.target.value)}
+                className="w-full rounded-lg border border-surface-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-red-500/20 focus:border-red-500"
+              >
+                <option value="">Use default nomination email</option>
+                {savedTemplates.map((t) => (
+                  <option key={t.id} value={t.id}>{t.name}</option>
+                ))}
+              </select>
+              {selectedTemplateId && (
+                <p className="mt-1.5 text-xs text-surface-400">
+                  Variables replaced automatically: <code className="font-mono">{"{{name}}"}</code>, <code className="font-mono">{"{{petName}}"}</code>, <code className="font-mono">{"{{contestName}}"}</code>, <code className="font-mono">{"{{daysLeft}}"}</code>
+                </p>
+              )}
+            </div>
+
             {message && tab === "existing" && (
               <div className={`rounded-lg px-4 py-3 text-sm ${
                 message.type === "success"
@@ -1063,19 +1140,44 @@ export function NominateClient() {
               {/* Pet Type */}
               <div>
                 <label className="block text-sm font-medium text-surface-700 mb-1">
-                  Pet Type <span className="text-red-500">*</span>
+                  Pet Type {autoFromContestId ? <span className="text-surface-400 font-normal">(optional filter)</span> : <span className="text-red-500">*</span>}
                 </label>
                 <select
                   value={autoPetType}
                   onChange={(e) => setAutoPetType(e.target.value)}
                   className="w-full rounded-lg border border-surface-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-red-500/20 focus:border-red-500"
                 >
-                  <option value="">Select type...</option>
+                  <option value="">{autoFromContestId ? "All types" : "Select type..."}</option>
                   <option value="DOG">Dogs</option>
                   <option value="CAT">Cats</option>
                   <option value="OTHER">Other</option>
                 </select>
               </div>
+            </div>
+
+            {/* Re-add from previous contest */}
+            <div className="max-w-2xl rounded-lg border border-amber-200 bg-amber-50/50 p-4">
+              <label className="block text-sm font-medium text-surface-700 mb-1">
+                🔄 Re-add from a previous contest <span className="text-surface-400 font-normal">(optional)</span>
+              </label>
+              <p className="text-xs text-surface-500 mb-2">
+                When set, pets entered in the source contest are <strong>cloned</strong> into the target contest as fresh entries
+                (starting from <strong>0 votes</strong>). The original pets and their vote history stay untouched in the source contest.
+              </p>
+              <select
+                value={autoFromContestId}
+                onChange={(e) => setAutoFromContestId(e.target.value)}
+                className="w-full rounded-lg border border-amber-300 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500"
+              >
+                <option value="">— Don’t re-add (use Pet Type filter instead) —</option>
+                {allContests
+                  .filter((c) => c.id !== autoContestId)
+                  .map((c) => (
+                    <option key={c.id} value={c.id}>
+                      {c.name} ({c.petType}){c.hasEnded ? " — ended" : ""}
+                    </option>
+                  ))}
+              </select>
             </div>
 
             {/* Send Email toggle */}
@@ -1089,6 +1191,30 @@ export function NominateClient() {
               Send notification email to users when adding them
             </label>
 
+            {/* Template picker (only relevant when sending email) */}
+            {autoSendEmail && (
+              <div className="max-w-md">
+                <label className="block text-sm font-medium text-surface-700 mb-1">
+                  Email Template <span className="text-surface-400 font-normal">(optional)</span>
+                </label>
+                <select
+                  value={selectedTemplateId}
+                  onChange={(e) => setSelectedTemplateId(e.target.value)}
+                  className="w-full rounded-lg border border-surface-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-red-500/20 focus:border-red-500"
+                >
+                  <option value="">Use default contest-added email</option>
+                  {savedTemplates.map((t) => (
+                    <option key={t.id} value={t.id}>{t.name}</option>
+                  ))}
+                </select>
+                {selectedTemplateId && (
+                  <p className="mt-1.5 text-xs text-surface-400">
+                    Variables replaced automatically: <code className="font-mono">{"{{name}}"}</code>, <code className="font-mono">{"{{petName}}"}</code>, <code className="font-mono">{"{{contestName}}"}</code>, <code className="font-mono">{"{{daysLeft}}"}</code>
+                  </p>
+                )}
+              </div>
+            )}
+
             {/* Loading */}
             {autoLoadingOwners && (
               <div className="flex items-center gap-2 text-sm text-surface-400 py-4">
@@ -1101,9 +1227,11 @@ export function NominateClient() {
             )}
 
             {/* No users */}
-            {!autoLoadingOwners && autoContestId && autoPetType && autoOwners.length === 0 && (
+            {!autoLoadingOwners && autoContestId && (autoPetType || autoFromContestId) && autoOwners.length === 0 && (
               <div className="rounded-lg bg-surface-50 px-4 py-3 text-sm text-surface-500">
-                No eligible users found. All users with that pet type are already entered in this contest.
+                {autoFromContestId
+                  ? "No eligible users in the source contest. Either none of those users’ pets exist anymore, or they’re all already entered in this contest."
+                  : "No eligible users found. All users with that pet type are already entered in this contest."}
               </div>
             )}
 

@@ -9,7 +9,7 @@ import {
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
 
-export async function POST(req: NextRequest) {
+export async function GET(req: NextRequest) {
   const authError = verifyCronSecret(req);
   if (authError) return authError;
 

@@ -1,0 +1,1028 @@
+"use client";
+
+import { useState, useEffect, useCallback, useRef } from "react";
+
+type SupportConvSummary = {
+  id: string;
+  ticketShort: string;
+  userName: string | null;
+  userEmail: string | null;
+  status: "OPEN" | "CLOSED";
+  isTicket: boolean;
+  ticketStage: string | null;
+  ticketProblem: string | null;
+  ticketCreatedAt: string | null;
+  aiPaused: boolean;
+  lastMessage: string | null;
+  updatedAt: string;
+  sentCount: number;
+  receivedCount: number;
+  lastEmailAt: string | null;
+  lastSentAt: string | null;
+  lastReceivedAt: string | null;
+  hasUnansweredReply: boolean;
+  totalMessages: number;
+};
+
+type SupportMessage = {
+  id: string;
+  role: "USER" | "ASSISTANT" | "ADMIN";
+  content: string;
+  createdAt: string;
+  kind: "chat" | "email_sent" | "email_received";
+};
+
+type SupportConvDetail = {
+  id: string;
+  ticketShort: string;
+  userName: string | null;
+  userEmail: string | null;
+  status: "OPEN" | "CLOSED";
+  isTicket: boolean;
+  ticketStage: string | null;
+  ticketProblem: string | null;
+  ticketCreatedAt: string | null;
+  aiPaused: boolean;
+  createdAt: string;
+  updatedAt: string;
+  messages: SupportMessage[];
+};
+
+type Totals = {
+  tickets: number;
+  openTickets: number;
+  sent: number;
+  received: number;
+  awaitingReply: number;
+};
+
+type Filter = "all" | "tickets" | "open" | "with_email" | "awaiting";
+
+function timeAgo(d: string | null) {
+  if (!d) return "—";
+  const diff = Date.now() - new Date(d).getTime();
+  const m = Math.floor(diff / 60000);
+  if (m < 1) return "just now";
+  if (m < 60) return `${m}m ago`;
+  const h = Math.floor(m / 60);
+  if (h < 24) return `${h}h ago`;
+  const days = Math.floor(h / 24);
+  return `${days}d ago`;
+}
+
+function fullDate(d: string | null) {
+  if (!d) return "";
+  return new Date(d).toLocaleString("en-US", {
+    weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit",
+  });
+}
+
+function initials(name: string | null, email: string | null) {
+  const src = (name || email || "?").trim();
+  const parts = src.split(/\s+/).filter(Boolean);
+  if (parts.length >= 2) return (parts[0][0] + parts[1][0]).toUpperCase();
+  return src.slice(0, 2).toUpperCase();
+}
+
+// Deterministic avatar color from a seed — full class strings so Tailwind keeps them.
+const AVATAR_COLORS = [
+  "bg-rose-500", "bg-orange-500", "bg-amber-500", "bg-emerald-500",
+  "bg-teal-500", "bg-sky-500", "bg-blue-500", "bg-indigo-500",
+  "bg-violet-500", "bg-fuchsia-500", "bg-pink-500", "bg-cyan-600",
+];
+function avatarColor(seed: string) {
+  let h = 0;
+  for (let i = 0; i < seed.length; i++) h = (h * 31 + seed.charCodeAt(i)) >>> 0;
+  return AVATAR_COLORS[h % AVATAR_COLORS.length];
+}
+
+function Avatar({ name, email, className = "", brand = false }: {
+  name?: string | null; email?: string | null; className?: string; brand?: boolean;
+}) {
+  if (brand) {
+    return (
+      <div className={`shrink-0 rounded-full flex items-center justify-center bg-gradient-to-br from-red-600 to-red-500 text-white font-bold ${className}`}>
+        🐾
+      </div>
+    );
+  }
+  return (
+    <div className={`shrink-0 rounded-full flex items-center justify-center text-white font-bold ${avatarColor(name || email || "?")} ${className}`}>
+      {initials(name ?? null, email ?? null)}
+    </div>
+  );
+}
+
+// Parse the stored content of an email message into subject / from / body.
+// Received: "📧 Email reply (subject: X)\n[From: y\n]\n BODY"
+// Sent:     "📧 Email sent to user with subject: X\n\nBODY" (body optional on older rows)
+function parseEmailContent(content: string, kind: SupportMessage["kind"]) {
+  if (kind === "email_received") {
+    const m = content.match(/^📧 (?:Email reply|New email)\s*\(subject:\s*([\s\S]*?)\)\s*\n([\s\S]*)$/);
+    if (m) {
+      let rest = m[2];
+      let from: string | null = null;
+      const fm = rest.match(/^\s*From:\s*(.+)\n/);
+      if (fm) { from = fm[1].trim(); rest = rest.slice(fm[0].length); }
+      return { subject: m[1].trim() || null, from, body: rest.trim() };
+    }
+  }
+  if (kind === "email_sent") {
+    const m = content.match(/^📧 Email sent to user with subject:\s*([^\n]*)\n*([\s\S]*)$/);
+    if (m) return { subject: m[1].trim() || null, from: null as string | null, body: m[2].trim() };
+  }
+  return { subject: null as string | null, from: null as string | null, body: content.replace(/^📧\s*/, "").trim() };
+}
+
+type ThreadItem = {
+  id: string;
+  direction: "in" | "out";
+  fromName: string;
+  fromEmail: string | null;
+  toName: string;
+  subject: string | null;
+  body: string;
+  createdAt: string;
+  isOriginal: boolean;
+};
+
+// Build a Gmail/Outlook-style chronological thread: the customer's original
+// request (so the pane is never empty) followed by every sent/received email.
+function buildThreadItems(detail: SupportConvDetail): ThreadItem[] {
+  const SUPPORT_NAME = "VoteToFeed Support";
+  const SUPPORT_EMAIL = "support@votetofeed.com";
+  const customerName = detail.userName || detail.userEmail || "Customer";
+  const customerEmail = detail.userEmail || null;
+  const items: ThreadItem[] = [];
+
+  const firstUserChat = detail.messages.find((m) => m.role === "USER" && m.kind === "chat");
+  const openingBody = (firstUserChat?.content || detail.ticketProblem || "").trim();
+  if (openingBody) {
+    items.push({
+      id: "opening",
+      direction: "in",
+      fromName: customerName,
+      fromEmail: customerEmail,
+      toName: SUPPORT_NAME,
+      subject: detail.isTicket ? `Ticket #${detail.ticketShort}` : null,
+      body: openingBody,
+      createdAt: firstUserChat?.createdAt || detail.ticketCreatedAt || detail.createdAt,
+      isOriginal: true,
+    });
+  }
+
+  for (const m of detail.messages) {
+    if (m.kind !== "email_sent" && m.kind !== "email_received") continue;
+    const parsed = parseEmailContent(m.content, m.kind);
+    const out = m.kind === "email_sent";
+    items.push({
+      id: m.id,
+      direction: out ? "out" : "in",
+      fromName: out ? SUPPORT_NAME : (parsed.from || customerName),
+      fromEmail: out ? SUPPORT_EMAIL : (parsed.from || customerEmail),
+      toName: out ? customerName : SUPPORT_NAME,
+      subject: parsed.subject,
+      body: parsed.body || (out ? "(Email body not recorded)" : ""),
+      createdAt: m.createdAt,
+      isOriginal: false,
+    });
+  }
+
+  return items;
+}
+
+export function AdminSupportTab() {
+  const [list, setList] = useState<SupportConvSummary[]>([]);
+  const [totals, setTotals] = useState<Totals>({ tickets: 0, openTickets: 0, sent: 0, received: 0, awaitingReply: 0 });
+  const [filter, setFilter] = useState<Filter>("tickets");
+  const [loadingList, setLoadingList] = useState(false);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [detail, setDetail] = useState<SupportConvDetail | null>(null);
+  const [loadingDetail, setLoadingDetail] = useState(false);
+
+  const [draftSubject, setDraftSubject] = useState("");
+  const [draftBody, setDraftBody] = useState("");
+  const [draftOpen, setDraftOpen] = useState(false);
+  const [draftIsFallback, setDraftIsFallback] = useState(false);
+  const [draftFallbackReason, setDraftFallbackReason] = useState<string | null>(null);
+  const [draftAiContext, setDraftAiContext] = useState<{ ticketProblem: string; emailCount: number; messageCount: number } | null>(null);
+  const [generating, setGenerating] = useState(false);
+  const [sending, setSending] = useState(false);
+  const [feedback, setFeedback] = useState<string | null>(null);
+  const messagesEndRef = useRef<HTMLDivElement>(null);
+  const draftRef = useRef<HTMLDivElement>(null);
+
+  // Manual paste of customer reply
+  const [pasteOpen, setPasteOpen] = useState(false);
+  const [pasteFrom, setPasteFrom] = useState("");
+  const [pasteSubject, setPasteSubject] = useState("");
+  const [pasteBody, setPasteBody] = useState("");
+  const [pasting, setPasting] = useState(false);
+  const [suggestingSubject, setSuggestingSubject] = useState(false);
+  const [suggestingBody, setSuggestingBody] = useState(false);
+  const [suggestError, setSuggestError] = useState<string | null>(null);
+
+  const fetchList = useCallback(async () => {
+    setLoadingList(true);
+    try {
+      const res = await fetch("/api/admin/emails/support");
+      if (!res.ok) throw new Error("Failed");
+      const json = await res.json();
+      setList(json.conversations || []);
+      setTotals(json.totals || { tickets: 0, openTickets: 0, sent: 0, received: 0, awaitingReply: 0 });
+    } catch {
+      setList([]);
+    } finally {
+      setLoadingList(false);
+    }
+  }, []);
+
+  const fetchDetail = useCallback(async (id: string) => {
+    setLoadingDetail(true);
+    try {
+      const res = await fetch(`/api/admin/emails/support?conversationId=${id}`);
+      if (!res.ok) throw new Error("Failed");
+      const json = await res.json();
+      setDetail(json.conversation);
+    } catch {
+      setDetail(null);
+    } finally {
+      setLoadingDetail(false);
+    }
+  }, []);
+
+  useEffect(() => { fetchList(); }, [fetchList]);
+
+  // Auto-refresh both list and selected detail every 15s so inbound emails appear without a manual refresh
+  useEffect(() => {
+    const t = setInterval(() => {
+      fetchList();
+      if (selectedId) fetchDetail(selectedId);
+    }, 15000);
+    return () => clearInterval(t);
+  }, [fetchList, fetchDetail, selectedId]);
+
+  useEffect(() => {
+    if (selectedId) fetchDetail(selectedId);
+    else setDetail(null);
+  }, [selectedId, fetchDetail]);
+
+  useEffect(() => {
+    if (messagesEndRef.current) messagesEndRef.current.scrollIntoView({ behavior: "smooth" });
+  }, [detail?.messages.length]);
+
+  const filtered = list.filter((c) => {
+    if (filter === "tickets") return c.isTicket;
+    if (filter === "open") return c.status === "OPEN";
+    if (filter === "with_email") return !!c.userEmail;
+    if (filter === "awaiting") return c.hasUnansweredReply;
+    return true;
+  });
+
+  // Sort: awaiting reply first, then by latest activity
+  const sorted = [...filtered].sort((a, b) => {
+    if (a.hasUnansweredReply !== b.hasUnansweredReply) return a.hasUnansweredReply ? -1 : 1;
+    const aDate = a.lastEmailAt || a.updatedAt;
+    const bDate = b.lastEmailAt || b.updatedAt;
+    return new Date(bDate).getTime() - new Date(aDate).getTime();
+  });
+
+  async function generateDraft() {
+    if (!detail || generating) return;
+    setGenerating(true);
+    setFeedback(null);
+    try {
+      const res = await fetch("/api/admin/chat/generate-email", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ conversationId: detail.id }),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok || (!json.subject && !json.body)) {
+        setFeedback(json.error || "AI generation failed — try again or write the reply manually.");
+        // Still open an empty draft so the admin can write something by hand
+        setDraftSubject(`Re: Ticket #${detail.ticketShort}`);
+        setDraftBody("");
+        setDraftOpen(true);
+        return;
+      }
+      setDraftSubject(json.subject || `Re: Ticket #${detail.ticketShort}`);
+      setDraftBody(json.body || "");
+      setDraftIsFallback(!!json.fallback);
+      setDraftFallbackReason(json.fallbackReason || null);
+      setDraftAiContext({
+        ticketProblem: detail.ticketProblem || detail.messages.find((m) => m.role === "USER")?.content || "(no description)",
+        emailCount: detail.messages.filter((m) => m.kind === "email_sent" || m.kind === "email_received").length,
+        messageCount: detail.messages.length,
+      });
+      setDraftOpen(true);
+      if (json.fallback) {
+        setFeedback(`AI unavailable — showing a starter draft. See details inside the modal.`);
+      } else {
+        setDraftFallbackReason(null);
+        setFeedback("AI draft ready — review and edit before sending.");
+      }
+      setTimeout(() => {
+        draftRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+      }, 50);
+    } catch {
+      setFeedback("Generation failed — check your connection.");
+      setDraftSubject(`Re: Ticket #${detail.ticketShort}`);
+      setDraftBody("");
+      setDraftOpen(true);
+    } finally {
+      setGenerating(false);
+    }
+  }
+
+  async function sendDraft() {
+    if (!detail || sending || !draftBody.trim()) return;
+    if (!detail.userEmail) {
+      setFeedback("This ticket has no customer email — can't send.");
+      return;
+    }
+    setSending(true);
+    setFeedback(null);
+    try {
+      const res = await fetch("/api/admin/chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          conversationId: detail.id,
+          emailSubject: draftSubject,
+          emailBody: draftBody,
+          message: `📧 Email sent to user with subject: ${draftSubject}`,
+        }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        setFeedback(err.error || "Send failed");
+        return;
+      }
+      setFeedback("Email sent via Resend ✅");
+      setDraftOpen(false);
+      setDraftBody("");
+      setDraftSubject("");
+      await fetchDetail(detail.id);
+      await fetchList();
+    } catch {
+      setFeedback("Send failed");
+    } finally {
+      setSending(false);
+      setTimeout(() => setFeedback(null), 4000);
+    }
+  }
+
+  function openPasteModal() {
+    if (!detail) return;
+    setPasteFrom(detail.userEmail || "");
+    setPasteSubject(`Re: Ticket #${detail.ticketShort}`);
+    setPasteBody("");
+    setPasteOpen(true);
+  }
+
+  async function savePastedReply() {
+    if (!detail || pasting || !pasteBody.trim()) return;
+    setPasting(true);
+    setFeedback(null);
+    try {
+      const res = await fetch("/api/admin/emails/manual-inbound", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          conversationId: detail.id,
+          subject: pasteSubject.trim(),
+          body: pasteBody.trim(),
+          fromEmail: pasteFrom.trim(),
+        }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        setFeedback(err.error || "Failed to save reply");
+        return;
+      }
+      setPasteOpen(false);
+      setPasteBody("");
+      setFeedback("📥 Customer reply added to thread");
+      await fetchDetail(detail.id);
+      await fetchList();
+    } catch {
+      setFeedback("Failed to save reply");
+    } finally {
+      setPasting(false);
+      setTimeout(() => setFeedback(null), 4000);
+    }
+  }
+
+  async function suggestSubject() {
+    if (!pasteBody.trim() || suggestingSubject) return;
+    setSuggestingSubject(true);
+    setSuggestError(null);
+    try {
+      const res = await fetch("/api/admin/emails/ai-suggest", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text: pasteBody.trim() }),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok || !json.subject) {
+        setSuggestError(json.error || "AI unavailable — write the subject manually.");
+        return;
+      }
+      setPasteSubject(json.subject);
+    } catch {
+      setSuggestError("Failed to generate — check your connection.");
+    } finally {
+      setSuggestingSubject(false);
+    }
+  }
+
+  async function suggestBody() {
+    if (!pasteBody.trim() || suggestingBody) return;
+    setSuggestingBody(true);
+    setSuggestError(null);
+    try {
+      const res = await fetch("/api/admin/emails/ai-suggest", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          text: pasteBody.trim(),
+          mode: "body",
+          ticketIssue: detail?.ticketProblem ?? undefined,
+        }),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok || !json.body) {
+        setSuggestError(json.error || "AI unavailable — write the body manually.");
+        return;
+      }
+      setPasteBody(json.body);
+    } catch {
+      setSuggestError("Failed to generate — check your connection.");
+    } finally {
+      setSuggestingBody(false);
+    }
+  }
+
+  async function toggleStatus(newStatus: "OPEN" | "CLOSED") {
+    if (!detail) return;
+    await fetch("/api/admin/chat", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ conversationId: detail.id, status: newStatus }),
+    });
+    await fetchDetail(detail.id);
+    await fetchList();
+  }
+
+  const detailSummary = detail ? list.find((c) => c.id === detail.id) : undefined;
+  const threadItems = detail ? buildThreadItems(detail) : [];
+
+  return (
+    <div className="overflow-hidden rounded-xl border border-surface-200 bg-white shadow-sm">
+      {/* Stat cards specific to support */}
+      <div className="flex flex-wrap items-center gap-1 border-b border-surface-200 bg-surface-50 px-3 py-2">
+        <div className="mr-2 min-w-[110px] text-xs font-bold uppercase tracking-wider text-surface-500">Mailbox</div>
+        <button
+          onClick={() => setFilter("tickets")}
+          className={`inline-flex items-center gap-2 rounded-md px-3 py-1.5 text-left text-xs font-semibold transition ${filter === "tickets" ? "bg-surface-900 text-white" : "text-surface-700 hover:bg-white"}`}
+        >
+          <span>Tickets</span>
+          <span className={`rounded-full px-1.5 py-0.5 text-[10px] ${filter === "tickets" ? "bg-white/20 text-white" : "bg-surface-200 text-surface-600"}`}>{totals.tickets}</span>
+        </button>
+        <button
+          onClick={() => setFilter("open")}
+          className={`inline-flex items-center gap-2 rounded-md px-3 py-1.5 text-left text-xs font-semibold transition ${filter === "open" ? "bg-surface-900 text-white" : "text-surface-700 hover:bg-white"}`}
+        >
+          <span>Open</span>
+          <span className={`rounded-full px-1.5 py-0.5 text-[10px] ${filter === "open" ? "bg-white/20 text-white" : "bg-emerald-100 text-emerald-700"}`}>{totals.openTickets}</span>
+        </button>
+        <button
+          onClick={() => setFilter("awaiting")}
+          className={`inline-flex items-center gap-2 rounded-md px-3 py-1.5 text-left text-xs font-semibold transition [&>div]:hidden ${filter === "awaiting" ? "bg-surface-900 text-white" : "text-surface-700 hover:bg-white"} ${totals.awaitingReply > 0 ? "animate-pulse" : ""}`}
+        >
+          <span>Awaiting</span>
+          <span className={`rounded-full px-1.5 py-0.5 text-[10px] ${filter === "awaiting" ? "bg-white/20 text-white" : "bg-amber-100 text-amber-700"}`}>{totals.awaitingReply}</span>
+          <div className="text-[11px] font-semibold opacity-80">📥 Awaiting Reply</div>
+        </button>
+        <div className="ml-auto hidden items-center gap-1.5 px-2 text-[11px] font-semibold text-surface-500 sm:flex">
+          <span>Sent</span>
+          <strong className="text-surface-800">{totals.sent}</strong>
+        </div>
+        <div className="hidden items-center gap-1.5 px-2 text-[11px] font-semibold text-surface-500 sm:flex">
+          <span>Received</span>
+          <strong className="text-surface-800">{totals.received}</strong>
+        </div>
+      </div>
+
+      <div className="grid min-h-[680px] lg:grid-cols-[360px_minmax(0,1fr)]">
+        {/* LEFT: list */}
+        <div className="flex max-h-[680px] flex-col overflow-hidden border-r border-surface-200 bg-white">
+          <div className="px-3 py-2 border-b border-surface-100 bg-surface-50 flex flex-wrap gap-1">
+            {(["tickets", "open", "awaiting", "with_email", "all"] as Filter[]).map((f) => (
+              <button
+                key={f}
+                onClick={() => setFilter(f)}
+                className={`px-2.5 py-1 rounded-md text-[11px] font-semibold transition-colors ${
+                  filter === f ? "bg-purple-500 text-white" : "bg-surface-100 text-surface-600 hover:bg-surface-200"
+                }`}
+              >
+                {f === "tickets" ? "🎫 Tickets" : f === "open" ? "Open" : f === "awaiting" ? "📥 Awaiting" : f === "with_email" ? "📧 With Email" : "All"}
+              </button>
+            ))}
+            <button
+              onClick={fetchList}
+              className="ml-auto px-2 py-1 rounded-md text-[11px] font-semibold bg-surface-100 text-surface-600 hover:bg-surface-200"
+              title="Refresh"
+            >
+              ↻
+            </button>
+          </div>
+
+          <div className="overflow-y-auto flex-1">
+            {loadingList && list.length === 0 ? (
+              <div className="px-4 py-8 text-center text-sm text-surface-400">Loading…</div>
+            ) : sorted.length === 0 ? (
+              <div className="px-4 py-8 text-center text-sm text-surface-400">No conversations match this filter.</div>
+            ) : (
+              sorted.map((c) => {
+                const unread = c.hasUnansweredReply;
+                const isSel = selectedId === c.id;
+                const name = c.userName || c.userEmail || "Visitor";
+                return (
+                  <button
+                    key={c.id}
+                    onClick={() => setSelectedId(c.id)}
+                    className={`w-full text-left flex gap-3 px-3 py-3 border-b border-surface-100 border-l-2 transition-colors ${
+                      isSel
+                        ? "bg-sky-50 border-l-sky-500"
+                        : unread
+                        ? "bg-white hover:bg-surface-50 border-l-amber-400"
+                        : "bg-white hover:bg-surface-50 border-l-transparent"
+                    }`}
+                  >
+                    <Avatar name={c.userName} email={c.userEmail} className="h-9 w-9 text-[12px]" />
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center justify-between gap-2">
+                        <span className={`truncate text-[13px] ${unread ? "font-bold text-surface-900" : "font-semibold text-surface-700"}`}>
+                          {name}
+                        </span>
+                        <span className="text-[10px] text-surface-400 shrink-0 whitespace-nowrap">
+                          {timeAgo(c.lastEmailAt || c.updatedAt)}
+                        </span>
+                      </div>
+                      <p className={`truncate text-[12px] mt-0.5 ${unread ? "font-semibold text-surface-700" : "text-surface-500"}`}>
+                        {c.ticketProblem || c.lastMessage || "No messages"}
+                      </p>
+                      <div className="flex items-center gap-1.5 mt-1.5">
+                        {c.isTicket && (
+                          <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-purple-100 text-purple-700">
+                            #{c.ticketShort}
+                          </span>
+                        )}
+                        {unread && (
+                          <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-amber-500 text-white">NEW</span>
+                        )}
+                        <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded-full ${
+                          c.status === "OPEN" ? "bg-green-100 text-green-700" : "bg-surface-100 text-surface-400"
+                        }`}>{c.status}</span>
+                        <span className="ml-auto flex items-center gap-1.5 text-[10px] text-surface-400">
+                          {c.sentCount > 0 && <span title="Sent">↑{c.sentCount}</span>}
+                          {c.receivedCount > 0 && <span title="Received">↓{c.receivedCount}</span>}
+                        </span>
+                      </div>
+                    </div>
+                  </button>
+                );
+              })
+            )}
+          </div>
+        </div>
+
+        {/* RIGHT: detail + draft */}
+        <div className="flex max-h-[680px] flex-col bg-white">
+          {!detail && !loadingDetail ? (
+            <div className="flex-1 flex items-center justify-center text-sm text-surface-400 p-8">
+              Select a conversation to view its email thread.
+            </div>
+          ) : loadingDetail ? (
+            <div className="flex-1 flex items-center justify-center text-sm text-surface-400 p-8">Loading…</div>
+          ) : detail ? (
+            <>
+              {/* Reading-pane header — subject + participant (Gmail/Outlook style) */}
+              <div className="px-4 py-3 border-b border-surface-200 bg-white shrink-0">
+                <div className="flex items-start justify-between gap-3">
+                  <h2 className="text-[15px] font-bold text-surface-900 leading-snug min-w-0 break-words">
+                    {detail.ticketProblem
+                      ? detail.ticketProblem.split("\n")[0].slice(0, 90)
+                      : `Conversation with ${detail.userName || detail.userEmail || "visitor"}`}
+                  </h2>
+                  <div className="flex items-center gap-1.5 shrink-0">
+                    <button
+                      onClick={generateDraft}
+                      disabled={generating}
+                      className="px-2.5 py-1 rounded-lg bg-purple-100 hover:bg-purple-200 text-purple-700 text-[11px] font-bold disabled:opacity-50"
+                      title="AI draft based on this ticket"
+                    >
+                      {generating ? "Generating…" : "🤖 AI Draft"}
+                    </button>
+                    <button
+                      onClick={openPasteModal}
+                      className="px-2.5 py-1 rounded-lg bg-amber-100 hover:bg-amber-200 text-amber-800 text-[11px] font-bold"
+                      title="Paste a customer reply you received elsewhere"
+                    >
+                      📋 Paste reply
+                    </button>
+                    <button
+                      onClick={() => toggleStatus(detail.status === "OPEN" ? "CLOSED" : "OPEN")}
+                      className="px-2.5 py-1 rounded-lg bg-surface-100 hover:bg-surface-200 text-surface-700 text-[11px] font-semibold"
+                    >
+                      {detail.status === "OPEN" ? "✕ Close" : "↻ Reopen"}
+                    </button>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-2.5 mt-2.5">
+                  <Avatar name={detail.userName} email={detail.userEmail} className="h-9 w-9 text-[12px]" />
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="font-semibold text-[13px] text-surface-800 truncate">
+                        {detail.userName || detail.userEmail || "Anonymous"}
+                      </span>
+                      {detail.isTicket && (
+                        <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-purple-100 text-purple-700">
+                          🎫 #{detail.ticketShort}
+                        </span>
+                      )}
+                      {detailSummary?.hasUnansweredReply && (
+                        <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-500 text-white">
+                          📥 Needs response
+                        </span>
+                      )}
+                      <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
+                        detail.status === "OPEN" ? "bg-green-100 text-green-700" : "bg-surface-100 text-surface-400"
+                      }`}>{detail.status}</span>
+                    </div>
+                    {detail.userEmail && (
+                      <div className="text-[11px] text-surface-500 truncate">{detail.userEmail}</div>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              {/* Thread — original request + every email, as stacked mail cards */}
+              <div className="flex-1 overflow-y-auto px-4 py-4 space-y-3 bg-surface-50">
+                {threadItems.length === 0 ? (
+                  <div className="flex items-center justify-center h-full text-sm text-surface-400">
+                    No messages in this conversation yet.
+                  </div>
+                ) : (
+                  threadItems.map((it) => {
+                    const out = it.direction === "out";
+                    return (
+                      <div
+                        key={it.id}
+                        className={`rounded-xl border bg-white shadow-sm overflow-hidden ${out ? "border-sky-200" : "border-surface-200"}`}
+                      >
+                        <div className={`flex items-start gap-3 px-4 pt-3 pb-2 ${out ? "bg-sky-50/60" : "bg-white"}`}>
+                          {out ? (
+                            <Avatar brand className="h-9 w-9 text-[13px]" />
+                          ) : (
+                            <Avatar name={it.fromName} email={it.fromEmail} className="h-9 w-9 text-[12px]" />
+                          )}
+                          <div className="min-w-0 flex-1">
+                            <div className="flex items-start justify-between gap-2">
+                              <div className="min-w-0 flex items-baseline gap-1.5 flex-wrap">
+                                <span className="font-semibold text-[13px] text-surface-900">{it.fromName}</span>
+                                {it.fromEmail && (
+                                  <span className="text-[11px] text-surface-400 truncate">&lt;{it.fromEmail}&gt;</span>
+                                )}
+                                {out && (
+                                  <span className="text-[9px] font-bold uppercase tracking-wide text-sky-700 bg-sky-100 px-1.5 py-0.5 rounded">You</span>
+                                )}
+                                {it.isOriginal && (
+                                  <span className="text-[9px] font-bold uppercase tracking-wide text-purple-700 bg-purple-100 px-1.5 py-0.5 rounded">Original request</span>
+                                )}
+                              </div>
+                              <time className="text-[10px] text-surface-400 shrink-0 whitespace-nowrap">{fullDate(it.createdAt)}</time>
+                            </div>
+                            <div className="text-[11px] text-surface-400">to {it.toName}</div>
+                          </div>
+                        </div>
+                        {it.subject && (
+                          <div className="px-4 pb-1 text-[12px]">
+                            <span className="text-surface-400">Subject: </span>
+                            <span className="font-semibold text-surface-700">{it.subject}</span>
+                          </div>
+                        )}
+                        <div className="px-4 py-3 text-[13px] leading-relaxed text-surface-800 whitespace-pre-wrap break-words">
+                          {it.body || <span className="italic text-surface-400">(no content)</span>}
+                        </div>
+                      </div>
+                    );
+                  })
+                )}
+                <div ref={messagesEndRef} />
+              </div>
+
+              {draftOpen && (
+                <div className="border-t border-purple-200 bg-purple-50 px-4 py-2 flex items-center justify-between shrink-0">
+                  <span className="text-[12px] font-semibold text-purple-700">✉️ Email draft is open in the editor</span>
+                  <button
+                    type="button"
+                    onClick={() => setDraftOpen(false)}
+                    className="text-[11px] text-purple-600 hover:text-purple-800 font-semibold underline"
+                  >
+                    close draft
+                  </button>
+                </div>
+              )}
+
+              {feedback && (
+                <div className="border-t border-surface-200 px-4 py-2 bg-surface-50 text-[11px] font-semibold text-surface-700">
+                  {feedback}
+                </div>
+              )}
+            </>
+          ) : null}
+        </div>
+      </div>
+
+      {/* ─── EMAIL DRAFT MODAL ─── */}
+      {draftOpen && detail && (
+        <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4 overflow-y-auto" onClick={() => setDraftOpen(false)}>
+          <div
+            ref={draftRef}
+            className="bg-white rounded-2xl shadow-2xl w-full max-w-6xl max-h-[90vh] flex flex-col overflow-hidden"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Modal header */}
+            <div className="px-6 py-4 border-b border-surface-200 bg-purple-50 flex items-center justify-between shrink-0">
+              <div>
+                <div className="flex items-center gap-2">
+                  <span className="text-lg">✉️</span>
+                  <h2 className="text-lg font-bold text-surface-900">Email draft</h2>
+                  {draftIsFallback && (
+                    <span className="text-[10px] font-bold text-amber-700 bg-amber-100 px-2 py-0.5 rounded-full">
+                      starter (AI unavailable)
+                    </span>
+                  )}
+                  {detail.isTicket && (
+                    <span className="text-[10px] font-bold text-purple-700 bg-purple-100 px-2 py-0.5 rounded-full">
+                      🎫 Ticket #{detail.ticketShort}
+                    </span>
+                  )}
+                </div>
+                <p className="text-[11px] text-surface-500 mt-0.5">
+                  Sending from <strong>support@votetofeed.com</strong> to <strong>{detail.userEmail || "(no email on file)"}</strong> via Resend
+                </p>
+              </div>
+              <button
+                onClick={() => setDraftOpen(false)}
+                className="px-3 py-1.5 rounded-lg bg-white hover:bg-surface-100 text-surface-700 text-sm font-semibold border border-surface-200"
+              >
+                ✕ Close
+              </button>
+            </div>
+
+            {!draftIsFallback && draftAiContext && (
+              <div className="px-6 py-3 bg-blue-50 border-b border-blue-100 text-[12px] text-blue-900">
+                <div className="flex items-start gap-2">
+                  <span className="text-base mt-0.5">🤖</span>
+                  <div className="flex-1 min-w-0">
+                    <span className="font-bold text-blue-800">AI drafted this reply based on the ticket context:</span>
+                    <p className="mt-0.5 text-[12px] text-blue-700 line-clamp-2">{draftAiContext.ticketProblem}</p>
+                    <div className="flex gap-3 mt-1 text-[10px] text-blue-500">
+                      <span>📨 {draftAiContext.messageCount} messages read</span>
+                      <span>📧 {draftAiContext.emailCount} emails in thread</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {draftIsFallback && draftFallbackReason && (
+              <div className="px-6 py-3 bg-amber-50 border-b border-amber-200 text-[12px] text-amber-900">
+                <strong>⚠️ AI couldn&apos;t generate a contextual reply.</strong> Showing a starter template you can edit manually.
+                <details className="mt-1">
+                  <summary className="cursor-pointer text-[11px] text-amber-700 hover:text-amber-900 font-semibold">Show technical details</summary>
+                  <pre className="mt-1 text-[10px] font-mono whitespace-pre-wrap break-all bg-amber-100 px-2 py-1 rounded">{draftFallbackReason}</pre>
+                </details>
+              </div>
+            )}
+
+            {/* Modal body — split edit / preview */}
+            <div className="flex-1 overflow-hidden grid lg:grid-cols-2 divide-y lg:divide-y-0 lg:divide-x divide-surface-200">
+              <div className="p-5 overflow-y-auto">
+                <label className="block text-xs font-semibold text-surface-600 mb-1">Subject</label>
+                <input
+                  value={draftSubject}
+                  onChange={(e) => setDraftSubject(e.target.value)}
+                  className="w-full rounded-lg border border-surface-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-400"
+                />
+                <label className="block text-xs font-semibold text-surface-600 mb-1 mt-4">Body</label>
+                <textarea
+                  value={draftBody}
+                  onChange={(e) => setDraftBody(e.target.value)}
+                  rows={16}
+                  className="w-full resize-none rounded-lg border border-surface-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-400 font-mono"
+                />
+                <div className="mt-3 flex items-center gap-2">
+                  <button
+                    onClick={generateDraft}
+                    disabled={generating}
+                    className="px-3 py-2 rounded-lg bg-surface-100 hover:bg-surface-200 text-surface-700 text-sm font-semibold disabled:opacity-50"
+                  >
+                    {generating ? "Generating…" : "🔁 Regenerate with AI"}
+                  </button>
+                </div>
+
+                {detail.ticketProblem && (
+                  <div className="mt-4 px-3 py-2 bg-purple-50 border border-purple-100 rounded-lg text-[12px] text-surface-800">
+                    <div className="font-semibold mb-0.5 text-[11px] text-purple-700 uppercase tracking-wider">Customer asked:</div>
+                    <div>{detail.ticketProblem}</div>
+                  </div>
+                )}
+              </div>
+
+              <div className="p-5 bg-surface-50 overflow-y-auto">
+                <div className="text-xs font-semibold text-surface-600 mb-2">Preview (what the customer sees)</div>
+                <div className="rounded-xl border border-surface-200 bg-white shadow-sm overflow-hidden">
+                  <div className="px-5 py-4 bg-gradient-to-r from-red-600 to-red-500 text-white text-center">
+                    <div className="text-xl font-black tracking-tight">🐾 VoteToFeed</div>
+                    <div className="text-[11px] opacity-80 uppercase tracking-wider mt-1">Every vote feeds a shelter pet</div>
+                  </div>
+                  <div className="px-5 py-3 bg-surface-50 border-b border-surface-200 text-[12px] text-surface-500 space-y-0.5">
+                    <div><span className="font-semibold text-surface-600">From:</span> VoteToFeed Support &lt;support@votetofeed.com&gt;</div>
+                    <div><span className="font-semibold text-surface-600">To:</span> {detail.userEmail || "(no email)"}</div>
+                    <div><span className="font-semibold text-surface-600">Subject:</span> <span className="text-surface-800 font-semibold">{draftSubject || "(no subject)"}</span></div>
+                  </div>
+                  <div className="px-5 py-5 text-[14px] text-surface-800 leading-relaxed">
+                    <div className="text-[11px] font-bold text-amber-600 uppercase tracking-wider mb-2">💬 New Support Reply</div>
+                    <div className="text-lg font-black text-surface-900 mb-3">Hello!</div>
+                    <div className="rounded-lg border border-sky-200 bg-sky-50 px-4 py-3 whitespace-pre-wrap text-[14px] leading-relaxed">
+                      {draftBody || <span className="text-surface-400 italic">Body is empty…</span>}
+                    </div>
+                    <p className="mt-4 text-[13px] text-surface-600">Just reply to this email and we&apos;ll see your message right in your support thread.</p>
+                    <p className="mt-2 text-[11px] text-surface-400">Ticket #{detail.ticketShort}</p>
+                  </div>
+                  <div className="px-5 py-3 border-t border-surface-200 bg-surface-50 text-center text-[11px] text-surface-400">
+                    VoteToFeed · Privacy · Terms
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Modal footer */}
+            <div className="px-6 py-3 border-t border-surface-200 bg-white flex items-center justify-between shrink-0">
+              <p className="text-[11px] text-surface-500">
+                {detail.userEmail
+                  ? "Customer can reply to this email and it will appear back in this thread."
+                  : "⚠️ This conversation has no email on file — sending will fail."}
+              </p>
+              <div className="flex gap-2">
+                <button
+                  onClick={() => setDraftOpen(false)}
+                  className="px-4 py-2 rounded-lg bg-surface-100 hover:bg-surface-200 text-surface-700 text-sm font-semibold"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={sendDraft}
+                  disabled={sending || !draftBody.trim() || !detail.userEmail}
+                  className="px-5 py-2 rounded-lg bg-purple-600 text-white text-sm font-bold hover:bg-purple-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {sending ? "Sending…" : "📨 Send via Resend"}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ─── PASTE CUSTOMER REPLY MODAL ─── */}
+      {pasteOpen && detail && (
+        <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4 overflow-y-auto" onClick={() => setPasteOpen(false)}>
+          <div
+            className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl flex flex-col overflow-hidden"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="px-6 py-4 border-b border-surface-200 bg-amber-50 flex items-center justify-between shrink-0">
+              <div>
+                <div className="flex items-center gap-2">
+                  <span className="text-lg">📋</span>
+                  <h2 className="text-lg font-bold text-surface-900">Paste customer reply</h2>
+                  {detail.isTicket && (
+                    <span className="text-[10px] font-bold text-purple-700 bg-purple-100 px-2 py-0.5 rounded-full">
+                      🎫 Ticket #{detail.ticketShort}
+                    </span>
+                  )}
+                </div>
+                <p className="text-[11px] text-surface-600 mt-0.5">
+                  Got an email reply in Gmail/Outlook? Paste it here to add it to this ticket thread.
+                </p>
+              </div>
+              <button
+                onClick={() => setPasteOpen(false)}
+                className="px-3 py-1.5 rounded-lg bg-white hover:bg-surface-100 text-surface-700 text-sm font-semibold border border-surface-200"
+              >
+                ✕ Close
+              </button>
+            </div>
+
+            <div className="p-5 space-y-3">
+              <div>
+                <label className="block text-xs font-semibold text-surface-600 mb-1">From email (optional)</label>
+                <input
+                  value={pasteFrom}
+                  onChange={(e) => setPasteFrom(e.target.value)}
+                  placeholder="customer@example.com"
+                  className="w-full rounded-lg border border-surface-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400"
+                />
+                <p className="mt-1 text-[10px] text-surface-400">Pre-filled from ticket. Adjust if the customer used a different address.</p>
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-surface-600 mb-1">Subject</label>
+                <input
+                  value={pasteSubject}
+                  onChange={(e) => setPasteSubject(e.target.value)}
+                  className="w-full rounded-lg border border-surface-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400"
+                />
+              </div>
+              <div>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="block text-xs font-semibold text-surface-600">Body — paste customer message, or let AI draft a reply</label>
+                  <div className="flex gap-1.5">
+                    <button
+                      type="button"
+                      onClick={suggestSubject}
+                      disabled={suggestingSubject || suggestingBody || !pasteBody.trim()}
+                      className="flex items-center gap-1 px-2 py-1 rounded-lg bg-purple-100 hover:bg-purple-200 text-purple-700 text-[11px] font-bold disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                      title="AI reads this message and suggests a Subject"
+                    >
+                      {suggestingSubject ? (
+                        <>
+                          <span className="inline-block w-3 h-3 border-2 border-purple-400 border-t-transparent rounded-full animate-spin" />
+                          Subject…
+                        </>
+                      ) : (
+                        "📌 Suggest Subject"
+                      )}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={suggestBody}
+                      disabled={suggestingBody || suggestingSubject || !pasteBody.trim()}
+                      className="flex items-center gap-1 px-2 py-1 rounded-lg bg-blue-100 hover:bg-blue-200 text-blue-700 text-[11px] font-bold disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                      title="AI drafts a reply body based on the pasted customer message"
+                    >
+                      {suggestingBody ? (
+                        <>
+                          <span className="inline-block w-3 h-3 border-2 border-blue-400 border-t-transparent rounded-full animate-spin" />
+                          Drafting…
+                        </>
+                      ) : (
+                        "🤖 Draft Reply Body"
+                      )}
+                    </button>
+                  </div>
+                </div>
+                {suggestError && (
+                  <p className="mb-1 text-[11px] text-red-600 font-semibold">{suggestError}</p>
+                )}
+                <textarea
+                  value={pasteBody}
+                  onChange={(e) => { setPasteBody(e.target.value); setSuggestError(null); }}
+                  rows={10}
+                  placeholder="Paste the full message the customer sent…"
+                  className="w-full resize-none rounded-lg border border-surface-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400 font-mono"
+                />
+              </div>
+            </div>
+
+            <div className="px-6 py-3 border-t border-surface-200 bg-white flex items-center justify-between shrink-0">
+              <p className="text-[11px] text-surface-500">
+                Will appear as <strong>📥 Email Received</strong> in this thread and trigger the &quot;Awaiting reply&quot; badge.
+              </p>
+              <div className="flex gap-2">
+                <button
+                  onClick={() => setPasteOpen(false)}
+                  className="px-4 py-2 rounded-lg bg-surface-100 hover:bg-surface-200 text-surface-700 text-sm font-semibold"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={savePastedReply}
+                  disabled={pasting || !pasteBody.trim()}
+                  className="px-5 py-2 rounded-lg bg-amber-600 text-white text-sm font-bold hover:bg-amber-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {pasting ? "Saving…" : "📥 Add to thread"}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}

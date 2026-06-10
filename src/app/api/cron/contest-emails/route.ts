@@ -14,7 +14,7 @@ import { sendContestCountdown, sendDailyRankEmail } from "@/lib/email";
 
 export const dynamic = "force-dynamic";
 
-export async function POST(req: NextRequest) {
+export async function GET(req: NextRequest) {
   const authError = verifyCronSecret(req);
   if (authError) return authError;
 
@@ -37,6 +37,9 @@ export async function POST(req: NextRequest) {
                     id: true,
                     name: true,
                     email: true,
+                    notifications: {
+                      select: { contestAlerts: true },
+                    },
                   },
                 },
               },
@@ -62,6 +65,8 @@ export async function POST(req: NextRequest) {
         for (const entry of contest.entries) {
           const userEmail = entry.pet.user.email;
           if (!userEmail) continue;
+          // Respect user's contestAlerts preference (null = default true)
+          if (entry.pet.user.notifications?.contestAlerts === false) continue;
 
           const alreadySent = await hasContestEmailBeenSent(contest.id, entry.pet.userId, emailType);
           if (alreadySent) continue;
@@ -83,6 +88,8 @@ export async function POST(req: NextRequest) {
       for (const entry of contest.entries) {
         const userEmail = entry.pet.user.email;
         if (!userEmail) continue;
+        // Respect user's contestAlerts preference (null = default true)
+        if (entry.pet.user.notifications?.contestAlerts === false) continue;
 
         const alreadySentToday = await hasDailyRankEmailBeenSentToday(contest.id, entry.pet.userId);
         if (alreadySentToday) continue;

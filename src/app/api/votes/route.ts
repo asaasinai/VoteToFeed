@@ -12,11 +12,9 @@ import {
   getAnonymousVotesUsedThisWeek,
   getClientIp,
 } from "@/lib/anonymous-votes";
-import { sendBatchedVoteAlert } from "@/lib/email";
 import { checkAndAwardBadges } from "@/lib/badges";
-
-// How long (ms) before we send another vote alert for the same pet
-const VOTE_ALERT_COOLDOWN_MS = 6 * 60 * 60 * 1000; // 6 hours
+import { createNotification } from "@/lib/notifications";
+import { triggerVoteAlert } from "@/lib/vote-alerts";
 
 /** Return total votes for a pet across the active contest period */
 async function getContestTotalVotes(petId: string): Promise<number> {
@@ -47,49 +45,6 @@ async function getContestTotalVotes(petId: string): Promise<number> {
   return (agg._sum.quantity ?? 0) + anonAgg;
 }
 
-async function triggerVoteAlert(petId: string, ownerId: string, ownerEmail: string, ownerName: string, weeklyVotes: number) {
-  const now = new Date();
-  const cooldown = await prisma.voteEmailCooldown.findUnique({
-    where: { petId_ownerId: { petId, ownerId } },
-  });
-
-  if (cooldown && now.getTime() - cooldown.lastSentAt.getTime() < VOTE_ALERT_COOLDOWN_MS) {
-    // Still in cooldown — just increment the pending count, no email
-    await prisma.voteEmailCooldown.update({
-      where: { petId_ownerId: { petId, ownerId } },
-      data: { pendingCount: { increment: 1 } },
-    });
-    return;
-  }
-
-  // Cooldown expired (or first vote) — send email with accumulated count
-  const pendingFromBefore = cooldown?.pendingCount ?? 0;
-  const totalNew = pendingFromBefore + 1;
-
-  // Reset the record
-  await prisma.voteEmailCooldown.upsert({
-    where: { petId_ownerId: { petId, ownerId } },
-    create: { petId, ownerId, lastSentAt: now, pendingCount: 0 },
-    update: { lastSentAt: now, pendingCount: 0 },
-  });
-
-  const pet = await prisma.pet.findUnique({ where: { id: petId }, select: { name: true } });
-  if (!pet) return;
-
-  // Get current weekly rank
-  const weekId = getCurrentWeekId();
-  const allStats = await prisma.petWeeklyStats.findMany({
-    where: { weekId },
-    orderBy: { totalVotes: "desc" },
-    select: { petId: true },
-  });
-  const rank = allStats.findIndex((s) => s.petId === petId) + 1 || null;
-  const ownerFirstName = ownerName?.split(" ")[0] ?? "there";
-
-  sendBatchedVoteAlert(ownerEmail, ownerFirstName, pet.name, petId, totalNew, weeklyVotes, rank || null)
-    .catch((err) => console.error("[email] batched vote alert failed:", err));
-}
-
 // POST /api/votes - Cast a vote
 export async function POST(req: NextRequest) {
   try {
@@ -107,7 +62,7 @@ export async function POST(req: NextRequest) {
     const pet = await prisma.pet.findUnique({
       where: { id: petId },
       include: {
-        user: { select: { id: true, email: true, name: true } },
+        user: { select: { id: true, email: true, name: true, notifications: { select: { voteAlerts: true } } } },
       },
     });
 
@@ -135,7 +90,11 @@ export async function POST(req: NextRequest) {
       }),
     ]);
 
-    if (recentVotesFromIP + recentAnonymousVotesFromIP > 200) {
+    // Paid votes are not rate-limited (user already paid).
+    // Anonymous/free votes: 500/hour per IP to block bot spam.
+    const isPaidRequest = session?.user && quantity > 1;
+    const abuseLimit = isPaidRequest ? 10_000 : 500;
+    if (recentVotesFromIP + recentAnonymousVotesFromIP > abuseLimit) {
       return NextResponse.json(
         { error: "Rate limit exceeded. Try again later." },
         { status: 429 }
@@ -154,6 +113,8 @@ export async function POST(req: NextRequest) {
           lastFreeVoteReset: true,
           votingStreak: true,
           lastVotedWeek: true,
+          votingStreakDays: true,
+          lastVoteDateStr: true,
         },
       });
 
@@ -183,6 +144,17 @@ export async function POST(req: NextRequest) {
         );
       }
 
+      const todayStr = new Date().toISOString().slice(0, 10); // "YYYY-MM-DD"
+      const lastVotedYesterdayStr = (() => {
+        const d = new Date(); d.setDate(d.getDate() - 1); return d.toISOString().slice(0, 10);
+      })();
+      const newStreakDays =
+        user.lastVoteDateStr === todayStr
+          ? user.votingStreakDays // already voted today, keep streak
+          : user.lastVoteDateStr === lastVotedYesterdayStr
+          ? (user.votingStreakDays || 0) + 1 // consecutive day
+          : 1; // streak broken
+
       const vote = await prisma.$transaction(async (tx) => {
         if (voteType === "FREE") {
           await tx.user.update({
@@ -194,6 +166,8 @@ export async function POST(req: NextRequest) {
                 user.lastVotedWeek && user.lastVotedWeek !== weekId
                   ? { increment: 1 }
                   : user.votingStreak || 1,
+              votingStreakDays: newStreakDays,
+              lastVoteDateStr: todayStr,
             },
           });
         } else {
@@ -202,6 +176,8 @@ export async function POST(req: NextRequest) {
             data: {
               paidVoteBalance: { decrement: votesToCast },
               lastVotedWeek: weekId,
+              votingStreakDays: newStreakDays,
+              lastVoteDateStr: todayStr,
             },
           });
         }
@@ -240,12 +216,35 @@ export async function POST(req: NextRequest) {
 
       const updatedUser = await prisma.user.findUnique({
         where: { id: userId },
-        select: { freeVotesRemaining: true, paidVoteBalance: true, votingStreak: true },
+        select: { freeVotesRemaining: true, paidVoteBalance: true, votingStreak: true, votingStreakDays: true },
       });
 
       const updatedStats = await prisma.petWeeklyStats.findUnique({
         where: { petId_weekId: { petId, weekId } },
       });
+
+      // ── Rank climb notification (fire-and-forget) ──
+      if (pet.userId !== userId) {
+        (async () => {
+          try {
+            const allStats = await prisma.petWeeklyStats.findMany({
+              where: { weekId },
+              orderBy: { totalVotes: "desc" },
+              select: { petId: true },
+            });
+            const newRank = allStats.findIndex((s) => s.petId === petId) + 1;
+            if (newRank > 0 && newRank <= 20) {
+              await createNotification({
+                userId: pet.userId,
+                type: "RANK_CLIMB",
+                title: "Your pet climbed the leaderboard! 🏆",
+                message: `${pet.name} is now #${newRank} this week!`,
+                linkUrl: "/leaderboard/weekly",
+              });
+            }
+          } catch { /* non-critical */ }
+        })();
+      }
 
       // ── Follower vote bonus: +1 bonus vote if voter follows the pet owner ──
       let followerBonus = 0;
@@ -276,8 +275,15 @@ export async function POST(req: NextRequest) {
       // Get total votes across the entire contest period
       const contestTotal = await getContestTotalVotes(petId);
 
+      // Get all-time total votes for this pet
+      const [allTimeAgg, allTimeAnon] = await Promise.all([
+        prisma.vote.aggregate({ where: { petId }, _sum: { quantity: true } }),
+        prisma.anonymousVote.count({ where: { petId } }),
+      ]);
+      const allTimeTotal = (allTimeAgg._sum.quantity ?? 0) + allTimeAnon;
+
       // Fire-and-forget vote alert (debounced — 1 email per 6h per pet)
-      if (pet.user.email && pet.userId !== userId) {
+      if (pet.user.email && pet.userId !== userId && pet.user.notifications?.voteAlerts !== false) {
         triggerVoteAlert(
           petId,
           pet.userId,
@@ -295,12 +301,13 @@ export async function POST(req: NextRequest) {
           quantity: votesToCast,
         },
         pet: {
-          weeklyVotes: contestTotal,
+          weeklyVotes: allTimeTotal,
         },
         user: {
           freeVotesRemaining: updatedUser?.freeVotesRemaining || 0,
           paidVoteBalance: updatedUser?.paidVoteBalance || 0,
           votingStreak: updatedUser?.votingStreak || 0,
+          votingStreakDays: updatedUser?.votingStreakDays || 0,
         },
         followerBonus,
         impact: {
@@ -365,6 +372,13 @@ export async function POST(req: NextRequest) {
     // Get total votes across the entire contest period
     const contestTotal = await getContestTotalVotes(petId);
 
+    // Get all-time total votes for this pet
+    const [anonAllTimeAgg, anonAllTimeAnon] = await Promise.all([
+      prisma.vote.aggregate({ where: { petId }, _sum: { quantity: true } }),
+      prisma.anonymousVote.count({ where: { petId } }),
+    ]);
+    const anonAllTimeTotal = (anonAllTimeAgg._sum.quantity ?? 0) + anonAllTimeAnon;
+
     return NextResponse.json({
       success: true,
       vote: {
@@ -373,7 +387,7 @@ export async function POST(req: NextRequest) {
         isAnonymous: true,
       },
       pet: {
-        weeklyVotes: contestTotal,
+        weeklyVotes: anonAllTimeTotal,
       },
       user: {
         freeVotesRemaining: remainingAnonymousVotes,
