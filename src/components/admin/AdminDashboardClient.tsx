@@ -2728,6 +2728,192 @@ function ContestManager() {
     }, new Map()).values()
   ).sort((a, b) => b.totalValue - a.totalValue || b.wins - a.wins);
 
+  function escapePrintHtml(value: unknown) {
+    return String(value ?? "")
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;")
+      .replace(/'/g, "&#039;");
+  }
+
+  function formatPrizeMoney(cents: number) {
+    return cents > 0 ? `$${(cents / 100).toLocaleString()}` : "-";
+  }
+
+  function prizeDetailsHtml(winner: ContestWinnerRecord | WinnerListItem) {
+    const description = winner.prizeDescription
+      ? `<p class="muted">${escapePrintHtml(winner.prizeDescription)}</p>`
+      : "";
+    const items = winner.prizeItems.length > 0
+      ? `<ul>${winner.prizeItems.map((item) => `<li>${escapePrintHtml(item)}</li>`).join("")}</ul>`
+      : "";
+    return `
+      <strong>${escapePrintHtml(winner.prizeTitle)}</strong>
+      ${description}
+      ${items}
+    `;
+  }
+
+  function printSelectedWinnerReport() {
+    if (reportWinnerContests.length === 0) {
+      setWinnerMsg("Select at least one contest before printing the PDF");
+      setTimeout(() => setWinnerMsg(""), 3000);
+      return;
+    }
+
+    const origin = window.location.origin;
+    const generatedAt = new Date().toLocaleString();
+    const contestsHtml = reportWinnerContests.map((contest) => {
+      const contestUrl = `${origin}/contests/${contest.contestId}`;
+      const rows = contest.winners.map((winner) => `
+        <tr>
+          <td class="place">#${winner.placement}</td>
+          <td>
+            <strong>${escapePrintHtml(winner.winnerPetName)}</strong>
+            <span>${winner.totalVotes.toLocaleString()} votes${winner.petBreed ? ` - ${escapePrintHtml(winner.petBreed)}` : ""}</span>
+          </td>
+          <td>
+            <strong>${escapePrintHtml(winner.ownerUserName)}</strong>
+            <span>${escapePrintHtml(winner.ownerEmail || "No email")}</span>
+            <span>${escapePrintHtml(winner.ownerAddress)}</span>
+          </td>
+          <td>${prizeDetailsHtml(winner)}</td>
+          <td class="money">${formatPrizeMoney(winner.prizeValue)}</td>
+          <td class="status">${winner.prizeSent ? "Sent" : "Not sent"}</td>
+        </tr>
+      `).join("");
+
+      return `
+        <section class="contest">
+          <div class="contest-head">
+            <div>
+              <h2>${escapePrintHtml(contest.contestName)}</h2>
+              <p>Ended ${new Date(contest.contestEndedAt).toLocaleDateString()} - ${contest.entryCount.toLocaleString()} entries</p>
+              <p class="link">Contest link: ${escapePrintHtml(contestUrl)}</p>
+            </div>
+          </div>
+          <table>
+            <thead>
+              <tr>
+                <th>Place</th>
+                <th>Pet</th>
+                <th>Owner / shipping</th>
+                <th>What they won</th>
+                <th>Value</th>
+                <th>Sent</th>
+              </tr>
+            </thead>
+            <tbody>${rows}</tbody>
+          </table>
+        </section>
+      `;
+    }).join("");
+
+    const usersHtml = winnerUserSummaries.map((user) => `
+      <div class="user-card">
+        <div class="user-head">
+          <div>
+            <strong>${escapePrintHtml(user.ownerName)}</strong>
+            <span>${escapePrintHtml(user.ownerEmail || "No email")}</span>
+          </div>
+          <div class="user-total">${user.wins} wins / ${formatPrizeMoney(user.totalValue)}</div>
+        </div>
+        <ul>
+          ${user.prizes.map((winner) => `
+            <li>
+              <strong>#${winner.placement} ${escapePrintHtml(winner.prizeTitle)} ${winner.prizeValue > 0 ? `(${formatPrizeMoney(winner.prizeValue)})` : ""}</strong>
+              <span>${escapePrintHtml(winner.contestName)} / ${escapePrintHtml(winner.winnerPetName)}</span>
+              ${winner.prizeItems.length > 0 ? `<span>${escapePrintHtml(winner.prizeItems.join(", "))}</span>` : ""}
+            </li>
+          `).join("")}
+        </ul>
+      </div>
+    `).join("");
+
+    const html = `<!doctype html>
+      <html>
+        <head>
+          <meta charset="utf-8" />
+          <title>VoteToFeed Winners Report</title>
+          <style>
+            @page { margin: 18mm; }
+            body { font-family: Arial, sans-serif; color: #172033; margin: 0; }
+            h1, h2, h3, p { margin: 0; }
+            .header { border-bottom: 2px solid #d8dee8; padding-bottom: 14px; margin-bottom: 18px; }
+            .eyebrow { color: #ef4444; font-size: 11px; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; }
+            h1 { font-size: 24px; margin-top: 4px; }
+            .summary { color: #657083; font-size: 12px; margin-top: 6px; }
+            .contest { border-top: 2px solid #cfd6e3; padding-top: 16px; margin-top: 18px; page-break-inside: avoid; }
+            .contest:first-of-type { border-top: 0; margin-top: 0; padding-top: 0; }
+            .contest-head { display: flex; justify-content: space-between; gap: 16px; margin-bottom: 10px; }
+            h2 { font-size: 17px; }
+            .contest-head p { color: #657083; font-size: 12px; margin-top: 3px; }
+            .link { color: #ef4444 !important; font-weight: 700; word-break: break-all; }
+            table { width: 100%; border-collapse: collapse; font-size: 11px; }
+            th { background: #f4f6f8; color: #7b8493; font-size: 10px; text-transform: uppercase; letter-spacing: .05em; text-align: left; padding: 8px; border-bottom: 1px solid #d8dee8; }
+            td { vertical-align: top; padding: 9px 8px; border-bottom: 1px solid #edf0f4; }
+            td span, .muted { display: block; color: #657083; font-size: 10px; margin-top: 2px; }
+            ul { margin: 4px 0 0 16px; padding: 0; color: #657083; font-size: 10px; }
+            .place { color: #ef4444; font-weight: 800; white-space: nowrap; }
+            .money, .status { white-space: nowrap; font-weight: 700; }
+            .users { margin-top: 24px; border-top: 2px solid #d8dee8; padding-top: 14px; }
+            .users h3 { font-size: 16px; margin-bottom: 10px; }
+            .user-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+            .user-card { border: 1px solid #d8dee8; border-radius: 8px; padding: 10px; page-break-inside: avoid; }
+            .user-head { display: flex; justify-content: space-between; gap: 10px; }
+            .user-head span { display: block; color: #657083; font-size: 10px; margin-top: 2px; word-break: break-all; }
+            .user-total { color: #ef4444; font-size: 11px; font-weight: 800; white-space: nowrap; }
+            .user-card li { margin-bottom: 5px; }
+            .user-card li span { display: block; }
+            @media print {
+              .user-grid { grid-template-columns: 1fr 1fr; }
+            }
+          </style>
+        </head>
+        <body>
+          <div class="header">
+            <p class="eyebrow">VoteToFeed Winners Report</p>
+            <h1>Closed Contest Winners</h1>
+            <p class="summary">${reportWinnerContests.length} selected contests - ${reportWinners.length} winner records - generated ${escapePrintHtml(generatedAt)}</p>
+          </div>
+          ${contestsHtml}
+          <section class="users">
+            <h3>Winnings by User</h3>
+            <div class="user-grid">${usersHtml}</div>
+          </section>
+        </body>
+      </html>`;
+
+    const iframe = document.createElement("iframe");
+    iframe.style.position = "fixed";
+    iframe.style.right = "0";
+    iframe.style.bottom = "0";
+    iframe.style.width = "0";
+    iframe.style.height = "0";
+    iframe.style.border = "0";
+    document.body.appendChild(iframe);
+
+    const frameWindow = iframe.contentWindow;
+    const frameDocument = frameWindow?.document;
+    if (!frameWindow || !frameDocument) {
+      iframe.remove();
+      setWinnerMsg("Could not prepare the selected PDF report");
+      setTimeout(() => setWinnerMsg(""), 3000);
+      return;
+    }
+
+    frameDocument.open();
+    frameDocument.write(html);
+    frameDocument.close();
+
+    setTimeout(() => {
+      frameWindow.focus();
+      frameWindow.print();
+      setTimeout(() => iframe.remove(), 1000);
+    }, 250);
+  }
+
   return (
     <div>
       <div className="flex items-center justify-between mb-4">
@@ -3237,7 +3423,7 @@ function ContestManager() {
             </button>
             <button
               type="button"
-              onClick={() => window.print()}
+              onClick={printSelectedWinnerReport}
               disabled={reportWinnerContests.length === 0}
               className="rounded-lg bg-brand-500 px-3 py-2 text-xs font-bold text-white shadow-sm transition hover:bg-brand-600 disabled:cursor-not-allowed disabled:opacity-50"
             >
