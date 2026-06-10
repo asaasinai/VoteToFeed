@@ -2390,6 +2390,8 @@ type ContestWinnerRecord = {
   ownerEmail: string | null;
   ownerAddress: string;
   prizeTitle: string;
+  prizeDescription: string | null;
+  prizeItems: string[];
   prizeValue: number;
   prizeSent: boolean;
   fulfilledAt: string | null;
@@ -2412,6 +2414,7 @@ function ContestManager() {
   const [winnerContests, setWinnerContests] = useState<ContestWinnerGroup[]>([]);
   const [expandedWinnerContestId, setExpandedWinnerContestId] = useState<string | null>(null);
   const [winnerReportOpen, setWinnerReportOpen] = useState(false);
+  const [selectedWinnerContestIds, setSelectedWinnerContestIds] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
   const [winnersLoading, setWinnersLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
@@ -2466,9 +2469,17 @@ function ContestManager() {
     try {
       const res = await fetch("/api/admin/contest-winners");
       const data = await res.json();
-      setWinnerContests(Array.isArray(data.winnerContests) ? data.winnerContests : []);
+      const groups = Array.isArray(data.winnerContests) ? data.winnerContests : [];
+      setWinnerContests(groups);
+      setSelectedWinnerContestIds((current) => {
+        const ids = groups.map((contest: ContestWinnerGroup) => contest.contestId);
+        if (ids.length === 0) return [];
+        const kept = current.filter((id) => ids.includes(id));
+        return kept.length > 0 ? kept : ids;
+      });
     } catch {
       setWinnerContests([]);
+      setSelectedWinnerContestIds([]);
     } finally {
       setWinnersLoading(false);
     }
@@ -2661,6 +2672,21 @@ function ContestManager() {
     }
   }
 
+  function toggleWinnerContestPdfSelection(contestId: string, checked: boolean) {
+    setSelectedWinnerContestIds((current) => {
+      if (checked) return current.includes(contestId) ? current : [...current, contestId];
+      return current.filter((id) => id !== contestId);
+    });
+  }
+
+  function selectAllWinnerContests() {
+    setSelectedWinnerContestIds(winnerContests.map((contest) => contest.contestId));
+  }
+
+  function clearWinnerContestSelection() {
+    setSelectedWinnerContestIds([]);
+  }
+
   const endedContests = contests.filter((contest) => contest.hasEnded);
   const winners = winnerContests.flatMap((contest) =>
     contest.winners.map((winner) => ({
@@ -2671,9 +2697,20 @@ function ContestManager() {
       title: winner.prizeTitle,
     }))
   );
+  const selectedWinnerContestSet = new Set(selectedWinnerContestIds);
+  const reportWinnerContests = winnerContests.filter((contest) => selectedWinnerContestSet.has(contest.contestId));
+  const reportWinners = reportWinnerContests.flatMap((contest) =>
+    contest.winners.map((winner) => ({
+      ...winner,
+      id: winner.prizeId ?? winner.id,
+      contestName: contest.contestName,
+      contestEndedAt: contest.contestEndedAt,
+      title: winner.prizeTitle,
+    }))
+  );
   type WinnerListItem = (typeof winners)[number];
   const winnerUserSummaries = Array.from(
-    winners.reduce<Map<string, { key: string; ownerName: string; ownerEmail: string | null; wins: number; totalValue: number; prizes: WinnerListItem[] }>>((map, winner) => {
+    reportWinners.reduce<Map<string, { key: string; ownerName: string; ownerEmail: string | null; wins: number; totalValue: number; prizes: WinnerListItem[] }>>((map, winner) => {
       const key = winner.ownerEmail || winner.ownerUserId || winner.ownerUserName || winner.winnerPetName;
       const current = map.get(key) || {
         key,
@@ -3176,6 +3213,21 @@ function ContestManager() {
           </div>
           <div className="flex flex-wrap items-center gap-2 print:hidden">
             <span className="rounded-full bg-surface-100 px-3 py-1 text-xs font-medium text-surface-500">{endedContests.length} ended contests</span>
+            <span className="rounded-full bg-brand-50 px-3 py-1 text-xs font-bold text-brand-600">{selectedWinnerContestIds.length} selected for PDF</span>
+            <button
+              type="button"
+              onClick={selectAllWinnerContests}
+              className="rounded-lg bg-white px-3 py-2 text-xs font-bold text-surface-700 ring-1 ring-surface-200 transition hover:bg-surface-50"
+            >
+              Select all
+            </button>
+            <button
+              type="button"
+              onClick={clearWinnerContestSelection}
+              className="rounded-lg bg-white px-3 py-2 text-xs font-bold text-surface-700 ring-1 ring-surface-200 transition hover:bg-surface-50"
+            >
+              Clear
+            </button>
             <button
               type="button"
               onClick={() => setWinnerReportOpen((open) => !open)}
@@ -3186,7 +3238,8 @@ function ContestManager() {
             <button
               type="button"
               onClick={() => window.print()}
-              className="rounded-lg bg-brand-500 px-3 py-2 text-xs font-bold text-white shadow-sm transition hover:bg-brand-600"
+              disabled={reportWinnerContests.length === 0}
+              className="rounded-lg bg-brand-500 px-3 py-2 text-xs font-bold text-white shadow-sm transition hover:bg-brand-600 disabled:cursor-not-allowed disabled:opacity-50"
             >
               Print / Save PDF
             </button>
@@ -3215,60 +3268,95 @@ function ContestManager() {
                   <p className="text-xs font-bold uppercase tracking-wider text-brand-600">VoteToFeed Winners Report</p>
                   <h4 className="mt-1 text-xl font-extrabold text-surface-900">Closed Contest Winners</h4>
                   <p className="mt-1 text-sm text-surface-500">
-                    {winnerContests.length} contests - {winners.length} winner records - generated {new Date().toLocaleDateString()}
+                    {reportWinnerContests.length} selected contests - {reportWinners.length} winner records - generated {new Date().toLocaleDateString()}
                   </p>
                 </div>
                 <p className="text-xs font-semibold text-surface-400">Prize fulfillment and user winnings</p>
               </div>
 
-              <div className="overflow-x-auto">
-                <table className="w-full text-left text-xs">
-                  <thead>
-                    <tr className="border-b border-surface-200 bg-surface-50 text-[10px] uppercase tracking-wider text-surface-400">
-                      <th className="px-3 py-2">Contest</th>
-                      <th className="px-3 py-2">Place</th>
-                      <th className="px-3 py-2">Pet</th>
-                      <th className="px-3 py-2">Owner</th>
-                      <th className="px-3 py-2">Prize Won</th>
-                      <th className="px-3 py-2 text-right">Value</th>
-                      <th className="px-3 py-2 text-center">Sent</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-surface-100">
-                    {winners.map((winner) => (
-                      <tr key={`${winner.contestId}-${winner.id}-${winner.placement}`} className="align-top">
-                        <td className="px-3 py-2">
-                          <p className="font-semibold text-surface-900">{winner.contestName}</p>
-                          <p className="text-[10px] text-surface-400">{new Date(winner.contestEndedAt).toLocaleDateString()}</p>
-                        </td>
-                        <td className="px-3 py-2 font-extrabold text-brand-600">#{winner.placement}</td>
-                        <td className="px-3 py-2">
-                          <p className="font-semibold text-surface-800">{winner.winnerPetName}</p>
-                          <p className="text-[10px] text-surface-400">{winner.totalVotes.toLocaleString()} votes</p>
-                        </td>
-                        <td className="px-3 py-2">
-                          <p className="font-semibold text-surface-800">{winner.ownerUserName}</p>
-                          <p className="break-all text-[10px] text-surface-400">{winner.ownerEmail || "No email"}</p>
-                        </td>
-                        <td className="px-3 py-2 text-surface-700">{winner.prizeTitle}</td>
-                        <td className="px-3 py-2 text-right font-semibold text-surface-900">
-                          {winner.prizeValue > 0 ? `$${(winner.prizeValue / 100).toLocaleString()}` : "-"}
-                        </td>
-                        <td className="px-3 py-2 text-center">
-                          <span className={`rounded-full px-2 py-0.5 text-[10px] font-bold ${winner.prizeSent ? "bg-green-100 text-green-700" : "bg-surface-100 text-surface-500"}`}>
-                            {winner.prizeSent ? "Sent" : "Not sent"}
-                          </span>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
+              {reportWinnerContests.length === 0 ? (
+                <div className="rounded-lg border border-dashed border-surface-300 bg-surface-50 p-5 text-sm font-medium text-surface-500">
+                  Select at least one contest to include in the PDF.
+                </div>
+              ) : (
+                <div className="space-y-5">
+                  {reportWinnerContests.map((contest) => (
+                    <section key={contest.contestId} className="border-t-2 border-surface-300 pt-4 first:border-t-0 first:pt-0 print:break-inside-avoid">
+                      <div className="mb-3 flex flex-col gap-1 sm:flex-row sm:items-start sm:justify-between">
+                        <div>
+                          <h5 className="text-base font-extrabold text-surface-900">{contest.contestName}</h5>
+                          <p className="text-xs text-surface-500">
+                            Ended {new Date(contest.contestEndedAt).toLocaleDateString()} - {contest.entryCount} entries
+                          </p>
+                          <p className="mt-1 break-all text-[11px] font-semibold text-brand-600">Contest link: /contests/{contest.contestId}</p>
+                        </div>
+                        <Link href={`/contests/${contest.contestId}`} className="print:hidden rounded-lg bg-white px-3 py-2 text-xs font-bold text-surface-700 ring-1 ring-surface-200 transition hover:bg-brand-50 hover:text-brand-600">
+                          Open contest
+                        </Link>
+                      </div>
+
+                      <div className="overflow-x-auto">
+                        <table className="w-full text-left text-xs">
+                          <thead>
+                            <tr className="border-b border-surface-200 bg-surface-50 text-[10px] uppercase tracking-wider text-surface-400">
+                              <th className="px-3 py-2">Place</th>
+                              <th className="px-3 py-2">Pet</th>
+                              <th className="px-3 py-2">Owner</th>
+                              <th className="px-3 py-2">Prize Won</th>
+                              <th className="px-3 py-2 text-right">Value</th>
+                              <th className="px-3 py-2 text-center">Sent</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-surface-100">
+                            {contest.winners.map((winner) => (
+                              <tr key={`${contest.contestId}-${winner.id}-${winner.placement}`} className="align-top">
+                                <td className="px-3 py-2 font-extrabold text-brand-600">#{winner.placement}</td>
+                                <td className="px-3 py-2">
+                                  <p className="font-semibold text-surface-800">{winner.winnerPetName}</p>
+                                  <p className="text-[10px] text-surface-400">{winner.totalVotes.toLocaleString()} votes</p>
+                                </td>
+                                <td className="px-3 py-2">
+                                  <p className="font-semibold text-surface-800">{winner.ownerUserName}</p>
+                                  <p className="break-all text-[10px] text-surface-400">{winner.ownerEmail || "No email"}</p>
+                                </td>
+                                <td className="px-3 py-2 text-surface-700">
+                                  <p className="font-semibold text-surface-900">{winner.prizeTitle}</p>
+                                  {winner.prizeDescription && <p className="mt-1 text-[11px] text-surface-500">{winner.prizeDescription}</p>}
+                                  {winner.prizeItems.length > 0 && (
+                                    <ul className="mt-1 space-y-0.5 text-[11px] text-surface-500">
+                                      {winner.prizeItems.map((item) => (
+                                        <li key={item}>- {item}</li>
+                                      ))}
+                                    </ul>
+                                  )}
+                                </td>
+                                <td className="px-3 py-2 text-right font-semibold text-surface-900">
+                                  {winner.prizeValue > 0 ? `$${(winner.prizeValue / 100).toLocaleString()}` : "-"}
+                                </td>
+                                <td className="px-3 py-2 text-center">
+                                  <span className={`rounded-full px-2 py-0.5 text-[10px] font-bold ${winner.prizeSent ? "bg-green-100 text-green-700" : "bg-surface-100 text-surface-500"}`}>
+                                    {winner.prizeSent ? "Sent" : "Not sent"}
+                                  </span>
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </section>
+                  ))}
+                </div>
+              )}
 
               <div className="mt-6">
                 <h5 className="text-sm font-extrabold text-surface-900">Winnings by User</h5>
-                <div className="mt-3 grid gap-3 lg:grid-cols-2">
-                  {winnerUserSummaries.map((user) => (
+                {winnerUserSummaries.length === 0 ? (
+                  <div className="mt-3 rounded-lg border border-dashed border-surface-300 bg-surface-50 p-4 text-sm text-surface-500">
+                    Select contests to see user winnings.
+                  </div>
+                ) : (
+                  <div className="mt-3 grid gap-3 lg:grid-cols-2">
+                    {winnerUserSummaries.map((user) => (
                     <div key={user.key} className="rounded-lg border border-surface-200 bg-surface-50 p-3">
                       <div className="flex items-start justify-between gap-3">
                         <div className="min-w-0">
@@ -3288,14 +3376,19 @@ function ContestManager() {
                             <span className="font-bold text-brand-600">#{winner.placement}</span>
                             <span className="min-w-0">
                               <span className="font-semibold">{winner.prizeTitle}</span>
+                              {winner.prizeValue > 0 && <span className="text-surface-400"> (${(winner.prizeValue / 100).toLocaleString()})</span>}
                               <span className="text-surface-400"> - {winner.contestName} / {winner.winnerPetName}</span>
+                              {winner.prizeItems.length > 0 && (
+                                <span className="block text-[11px] text-surface-500">{winner.prizeItems.join(", ")}</span>
+                              )}
                             </span>
                           </li>
                         ))}
                       </ul>
                     </div>
-                  ))}
-                </div>
+                    ))}
+                  </div>
+                )}
               </div>
             </div>
 
@@ -3307,6 +3400,15 @@ function ContestManager() {
               return (
                 <div key={contest.contestId} className="overflow-hidden rounded-lg border border-surface-200 bg-white shadow-sm print:hidden">
                   <div className="flex flex-col gap-3 px-4 py-4 transition hover:bg-surface-50 sm:flex-row sm:items-center sm:justify-between">
+                    <label className="inline-flex w-fit shrink-0 items-center gap-2 rounded-lg bg-surface-50 px-3 py-2 text-xs font-bold text-surface-700 ring-1 ring-surface-200">
+                      <input
+                        type="checkbox"
+                        checked={selectedWinnerContestSet.has(contest.contestId)}
+                        onChange={(e) => toggleWinnerContestPdfSelection(contest.contestId, e.target.checked)}
+                        className="h-4 w-4 rounded border-surface-300 text-brand-600"
+                      />
+                      PDF
+                    </label>
                     <button
                       type="button"
                       onClick={() => setExpandedWinnerContestId(isOpen ? null : contest.contestId)}
@@ -3377,6 +3479,16 @@ function ContestManager() {
                               <p className="text-[11px] text-surface-400">
                                 {winner.prizeValue > 0 ? `$${(winner.prizeValue / 100).toLocaleString()}` : "No prize value"}
                               </p>
+                              {winner.prizeDescription && (
+                                <p className="mt-1 line-clamp-2 text-[11px] text-surface-500">{winner.prizeDescription}</p>
+                              )}
+                              {winner.prizeItems.length > 0 && (
+                                <ul className="mt-1 space-y-0.5 text-[11px] text-surface-500">
+                                  {winner.prizeItems.slice(0, 3).map((item) => (
+                                    <li key={item} className="truncate">- {item}</li>
+                                  ))}
+                                </ul>
+                              )}
                             </div>
 
                             <div className="grid gap-2 text-xs sm:grid-cols-2">
